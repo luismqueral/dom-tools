@@ -1885,6 +1885,14 @@
     const el = e.target;
     if (isInspectorUI(el)) return;
     if (el.closest && el.closest('.copy-box')) return;
+
+    // If clicking inside an already-selected text element, let the caret through
+    const alreadySelected = selected.find(s => s.el === el || s.el.contains(el));
+    if (alreadySelected && alreadySelected.madeEditable) {
+      e.stopPropagation();
+      return; // don't preventDefault — let the caret land
+    }
+
     e.preventDefault();
     e.stopPropagation();
     clearHoverHighlight();
