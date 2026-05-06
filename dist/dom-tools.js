@@ -619,7 +619,7 @@
   try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (e) {}
 
   const EXPERIMENT_DEFS = [
-    { id: 'wysiwyg', label: 'Typography WYSIWYG', description: 'Floating toolbar with rich type controls in Edit Mode', default: false },
+    { id: 'design', label: 'Design Mode', description: 'Contextual style editor with Tailwind class controls', default: true },
     { id: 'dock', label: 'Edge Snapping', description: 'Drag toolbar near a screen edge to dock it there', default: true },
   ];
 
@@ -2090,8 +2090,8 @@
       // Camera mousedown — shift+click = full page, otherwise start drag
       document.addEventListener('mousedown', (e) => {
         if (!state.cameraMode || isInspectorUI(e.target)) return;
+        e.preventDefault();
         if (e.shiftKey) {
-          e.preventDefault();
           captureFullPage();
           return;
         }

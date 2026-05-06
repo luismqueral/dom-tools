@@ -1,7 +1,6 @@
 import { state, inspectorUI } from '../core/state.js';
 import { Z } from '../core/constants.js';
 import { showToast, isInspectorUI, getSelector, addTooltip } from '../core/helpers.js';
-import { isExperimentEnabled } from '../settings.js';
 import { toolbar } from '../toolbar.js';
 
 // --- Tailwind class database ---

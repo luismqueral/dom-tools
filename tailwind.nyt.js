@@ -3,6 +3,36 @@
 //        <script src="tailwind.nyt.js"></script>
 
 tailwind.config = {
+  important: true,
+  safelist: [
+    // Font sizes
+    {pattern: /^text-(xs|sm|base|md|lg|xl|2xl|3xl|4xl|5xl)$/},
+    // Font weights
+    {pattern: /^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/},
+    // Leading
+    {pattern: /^leading-(none|tight|snug|normal|relaxed|loose)$/},
+    // Tracking
+    {pattern: /^tracking-(tighter|tight|normal|wide|wider|widest)$/},
+    // Common utilities for design mode
+    'italic','not-italic','underline','no-underline','uppercase','lowercase','normal-case',
+    'text-left','text-center','text-right','text-justify',
+    // Layout
+    'flex','grid','block','inline','inline-flex','hidden',
+    'flex-row','flex-col','flex-wrap',
+    {pattern: /^(justify|items)-(start|end|center|between|around|evenly|stretch|baseline)$/},
+    // Spacing
+    {pattern: /^[pm][tblrxy]?-\d+$/},
+    {pattern: /^gap-\d+$/},
+    // Border radius & shadow
+    {pattern: /^rounded/},
+    {pattern: /^shadow/},
+    // Opacity
+    {pattern: /^opacity-\d+$/},
+    // Colors
+    {pattern: /^(text|bg|border)-(transparent|black|white|gray|red|blue|green|yellow|indigo|purple|pink|nyt)-?/},
+    // Font families
+    'font-franklin','font-cheltenham','font-karnak',
+  ],
   theme: {
     extend: {
       fontFamily: {
@@ -34,6 +64,8 @@ tailwind.config = {
         'xl': '26px',
         '2xl': '34px',
         '3xl': '42px',
+        '4xl': '52px',
+        '5xl': '64px',
       },
     }
   }

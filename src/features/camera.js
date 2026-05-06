@@ -150,8 +150,8 @@ export default {
     // Camera mousedown — shift+click = full page, otherwise start drag
     document.addEventListener('mousedown', (e) => {
       if (!state.cameraMode || isInspectorUI(e.target)) return;
+      e.preventDefault();
       if (e.shiftKey) {
-        e.preventDefault();
         captureFullPage();
         return;
       }
