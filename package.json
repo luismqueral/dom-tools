@@ -1,0 +1,17 @@
+{
+  "name": "dom-tools",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "rollup -c build/rollup.config.mjs",
+    "dev": "rollup -c build/rollup.config.mjs --watch",
+    "bridge": "node bridge-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-terser": "^1.0.0",
+    "rollup": "^4.60.3"
+  }
+}
