@@ -12,7 +12,7 @@ function deleteStickyNote(note) {
   note.remove();
 }
 
-function createStickyNote(x, y) {
+function createStickyNote(x, y, initialText) {
   const pageX = x + window.scrollX;
   const pageY = y + window.scrollY;
   const note = document.createElement('div');
@@ -41,7 +41,7 @@ function createStickyNote(x, y) {
 
   const body = document.createElement('div');
   body.contentEditable = 'true';
-  body.textContent = 'Note';
+  body.textContent = initialText || 'Note';
   Object.assign(body.style, {
     padding: '6px 8px', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
     color: '#333', outline: 'none', minHeight: '24px', lineHeight: '1.4'
@@ -77,7 +77,20 @@ function createStickyNote(x, y) {
   document.addEventListener('mouseup', () => {
     if (dragging) { dragging = false; handle.style.cursor = 'grab'; }
   });
-  note.addEventListener('mousedown', (e) => e.stopPropagation());
+  note.addEventListener('mousedown', (e) => {
+    // Option/Alt + click to duplicate
+    if (e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const noteBody = note.querySelector('div[contenteditable]');
+      const text = noteBody ? noteBody.textContent : 'Note';
+      const offsetX = parseInt(note.style.left) + 20 - window.scrollX;
+      const offsetY = parseInt(note.style.top) + 20 - window.scrollY;
+      createStickyNote(offsetX, offsetY, text);
+      return;
+    }
+    e.stopPropagation();
+  });
   note.addEventListener('click', (e) => { e.stopPropagation(); _justPlacedNote = false; });
   note.addEventListener('keydown', (e) => e.stopPropagation());
 }
@@ -96,14 +109,44 @@ export default {
 
   shortcuts: [],
 
-  init() {},
+  init() {
+    // Ghost note that follows cursor
+    const ghost = document.createElement('div');
+    Object.assign(ghost.style, {
+      position: 'fixed', width: '160px', pointerEvents: 'none',
+      background: COLORS.stickyBg, border: '1px solid ' + COLORS.stickyBorder,
+      borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+      opacity: '0.5', display: 'none', zIndex: String(Z.badge),
+      padding: '20px 8px 8px', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
+      color: '#999'
+    });
+    ghost.textContent = 'Note';
+    // Yellow top bar
+    const ghostBar = document.createElement('div');
+    Object.assign(ghostBar.style, {
+      position: 'absolute', top: '0', left: '0', right: '0', height: '18px',
+      background: COLORS.stickyBorder, borderRadius: '3px 3px 0 0'
+    });
+    ghost.appendChild(ghostBar);
+    document.body.appendChild(ghost);
+    inspectorUI.add(ghost);
+
+    document.addEventListener('mousemove', (e) => {
+      if (!state.stickyMode) { ghost.style.display = 'none'; return; }
+      ghost.style.display = 'block';
+      ghost.style.left = (e.clientX + 8) + 'px';
+      ghost.style.top = (e.clientY + 8) + 'px';
+    });
+
+    this._ghost = ghost;
+  },
 
   activate() {
     state.annotateMode = true;
     state.annotateSub = 'sticky';
     state.stickyMode = true;
     document.body.style.cursor = 'crosshair';
-    showToast('Sticky notes (X=clear)');
+    showToast('Click to place a note');
   },
 
   deactivate() {
@@ -111,6 +154,7 @@ export default {
       state.annotateMode = false;
     }
     state.stickyMode = false;
+    if (this._ghost) this._ghost.style.display = 'none';
   },
 
   handleClick(e) {
@@ -125,6 +169,8 @@ export default {
       return true;
     }
     createStickyNote(e.clientX, e.clientY);
+    // Exit sticky mode after placing — user must click button again for next note
+    this.deactivate();
     return true;
   },
 

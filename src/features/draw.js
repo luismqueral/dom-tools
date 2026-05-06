@@ -47,29 +47,75 @@ export default {
     resizeDrawCanvas();
     window.addEventListener('resize', resizeDrawCanvas);
 
+    // Eraser cursor (follows mouse during right-click erase)
+    const ERASER_SIZE = 20;
+    const eraserCursor = document.createElement('div');
+    Object.assign(eraserCursor.style, {
+      position: 'fixed', width: ERASER_SIZE + 'px', height: ERASER_SIZE + 'px',
+      border: '2px solid #666', borderRadius: '50%', pointerEvents: 'none',
+      display: 'none', zIndex: '100003', background: 'rgba(255,255,255,0.3)'
+    });
+    document.body.appendChild(eraserCursor);
+    let isErasing = false;
+
+    // Prevent context menu on canvas
+    drawCanvas.addEventListener('contextmenu', (e) => {
+      if (state.annotateMode && state.annotateSub === 'pen') e.preventDefault();
+    });
+
     drawCanvas.addEventListener('mousedown', (e) => {
       if (!state.annotateMode || state.annotateSub !== 'pen') return;
+      if (e.button === 2) {
+        // Right-click: erase mode
+        isErasing = true;
+        eraserCursor.style.display = 'block';
+        const ctx = drawCanvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const x = (e.clientX + window.scrollX) * dpr;
+        const y = (e.clientY + window.scrollY) * dpr;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(x / dpr, y / dpr, ERASER_SIZE / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        eraserCursor.style.left = (e.clientX - ERASER_SIZE / 2) + 'px';
+        eraserCursor.style.top = (e.clientY - ERASER_SIZE / 2) + 'px';
+        return;
+      }
       isDrawing = true;
       const ctx = drawCanvas.getContext('2d');
       ctx.beginPath();
       ctx.moveTo(e.clientX + window.scrollX, e.clientY + window.scrollY);
     });
     drawCanvas.addEventListener('mousemove', (e) => {
+      if (isErasing) {
+        eraserCursor.style.left = (e.clientX - ERASER_SIZE / 2) + 'px';
+        eraserCursor.style.top = (e.clientY - ERASER_SIZE / 2) + 'px';
+        const ctx = drawCanvas.getContext('2d');
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(e.clientX + window.scrollX, e.clientY + window.scrollY, ERASER_SIZE / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
       if (!isDrawing) return;
       const ctx = drawCanvas.getContext('2d');
       ctx.lineTo(e.clientX + window.scrollX, e.clientY + window.scrollY);
       ctx.stroke();
     });
-    drawCanvas.addEventListener('mouseup', () => { isDrawing = false; });
-    drawCanvas.addEventListener('mouseleave', () => { isDrawing = false; });
+    drawCanvas.addEventListener('mouseup', () => { isDrawing = false; isErasing = false; eraserCursor.style.display = 'none'; });
+    drawCanvas.addEventListener('mouseleave', () => { isDrawing = false; isErasing = false; eraserCursor.style.display = 'none'; });
   },
 
   activate() {
     state.annotateMode = true;
     state.annotateSub = 'pen';
     drawCanvas.style.pointerEvents = 'auto';
-    document.body.style.cursor = 'crosshair';
-    showToast('Draw mode (X=clear)');
+    document.body.style.cursor = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\'%3E%3Cpath stroke=\'%23000\' stroke-width=\'1.5\' fill=\'%23fff\' d=\'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\'/%3E%3C/svg%3E") 2 18, crosshair';
+    showToast('Draw mode');
   },
 
   deactivate() {

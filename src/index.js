@@ -7,7 +7,7 @@
 
 import { register, boot } from './core/registry.js';
 import { initHelpers } from './core/helpers.js';
-import { renderToolbar, toolbar } from './toolbar.js';
+import { renderToolbar, toolbar, setActiveButton } from './toolbar.js';
 import { initKeyboard } from './keyboard.js';
 import { initSettings } from './settings.js';
 import selector from './features/selector.js';
@@ -30,5 +30,13 @@ if (new URLSearchParams(window.location.search).has('dom-tools')) {
   initSettings(toolbar);
   boot();
   initKeyboard();
-  selector.activate();
+
+  // ?dom-tools=design launches directly into Design mode
+  const mode = new URLSearchParams(window.location.search).get('dom-tools');
+  if (mode === 'design') {
+    styleModifier.activate();
+    setActiveButton('style-modifier');
+  } else {
+    selector.activate();
+  }
 }

@@ -2246,29 +2246,75 @@
       resizeDrawCanvas();
       window.addEventListener('resize', resizeDrawCanvas);
 
+      // Eraser cursor (follows mouse during right-click erase)
+      const ERASER_SIZE = 20;
+      const eraserCursor = document.createElement('div');
+      Object.assign(eraserCursor.style, {
+        position: 'fixed', width: ERASER_SIZE + 'px', height: ERASER_SIZE + 'px',
+        border: '2px solid #666', borderRadius: '50%', pointerEvents: 'none',
+        display: 'none', zIndex: '100003', background: 'rgba(255,255,255,0.3)'
+      });
+      document.body.appendChild(eraserCursor);
+      let isErasing = false;
+
+      // Prevent context menu on canvas
+      drawCanvas.addEventListener('contextmenu', (e) => {
+        if (state.annotateMode && state.annotateSub === 'pen') e.preventDefault();
+      });
+
       drawCanvas.addEventListener('mousedown', (e) => {
         if (!state.annotateMode || state.annotateSub !== 'pen') return;
+        if (e.button === 2) {
+          // Right-click: erase mode
+          isErasing = true;
+          eraserCursor.style.display = 'block';
+          const ctx = drawCanvas.getContext('2d');
+          const dpr = window.devicePixelRatio || 1;
+          const x = (e.clientX + window.scrollX) * dpr;
+          const y = (e.clientY + window.scrollY) * dpr;
+          ctx.save();
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.beginPath();
+          ctx.arc(x / dpr, y / dpr, ERASER_SIZE / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+          eraserCursor.style.left = (e.clientX - ERASER_SIZE / 2) + 'px';
+          eraserCursor.style.top = (e.clientY - ERASER_SIZE / 2) + 'px';
+          return;
+        }
         isDrawing = true;
         const ctx = drawCanvas.getContext('2d');
         ctx.beginPath();
         ctx.moveTo(e.clientX + window.scrollX, e.clientY + window.scrollY);
       });
       drawCanvas.addEventListener('mousemove', (e) => {
+        if (isErasing) {
+          eraserCursor.style.left = (e.clientX - ERASER_SIZE / 2) + 'px';
+          eraserCursor.style.top = (e.clientY - ERASER_SIZE / 2) + 'px';
+          const ctx = drawCanvas.getContext('2d');
+          ctx.save();
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.beginPath();
+          ctx.arc(e.clientX + window.scrollX, e.clientY + window.scrollY, ERASER_SIZE / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+          return;
+        }
         if (!isDrawing) return;
         const ctx = drawCanvas.getContext('2d');
         ctx.lineTo(e.clientX + window.scrollX, e.clientY + window.scrollY);
         ctx.stroke();
       });
-      drawCanvas.addEventListener('mouseup', () => { isDrawing = false; });
-      drawCanvas.addEventListener('mouseleave', () => { isDrawing = false; });
+      drawCanvas.addEventListener('mouseup', () => { isDrawing = false; isErasing = false; eraserCursor.style.display = 'none'; });
+      drawCanvas.addEventListener('mouseleave', () => { isDrawing = false; isErasing = false; eraserCursor.style.display = 'none'; });
     },
 
     activate() {
       state.annotateMode = true;
       state.annotateSub = 'pen';
       drawCanvas.style.pointerEvents = 'auto';
-      document.body.style.cursor = 'crosshair';
-      showToast('Draw mode (X=clear)');
+      document.body.style.cursor = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\'%3E%3Cpath stroke=\'%23000\' stroke-width=\'1.5\' fill=\'%23fff\' d=\'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\'/%3E%3C/svg%3E") 2 18, crosshair';
+      showToast('Draw mode');
     },
 
     deactivate() {
@@ -2300,7 +2346,7 @@
     note.remove();
   }
 
-  function createStickyNote(x, y) {
+  function createStickyNote(x, y, initialText) {
     const pageX = x + window.scrollX;
     const pageY = y + window.scrollY;
     const note = document.createElement('div');
@@ -2329,7 +2375,7 @@
 
     const body = document.createElement('div');
     body.contentEditable = 'true';
-    body.textContent = 'Note';
+    body.textContent = initialText || 'Note';
     Object.assign(body.style, {
       padding: '6px 8px', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
       color: '#333', outline: 'none', minHeight: '24px', lineHeight: '1.4'
@@ -2365,7 +2411,20 @@
     document.addEventListener('mouseup', () => {
       if (dragging) { dragging = false; handle.style.cursor = 'grab'; }
     });
-    note.addEventListener('mousedown', (e) => e.stopPropagation());
+    note.addEventListener('mousedown', (e) => {
+      // Option/Alt + click to duplicate
+      if (e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        const noteBody = note.querySelector('div[contenteditable]');
+        const text = noteBody ? noteBody.textContent : 'Note';
+        const offsetX = parseInt(note.style.left) + 20 - window.scrollX;
+        const offsetY = parseInt(note.style.top) + 20 - window.scrollY;
+        createStickyNote(offsetX, offsetY, text);
+        return;
+      }
+      e.stopPropagation();
+    });
     note.addEventListener('click', (e) => { e.stopPropagation(); _justPlacedNote = false; });
     note.addEventListener('keydown', (e) => e.stopPropagation());
   }
@@ -2384,14 +2443,44 @@
 
     shortcuts: [],
 
-    init() {},
+    init() {
+      // Ghost note that follows cursor
+      const ghost = document.createElement('div');
+      Object.assign(ghost.style, {
+        position: 'fixed', width: '160px', pointerEvents: 'none',
+        background: COLORS.stickyBg, border: '1px solid ' + COLORS.stickyBorder,
+        borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        opacity: '0.5', display: 'none', zIndex: String(Z.badge),
+        padding: '20px 8px 8px', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
+        color: '#999'
+      });
+      ghost.textContent = 'Note';
+      // Yellow top bar
+      const ghostBar = document.createElement('div');
+      Object.assign(ghostBar.style, {
+        position: 'absolute', top: '0', left: '0', right: '0', height: '18px',
+        background: COLORS.stickyBorder, borderRadius: '3px 3px 0 0'
+      });
+      ghost.appendChild(ghostBar);
+      document.body.appendChild(ghost);
+      inspectorUI.add(ghost);
+
+      document.addEventListener('mousemove', (e) => {
+        if (!state.stickyMode) { ghost.style.display = 'none'; return; }
+        ghost.style.display = 'block';
+        ghost.style.left = (e.clientX + 8) + 'px';
+        ghost.style.top = (e.clientY + 8) + 'px';
+      });
+
+      this._ghost = ghost;
+    },
 
     activate() {
       state.annotateMode = true;
       state.annotateSub = 'sticky';
       state.stickyMode = true;
       document.body.style.cursor = 'crosshair';
-      showToast('Sticky notes (X=clear)');
+      showToast('Click to place a note');
     },
 
     deactivate() {
@@ -2399,6 +2488,7 @@
         state.annotateMode = false;
       }
       state.stickyMode = false;
+      if (this._ghost) this._ghost.style.display = 'none';
     },
 
     handleClick(e) {
@@ -2413,6 +2503,8 @@
         return true;
       }
       createStickyNote(e.clientX, e.clientY);
+      // Exit sticky mode after placing — user must click button again for next note
+      this.deactivate();
       return true;
     },
 
@@ -2448,7 +2540,15 @@
     initSettings(toolbar);
     boot();
     initKeyboard();
-    selector.activate();
+
+    // ?dom-tools=design launches directly into Design mode
+    const mode = new URLSearchParams(window.location.search).get('dom-tools');
+    if (mode === 'design') {
+      styleModifier.activate();
+      setActiveButton('style-modifier');
+    } else {
+      selector.activate();
+    }
   }
 
 })();
