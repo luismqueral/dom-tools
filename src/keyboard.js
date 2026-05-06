@@ -1,6 +1,6 @@
 import { state } from './core/state.js';
 import { getModules, isEnabled, activateModule } from './core/registry.js';
-import { setActiveButton } from './toolbar.js';
+import { setActiveButton } from './rail.js';
 
 let lastEsc = 0;
 
@@ -48,8 +48,7 @@ export function initKeyboard() {
         e.preventDefault();
         const selectorMod = modules.find(m => m.id === 'selector');
         if (selectorMod) { selectorMod.activate(); setActiveButton('selector'); }
-        // Deactivate annotate modules
-        modules.filter(m => m.id === 'draw' || m.id === 'sticky-notes').forEach(m => m.deactivate?.());
+        modules.filter(m => m.id === 'draw' || m.id === 'annotations').forEach(m => m.deactivate?.());
         state.annotateMode = false;
         return;
       }

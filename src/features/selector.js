@@ -1,7 +1,6 @@
 import { state, inspectorUI } from '../core/state.js';
 import { OUTLINE, BG, SEL_OUTLINE, SEL_BG, SLOT_OUTLINE, SLOT_BG, Z } from '../core/constants.js';
 import { showToast, nudge, getSelector, getContext, isInspectorUI, clearHover, clearSelection, addBadge, refreshBadges } from '../core/helpers.js';
-import { getModules } from '../core/registry.js';
 
 // Slot indicator line (created in init)
 let slotLine = null;
@@ -74,12 +73,7 @@ function onClick(e) {
   if (isInspectorUI(el)) return;
   if (el.closest && el.closest('.copy-box')) return;
 
-  // Delegate to sticky notes if in sticky mode
-  if (state.annotateMode && state.annotateSub === 'sticky') {
-    const stickyMod = getModules().find(m => m.id === 'sticky-notes');
-    if (stickyMod && stickyMod.handleClick) { stickyMod.handleClick(e); return; }
-  }
-  if (state.annotateMode) return; // pen mode handles its own events
+  if (state.annotateMode) return;
   if (state.cameraMode) return;
 
   e.preventDefault();
@@ -133,7 +127,7 @@ export default {
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
     tooltip: 'Selector',
     color: '#0066ff',
-    order: 50,
+    order: 5,
   },
 
   shortcuts: [

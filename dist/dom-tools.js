@@ -58,7 +58,6 @@
     cameraMode: false,
     annotateMode: false,
     annotateSub: 'sticky', // 'pen' | 'sticky'
-    stickyMode: false,
     styleModActive: false,
   };
 
@@ -70,8 +69,6 @@
     selector: '#0066ff',
     camera: '#cc3300',
     annotate: '#7c3aed',
-    stickyBg: '#fef08a',
-    stickyBorder: '#facc15',
     pen: '#dc2626',
   };
 
@@ -267,165 +264,62 @@
     });
   }
 
-  function isDockEnabled() {
-    try { const e = JSON.parse(localStorage.getItem('dom-tools-experiments') || '{}'); return e.dock !== false; } catch (e) { return true; }
-  }
+  const RAIL_WIDTH = 48;
+  const PANEL_WIDTH = 300;
 
+  // Rail container
+  const rail = document.createElement('div');
+  Object.assign(rail.style, {
+    position: 'fixed', left: '0', top: '0', height: '100vh', width: RAIL_WIDTH + 'px',
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    zIndex: String(Z.toolbar), padding: '8px 0',
+    background: 'rgba(24,24,24,0.96)', borderRight: '1px solid rgba(255,255,255,0.08)',
+    backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+    boxShadow: '2px 0 20px rgba(0,0,0,0.3)', fontFamily: 'system-ui, sans-serif',
+    boxSizing: 'border-box'
+  });
+
+  // Icon container (top section)
+  const iconSection = document.createElement('div');
+  Object.assign(iconSection.style, {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+    flex: '1'
+  });
+  rail.appendChild(iconSection);
+
+  // Bottom section (copy + settings)
+  const bottomSection = document.createElement('div');
+  Object.assign(bottomSection.style, {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+    paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)'
+  });
+  rail.appendChild(bottomSection);
+
+  // Content panel (expandable, sits to the right of the icon column)
+  const contentPanel = document.createElement('div');
+  Object.assign(contentPanel.style, {
+    position: 'fixed', left: RAIL_WIDTH + 'px', top: '0', height: '100vh',
+    width: PANEL_WIDTH + 'px', background: 'rgba(24,24,24,0.96)',
+    borderRight: '1px solid rgba(255,255,255,0.08)',
+    backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+    boxShadow: '2px 0 16px rgba(0,0,0,0.2)', overflowY: 'auto',
+    display: 'none', zIndex: String(Z.toolbar - 1), padding: '14px',
+    boxSizing: 'border-box', fontSize: '11px', color: '#eee',
+    fontFamily: 'system-ui, sans-serif'
+  });
+  rail.appendChild(contentPanel);
+
+  // Button style
   const btnStyle = {
-    width: '40px', height: '40px', background: '#222', color: '#fff',
-    borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
-    flexShrink: '0'
+    width: '36px', height: '36px', background: 'transparent', color: '#fff',
+    borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', userSelect: 'none', flexShrink: '0', transition: 'background 0.12s'
   };
-
-  // Toolbar container
-  const toolbar = document.createElement('div');
-  Object.assign(toolbar.style, {
-    position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-    display: 'flex', gap: '6px', alignItems: 'center',
-    zIndex: String(Z.toolbar), padding: '6px 8px',
-    background: 'rgba(30,30,30,0.85)', borderRadius: '10px',
-    backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
-  });
-
-  // Drag handle
-  const tbHandle = document.createElement('div');
-  tbHandle.innerHTML = '⠿';
-  Object.assign(tbHandle.style, {
-    color: 'rgba(255,255,255,0.35)', fontSize: '14px', cursor: 'grab',
-    userSelect: 'none', padding: '0 4px 0 2px', lineHeight: '1', letterSpacing: '1px'
-  });
-  toolbar.appendChild(tbHandle);
-
-  // Drag behavior with edge snapping
-  let tbDragging = false, tbDx = 0, tbDy = 0;
-  let docked = null; // null | 'bottom' | 'top' | 'left' | 'right'
-  const SNAP_THRESHOLD = 40;
-
-  function resetToolbarPosition() {
-    toolbar.style.top = '';
-    toolbar.style.bottom = '';
-    toolbar.style.left = '';
-    toolbar.style.right = '';
-    toolbar.style.transform = 'none';
-    toolbar.style.flexDirection = 'row';
-    toolbar.style.borderRadius = '10px';
-  }
-
-  function applyDock(edge) {
-    docked = edge;
-    resetToolbarPosition();
-
-    if (edge === 'bottom') {
-      toolbar.style.bottom = '0px';
-      toolbar.style.left = '50%';
-      toolbar.style.transform = 'translateX(-50%)';
-      toolbar.style.borderRadius = '10px 10px 0 0';
-    } else if (edge === 'top') {
-      toolbar.style.top = '0px';
-      toolbar.style.left = '50%';
-      toolbar.style.transform = 'translateX(-50%)';
-      toolbar.style.borderRadius = '0 0 10px 10px';
-    } else if (edge === 'left') {
-      toolbar.style.flexDirection = 'column';
-      toolbar.style.left = '0px';
-      toolbar.style.top = '50%';
-      toolbar.style.transform = 'translateY(-50%)';
-      toolbar.style.borderRadius = '0 10px 10px 0';
-    } else if (edge === 'right') {
-      toolbar.style.flexDirection = 'column';
-      toolbar.style.right = '0px';
-      toolbar.style.top = '50%';
-      toolbar.style.transform = 'translateY(-50%)';
-      toolbar.style.borderRadius = '10px 0 0 10px';
-    }
-  }
-
-  function undock() {
-    docked = null;
-    toolbar.style.right = '';
-    toolbar.style.flexDirection = 'row';
-    toolbar.style.borderRadius = '10px';
-  }
-
-  tbHandle.addEventListener('mousedown', (e) => {
-    tbDragging = true;
-    const tbRect = toolbar.getBoundingClientRect();
-    tbDx = e.clientX - tbRect.left;
-    tbDy = e.clientY - tbRect.top;
-    tbHandle.style.cursor = 'grabbing';
-    if (docked) undock();
-    e.preventDefault();
-  });
-  // Snap preview indicator
-  const snapIndicator = document.createElement('div');
-  Object.assign(snapIndicator.style, {
-    position: 'fixed', background: 'rgba(236,72,153,0.1)', border: '2px dashed rgba(236,72,153,0.4)',
-    borderRadius: '8px', zIndex: String(Z.toolbar - 1), display: 'none', pointerEvents: 'none',
-    transition: 'all 0.15s ease'
-  });
-  document.body.appendChild(snapIndicator);
-
-  function showSnapPreview(edge) {
-    const pad = 4;
-    snapIndicator.style.display = 'block';
-    if (edge === 'bottom') {
-      Object.assign(snapIndicator.style, { left: '20%', right: '20%', bottom: pad + 'px', top: '', height: '52px', width: '' });
-    } else if (edge === 'top') {
-      Object.assign(snapIndicator.style, { left: '20%', right: '20%', top: pad + 'px', bottom: '', height: '52px', width: '' });
-    } else if (edge === 'left') {
-      Object.assign(snapIndicator.style, { left: pad + 'px', right: '', top: '20%', bottom: '20%', width: '52px', height: '' });
-    } else if (edge === 'right') {
-      Object.assign(snapIndicator.style, { right: pad + 'px', left: '', top: '20%', bottom: '20%', width: '52px', height: '' });
-    }
-  }
-
-  function hideSnapPreview() {
-    snapIndicator.style.display = 'none';
-  }
-
-  function getSnapEdge(x, y) {
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    if (y > vh - SNAP_THRESHOLD) return 'bottom';
-    if (y < SNAP_THRESHOLD) return 'top';
-    if (x < SNAP_THRESHOLD) return 'left';
-    if (x > vw - SNAP_THRESHOLD) return 'right';
-    return null;
-  }
-
-  document.addEventListener('mousemove', (e) => {
-    if (!tbDragging) return;
-    toolbar.style.left = (e.clientX - tbDx) + 'px';
-    toolbar.style.top = (e.clientY - tbDy) + 'px';
-    toolbar.style.transform = 'none';
-    toolbar.style.bottom = 'auto';
-    toolbar.style.right = '';
-
-    // Show snap preview
-    if (isDockEnabled()) {
-      const edge = getSnapEdge(e.clientX, e.clientY);
-      if (edge) showSnapPreview(edge);
-      else hideSnapPreview();
-    }
-  });
-  document.addEventListener('mouseup', (e) => {
-    if (!tbDragging) return;
-    tbDragging = false;
-    tbHandle.style.cursor = 'grab';
-    hideSnapPreview();
-
-    if (!isDockEnabled()) return;
-
-    const edge = getSnapEdge(e.clientX, e.clientY);
-    if (edge) applyDock(edge);
-  });
 
   // Map: moduleId → button element
   const buttonMap = new Map();
 
-  // Callbacks to fire when a tool is activated (used by settings to close panel)
+  // Callbacks for tool activation
   const onToolActivateCallbacks = [];
   function onToolActivate(fn) { onToolActivateCallbacks.push(fn); }
   function fireToolActivate() { onToolActivateCallbacks.forEach(fn => fn()); }
@@ -434,8 +328,12 @@
     const btn = document.createElement('div');
     btn.innerHTML = mod.button.icon;
     Object.assign(btn.style, btnStyle);
-    btn.addEventListener('mouseenter', () => { if (btn.style.background === '#222') btn.style.background = '#333'; });
-    btn.addEventListener('mouseleave', () => { if (btn.style.background === '#333') btn.style.background = '#222'; });
+    btn.addEventListener('mouseenter', () => {
+      if (btn.style.background === 'transparent') btn.style.background = 'rgba(255,255,255,0.08)';
+    });
+    btn.addEventListener('mouseleave', () => {
+      if (btn.style.background === 'rgba(255,255,255,0.08)') btn.style.background = 'transparent';
+    });
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       nudge(btn);
@@ -466,9 +364,19 @@
       if (id === activeId && mod && mod.button) {
         btn.style.background = mod.button.color;
       } else {
-        btn.style.background = '#222';
+        btn.style.background = 'transparent';
       }
     });
+
+    // Update URL param to reflect active tool
+    const url = new URL(window.location);
+    const paramVal = (activeId === 'selector') ? '' : activeId === 'style-modifier' ? 'design' : activeId;
+    if (paramVal) {
+      url.searchParams.set('dom-tools', paramVal);
+    } else {
+      url.searchParams.set('dom-tools', '');
+    }
+    history.replaceState(null, '', url);
   }
 
   function showButton(id) {
@@ -481,46 +389,87 @@
     if (btn) btn.style.display = 'none';
   }
 
-  function renderToolbar() {
+  // Panel API — modules call these to show/hide content in the expandable panel
+  function showRailPanel(content) {
+    contentPanel.innerHTML = '';
+    if (typeof content === 'string') {
+      contentPanel.innerHTML = content;
+    } else if (content instanceof HTMLElement) {
+      contentPanel.appendChild(content);
+    }
+    contentPanel.style.display = 'block';
+    document.body.style.paddingLeft = (RAIL_WIDTH + PANEL_WIDTH) + 'px';
+  }
+
+  function hideRailPanel() {
+    contentPanel.style.display = 'none';
+    contentPanel.innerHTML = '';
+    document.body.style.paddingLeft = RAIL_WIDTH + 'px';
+  }
+
+  // Copy All Changes button (wired externally by copy-all.js)
+  let copyBtn = null;
+  let copyBadge = null;
+
+  function getCopyButton() { return copyBtn; }
+
+  function updateCopyBadge(count) {
+    if (!copyBadge) return;
+    if (count > 0) {
+      copyBadge.textContent = count;
+      copyBadge.style.display = 'flex';
+    } else {
+      copyBadge.style.display = 'none';
+    }
+  }
+
+  function createCopyButton() {
+    copyBtn = document.createElement('div');
+    copyBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>';
+    Object.assign(copyBtn.style, btnStyle);
+    addTooltip(copyBtn, 'Copy All Changes');
+
+    // Badge
+    copyBadge = document.createElement('div');
+    Object.assign(copyBadge.style, {
+      position: 'absolute', top: '-2px', right: '-2px', minWidth: '14px', height: '14px',
+      background: '#ec4899', color: '#fff', borderRadius: '7px', fontSize: '9px',
+      fontWeight: '700', display: 'none', alignItems: 'center', justifyContent: 'center',
+      padding: '0 3px', lineHeight: '1'
+    });
+    copyBtn.style.position = 'relative';
+    copyBtn.appendChild(copyBadge);
+
+    bottomSection.appendChild(copyBtn);
+    inspectorUI.add(copyBtn);
+  }
+
+  function renderRail() {
     const modules = getModules();
-    // Collect all buttons (main + extra) sorted by order
     const allButtons = [];
     modules.forEach(mod => {
       if (mod.button && isEnabled(mod.id)) {
         allButtons.push({ ...mod.button, id: mod.id, mod });
       }
-      if (mod.extraButtons) {
-        mod.extraButtons.forEach(extra => {
-          if (isEnabled(mod.id)) allButtons.push({ ...extra, parentId: mod.id });
-        });
-      }
     });
     allButtons.sort((a, b) => a.order - b.order);
 
     allButtons.forEach(def => {
-      if (def.onClick) {
-        // Extra button (like full-page screenshot)
-        const btn = document.createElement('div');
-        btn.innerHTML = def.icon;
-        Object.assign(btn.style, btnStyle);
-        btn.addEventListener('mouseenter', () => { btn.style.background = '#444'; });
-        btn.addEventListener('mouseleave', () => { btn.style.background = '#222'; });
-        btn.addEventListener('click', (e) => { e.stopPropagation(); nudge(btn); def.onClick(); });
-        if (def.tooltip) addTooltip(btn, def.tooltip);
-        toolbar.appendChild(btn);
-        inspectorUI.add(btn);
-      } else {
-        const btn = createButton(def.mod);
-        toolbar.appendChild(btn);
-        inspectorUI.add(btn);
-      }
+      const btn = createButton(def.mod);
+      iconSection.appendChild(btn);
+      inspectorUI.add(btn);
     });
 
-    document.body.appendChild(toolbar);
-    inspectorUI.add(toolbar);
-    inspectorUI.add(tbHandle);
+    // Copy all changes button
+    createCopyButton();
 
-    // Activate selector by default
+    document.body.appendChild(rail);
+    inspectorUI.add(rail);
+    inspectorUI.add(contentPanel);
+
+    // Push page content (use documentElement to avoid conflicting with body margin:auto)
+    document.body.style.paddingLeft = RAIL_WIDTH + 'px';
+
     setActiveButton('selector');
   }
 
@@ -570,8 +519,7 @@
           e.preventDefault();
           const selectorMod = modules.find(m => m.id === 'selector');
           if (selectorMod) { selectorMod.activate(); setActiveButton('selector'); }
-          // Deactivate annotate modules
-          modules.filter(m => m.id === 'draw' || m.id === 'sticky-notes').forEach(m => m.deactivate?.());
+          modules.filter(m => m.id === 'draw' || m.id === 'annotations').forEach(m => m.deactivate?.());
           state.annotateMode = false;
           return;
         }
@@ -607,9 +555,7 @@
     });
   }
 
-  let panel$1 = null;
   let visible = false;
-  let _toolbar = null;
   let _settingsBtn = null;
   const SETTINGS_COLOR = '#0066ff';
 
@@ -620,7 +566,6 @@
 
   const EXPERIMENT_DEFS = [
     { id: 'design', label: 'Design Mode', description: 'Contextual style editor with Tailwind class controls', default: true },
-    { id: 'dock', label: 'Edge Snapping', description: 'Drag toolbar near a screen edge to dock it there', default: true },
   ];
 
   function isExperimentEnabled(id) {
@@ -634,16 +579,8 @@
     localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
   }
 
-  function createPanel$1() {
-    panel$1 = document.createElement('div');
-    Object.assign(panel$1.style, {
-      position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
-      marginBottom: '8px',
-      background: 'rgba(30,30,30,0.95)', borderRadius: '10px', padding: '16px',
-      zIndex: String(Z.toolbar + 1), display: 'none', minWidth: '200px',
-      backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.4)', fontFamily: 'system-ui, sans-serif'
-    });
+  function buildSettingsPanel() {
+    const container = document.createElement('div');
 
     const title = document.createElement('div');
     title.textContent = 'Features';
@@ -651,7 +588,7 @@
       color: '#fff', fontSize: '13px', fontWeight: '600', marginBottom: '12px',
       letterSpacing: '0.3px'
     });
-    panel$1.appendChild(title);
+    container.appendChild(title);
 
     const modules = getModules();
     modules.forEach(mod => {
@@ -667,17 +604,14 @@
       checkbox.style.accentColor = mod.button.color || COLORS.selector;
       checkbox.addEventListener('change', () => {
         setEnabled(mod.id, checkbox.checked);
-        if (checkbox.checked) {
-          showButton(mod.id);
-        } else {
-          hideButton(mod.id);
-        }
+        if (checkbox.checked) showButton(mod.id);
+        else hideButton(mod.id);
       });
       const label = document.createElement('span');
       label.textContent = mod.label || mod.id;
       row.appendChild(checkbox);
       row.appendChild(label);
-      panel$1.appendChild(row);
+      container.appendChild(row);
     });
 
     // --- Experiments section ---
@@ -687,7 +621,7 @@
       color: '#fff', fontSize: '13px', fontWeight: '600', marginTop: '14px', marginBottom: '8px',
       paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)', letterSpacing: '0.3px'
     });
-    panel$1.appendChild(expTitle);
+    container.appendChild(expTitle);
 
     EXPERIMENT_DEFS.forEach(exp => {
       const row = document.createElement('label');
@@ -712,26 +646,22 @@
       labelWrap.appendChild(desc);
       row.appendChild(checkbox);
       row.appendChild(labelWrap);
-      panel$1.appendChild(row);
+      container.appendChild(row);
     });
 
-    // Append to toolbar so it moves with it
-    _toolbar.appendChild(panel$1);
-    inspectorUI.add(panel$1);
+    return container;
   }
 
   function toggleSettings() {
-    if (!panel$1) createPanel$1();
     visible = !visible;
-    panel$1.style.display = visible ? 'block' : 'none';
     if (visible) {
-      // Deactivate all tools, highlight gear
       activateModule(null);
       setActiveButton(null);
-      _settingsBtn.style.background = SETTINGS_COLOR;
+      showRailPanel(buildSettingsPanel());
+      if (_settingsBtn) _settingsBtn.style.background = SETTINGS_COLOR;
     } else {
-      // Return to selector
-      _settingsBtn.style.background = '#222';
+      hideRailPanel();
+      if (_settingsBtn) _settingsBtn.style.background = 'transparent';
       activateModule('selector');
       setActiveButton('selector');
     }
@@ -740,223 +670,43 @@
   function closeSettings() {
     if (visible) {
       visible = false;
-      if (panel$1) panel$1.style.display = 'none';
-      if (_settingsBtn) _settingsBtn.style.background = '#222';
+      hideRailPanel();
+      if (_settingsBtn) _settingsBtn.style.background = 'transparent';
     }
   }
 
-  function initSettings(toolbar) {
-    _toolbar = toolbar;
-    // Make toolbar a positioning context for the panel
-    if (getComputedStyle(toolbar).position === 'static') {
-      toolbar.style.position = 'fixed';
-    }
+  function initSettings(rail) {
 
     // Close settings when another tool is activated
     onToolActivate(closeSettings);
 
     const btnStyle = {
-      width: '40px', height: '40px', background: '#222', color: '#fff',
-      borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
-      transition: 'background 0.15s', flexShrink: '0'
+      width: '36px', height: '36px', background: 'transparent', color: '#fff',
+      borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', userSelect: 'none', transition: 'background 0.12s', flexShrink: '0'
     };
     _settingsBtn = document.createElement('div');
     _settingsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.44.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 110-7.2 3.6 3.6 0 010 7.2z"/></svg>';
     Object.assign(_settingsBtn.style, btnStyle);
-    _settingsBtn.addEventListener('mouseenter', () => { if (!visible) _settingsBtn.style.background = '#444'; });
-    _settingsBtn.addEventListener('mouseleave', () => { if (!visible) _settingsBtn.style.background = '#222'; });
+    _settingsBtn.addEventListener('mouseenter', () => { if (!visible) _settingsBtn.style.background = 'rgba(255,255,255,0.08)'; });
+    _settingsBtn.addEventListener('mouseleave', () => { if (!visible) _settingsBtn.style.background = 'transparent'; });
     _settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); nudge(_settingsBtn); toggleSettings(); });
     addTooltip(_settingsBtn, 'Settings');
-    toolbar.appendChild(_settingsBtn);
+
+    // Append settings button to the bottom section of the rail
+    bottomSection.appendChild(_settingsBtn);
     inspectorUI.add(_settingsBtn);
   }
 
-  // Slot indicator line (created in init)
-  let slotLine = null;
-
-  function getSlotType(el, mouseX, mouseY) {
-    const rect = el.getBoundingClientRect();
-    const relX = (mouseX - rect.left) / rect.width;
-    const relY = (mouseY - rect.top) / rect.height;
-    const edge = 0.25;
-    const inXCenter = relX >= edge && relX <= (1 - edge);
-    const inYCenter = relY >= edge && relY <= (1 - edge);
-    if (inXCenter && inYCenter) return 'inside';
-    const dTop = relY, dBottom = 1 - relY, dLeft = relX, dRight = 1 - relX;
-    const min = Math.min(dTop, dBottom, dLeft, dRight);
-    if (min === dTop) return 'before';
-    if (min === dBottom) return 'after';
-    if (min === dLeft) return 'left';
-    return 'right';
+  // Inject Tailwind CDN (async, preflight disabled) so design-mode classes render.
+  // Called lazily — only when user first enters a mode that needs Tailwind.
+  function loadTailwind() {
+    if (window.tailwind || document.querySelector('script[src*="tailwindcss"]')) return;
+    window.tailwind = { config: { corePlugins: { preflight: false } } };
+    const s = document.createElement('script');
+    s.src = 'https://cdn.tailwindcss.com';
+    document.head.appendChild(s);
   }
-
-  function updateSlotLine(el, type) {
-    const rect = el.getBoundingClientRect();
-    if (type === 'inside') { slotLine.style.display = 'none'; return; }
-    if (type === 'before' || type === 'after') {
-      const y = type === 'before' ? rect.top : rect.bottom;
-      Object.assign(slotLine.style, { display: 'block', top: (y - 1) + 'px', left: rect.left + 'px', width: rect.width + 'px', height: '3px' });
-    } else {
-      const x = type === 'left' ? rect.left : rect.right;
-      Object.assign(slotLine.style, { display: 'block', top: rect.top + 'px', left: (x - 1) + 'px', width: '3px', height: rect.height + 'px' });
-    }
-  }
-
-  function getSlotDescription(el, type) {
-    const sel = getSelector(el);
-    const text = el.textContent.trim().substring(0, 60);
-    const textPreview = text ? ' | "' + text + (el.textContent.trim().length > 60 ? '...' : '') + '"' : '';
-    if (type === 'before') return 'Insert before: ' + sel + textPreview;
-    if (type === 'after') return 'Insert after: ' + sel + textPreview;
-    if (type === 'left') return 'Insert to the left of: ' + sel + textPreview;
-    if (type === 'right') return 'Insert to the right of: ' + sel + textPreview;
-    return 'Insert inside: ' + sel + ' (as child)' + textPreview;
-  }
-
-  function onMove$1(e) {
-    if (!state.active || state.editMode || state.cameraMode || state.annotateMode || state.styleModActive) return;
-    const el = e.target;
-    if (isInspectorUI(el) || el === document.body || el === document.documentElement) return;
-    if (el.closest && el.closest('.copy-box')) { clearHover(); return; }
-    if (state.hovered && state.hovered !== el) clearHover();
-    if (el !== state.hovered) {
-      el._origOutline = el._origOutline ?? el.style.outline;
-      el._origBg = el._origBg ?? el.style.backgroundColor;
-    }
-    if (state.altHeld) {
-      state.slotType = getSlotType(el, e.clientX, e.clientY);
-      el.style.outline = SLOT_OUTLINE;
-      el.style.backgroundColor = state.slotType === 'inside' ? SLOT_BG : (el._origBg || '');
-      updateSlotLine(el, state.slotType);
-    } else {
-      slotLine.style.display = 'none';
-      el.style.outline = OUTLINE;
-      el.style.backgroundColor = BG;
-    }
-    state.hovered = el;
-  }
-
-  function onClick$1(e) {
-    if ((!state.active && !state.annotateMode) || state.editMode || state.styleModActive) return;
-    const el = e.target;
-    if (isInspectorUI(el)) return;
-    if (el.closest && el.closest('.copy-box')) return;
-
-    // Delegate to sticky notes if in sticky mode
-    if (state.annotateMode && state.annotateSub === 'sticky') {
-      const stickyMod = getModules().find(m => m.id === 'sticky-notes');
-      if (stickyMod && stickyMod.handleClick) { stickyMod.handleClick(e); return; }
-    }
-    if (state.annotateMode) return; // pen mode handles its own events
-    if (state.cameraMode) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    nudge(el);
-
-    if (e.altKey && state.slotType) {
-      const slotDesc = getSlotDescription(el, state.slotType);
-      slotLine.style.display = 'none';
-      navigator.clipboard.writeText(slotDesc).then(() => {
-        showToast('Slot copied: ' + slotDesc);
-      }).catch(() => showToast(slotDesc));
-    } else if (e.shiftKey) {
-      const desc = getContext(el);
-      const idx = state.selected.findIndex(s => s.el === el);
-      if (idx !== -1) {
-        el.style.outline = el._origOutline || '';
-        el.style.backgroundColor = el._origBg || '';
-        if (state.selected[idx].badge) state.selected[idx].badge.remove();
-        state.selected.splice(idx, 1);
-        refreshBadges();
-      } else {
-        el.style.outline = SEL_OUTLINE;
-        el.style.backgroundColor = SEL_BG;
-        const badge = addBadge(el, state.selected.length + 1);
-        state.selected.push({ el, desc, badge });
-      }
-      if (state.selected.length) {
-        const combined = state.selected.map((s, i) => `[${i + 1}] ${s.desc}`).join('\n');
-        navigator.clipboard.writeText(combined).then(() => {
-          showToast(`Copied ${state.selected.length} selection${state.selected.length > 1 ? 's' : ''}`);
-        }).catch(() => showToast(combined));
-      } else {
-        showToast('Selection cleared');
-      }
-    } else {
-      const desc = getContext(el);
-      clearSelection$1();
-      navigator.clipboard.writeText(desc).then(() => {
-        showToast('Copied: ' + desc);
-      }).catch(() => showToast(desc));
-    }
-  }
-
-  var selector = {
-    id: 'selector',
-    label: 'Selector',
-    enabledByDefault: true,
-
-    button: {
-      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
-      tooltip: 'Selector',
-      color: '#0066ff',
-      order: 50,
-    },
-
-    shortcuts: [
-      { key: 'K', meta: true, shift: true, action: 'toggle' }
-    ],
-
-    init() {
-      slotLine = document.createElement('div');
-      Object.assign(slotLine.style, {
-        position: 'fixed', left: '0', top: '0', height: '3px', width: '0',
-        background: '#00a651', zIndex: String(Z.tooltip), pointerEvents: 'none',
-        display: 'none', borderRadius: '2px',
-        boxShadow: '0 0 6px rgba(0, 166, 81, 0.5)'
-      });
-      document.body.appendChild(slotLine);
-      inspectorUI.add(slotLine);
-
-      document.addEventListener('mousemove', onMove$1, true);
-      document.addEventListener('mouseleave', clearHover, true);
-      document.addEventListener('click', onClick$1, true);
-      document.addEventListener('mousedown', (e) => {
-        if (!state.active) return;
-        if (e.shiftKey || e.altKey) e.preventDefault();
-      }, true);
-    },
-
-    activate() {
-      state.active = true;
-      document.body.style.cursor = 'crosshair';
-      showToast('Inspector ON — click to copy, Shift multi-select, Alt for slots');
-    },
-
-    deactivate() {
-      state.active = false;
-      clearHover();
-      clearSelection$1();
-      slotLine.style.display = 'none';
-    },
-
-    toggle() {
-      if (state.active && true && !state.cameraMode) {
-        this.deactivate();
-        document.body.style.cursor = 'crosshair';
-        showToast('Inspector OFF');
-        return false;
-      } else {
-        this.activate();
-        return true;
-      }
-    },
-
-    enable() {},
-    disable() { this.deactivate(); },
-  };
 
   // --- Tailwind class database ---
   const CLASSES = [
@@ -1060,54 +810,11 @@
   const OBJECT_FIT_OPTIONS = ['object-contain','object-cover','object-fill','object-none'];
 
   // --- State ---
-  let panel = null;
   let selected = []; // { el, originalClasses }[]
-  let activeMode = false;
-  let panelManuallyMoved = false;
+  let activeMode$1 = false;
 
-  // --- Copy button group in toolbar (shown only when changes exist) ---
-  let copyGroup = null; // container: divider + button + divider
-
-  function createCopyGroup(toolbar) {
-    copyGroup = document.createElement('div');
-    Object.assign(copyGroup.style, {
-      display: 'none', alignItems: 'center', gap: '6px'
-    });
-
-    const divL = document.createElement('div');
-    Object.assign(divL.style, { width: '1px', height: '24px', background: 'rgba(255,255,255,0.15)' });
-
-    const btn = document.createElement('div');
-    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>';
-    Object.assign(btn.style, {
-      width: '40px', height: '40px', background: '#222', color: '#fff',
-      borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none', flexShrink: '0'
-    });
-    btn.addEventListener('mouseenter', () => { btn.style.background = '#333'; });
-    btn.addEventListener('mouseleave', () => { btn.style.background = '#222'; });
-    btn.addEventListener('click', (e) => { e.stopPropagation(); copyChanges(); });
-    addTooltip(btn, 'Copy Changes');
-
-    const divR = document.createElement('div');
-    Object.assign(divR.style, { width: '1px', height: '24px', background: 'rgba(255,255,255,0.15)' });
-
-    copyGroup.appendChild(divL);
-    copyGroup.appendChild(btn);
-    copyGroup.appendChild(divR);
-    toolbar.appendChild(copyGroup);
-    inspectorUI.add(copyGroup);
-    inspectorUI.add(btn);
-  }
-
-  function hasChanges() {
-    return selected.some(({ el, originalClasses }) => el.className !== originalClasses);
-  }
-
-  function updateCopyButton() {
-    if (!copyGroup) return;
-    copyGroup.style.display = hasChanges() ? 'flex' : 'none';
-  }
+  // --- Export for copy-all and annotations ---
+  function getSelected() { return selected; }
 
   // --- Element type detection ---
   function getElType(el) {
@@ -1130,188 +837,24 @@
       if (groupOptions) groupOptions.forEach(c => el.classList.remove(c));
       if (addCls) el.classList.add(addCls);
     });
-    updateCopyButton();
   }
 
   function removeFromAll(cls) {
     selected.forEach(({ el }) => el.classList.remove(cls));
-    updateCopyButton();
   }
 
   function resetAll() {
     selected.forEach(({ el, originalClasses }) => { el.className = originalClasses; });
     renderPanel();
-    updateCopyButton();
     showToast('Reset');
   }
 
-  // --- Panel ---
-  function createPanel() {
-    panel = document.createElement('div');
-    Object.assign(panel.style, {
-      position: 'fixed', zIndex: String(Z.toolbar + 2),
-      background: 'rgba(24,24,24,0.96)', borderRadius: '10px', padding: '0 14px 12px',
-      width: '300px', maxHeight: '75vh', overflowY: 'auto',
-      backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.5)', fontFamily: 'system-ui, sans-serif',
-      display: 'none', fontSize: '11px', color: '#eee'
-    });
-
-    // Drag handle
-    const dragHandle = document.createElement('div');
-    Object.assign(dragHandle.style, {
-      height: '28px', cursor: 'grab', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', userSelect: 'none', marginBottom: '2px'
-    });
-    const dragDots = document.createElement('div');
-    dragDots.textContent = '⠿';
-    Object.assign(dragDots.style, { color: 'rgba(255,255,255,0.25)', fontSize: '12px', letterSpacing: '1px' });
-    dragHandle.appendChild(dragDots);
-    panel.appendChild(dragHandle);
-
-    // Content area (gets rebuilt on each render)
-    const content = document.createElement('div');
-    content.className = 'dt-panel-content';
-    panel.appendChild(content);
-
-    // Snap indicator for panel
-    const snapPreview = document.createElement('div');
-    Object.assign(snapPreview.style, {
-      position: 'fixed', background: 'rgba(236,72,153,0.08)', border: '2px dashed rgba(236,72,153,0.35)',
-      borderRadius: '8px', zIndex: String(Z.toolbar + 1), display: 'none', pointerEvents: 'none',
-      transition: 'all 0.15s ease'
-    });
-    document.body.appendChild(snapPreview);
-
-    const SNAP = 100;
-    let panelDocked = null; // null | 'left' | 'right'
-
-    function getPanelSnapEdge(x) {
-      if (x < SNAP) return 'left';
-      if (x > window.innerWidth - SNAP) return 'right';
-      return null;
-    }
-
-    function showPanelSnapPreview(edge) {
-      snapPreview.style.display = 'block';
-      if (edge === 'left') {
-        Object.assign(snapPreview.style, { left: '0', right: '', top: '0', bottom: '0', width: '300px', height: '', borderRadius: '0' });
-      } else {
-        Object.assign(snapPreview.style, { right: '0', left: '', top: '0', bottom: '0', width: '300px', height: '', borderRadius: '0' });
-      }
-    }
-
-    let panelWidth = 300;
-    const PANEL_MIN_W = 240;
-    const PANEL_MAX_W = 400;
-
-    function applyPanelDock(edge) {
-      panelDocked = edge;
-      panelManuallyMoved = true;
-      panel.style.top = '0px';
-      panel.style.borderRadius = '0';
-      panel.style.maxHeight = '100vh';
-      panel.style.height = '100vh';
-      panel.style.width = panelWidth + 'px';
-      if (edge === 'left') { panel.style.left = '0px'; panel.style.right = ''; }
-      else { panel.style.left = ''; panel.style.right = '0px'; }
-      // Push page content
-      document.documentElement.style.overflowX = 'hidden';
-      if (edge === 'right') document.body.style.marginRight = panelWidth + 'px';
-      else document.body.style.marginLeft = panelWidth + 'px';
-      // Show resize handle
-      resizeHandle.style.display = 'block';
-      resizeHandle.style[edge === 'left' ? 'right' : 'left'] = '-4px';
-      resizeHandle.style[edge === 'left' ? 'left' : 'right'] = '';
-    }
-
-    function undockPanel() {
-      if (panelDocked === 'right') document.body.style.marginRight = '';
-      else if (panelDocked === 'left') document.body.style.marginLeft = '';
-      document.documentElement.style.overflowX = '';
-      panelDocked = null;
-      panel.style.right = '';
-      panel.style.borderRadius = '10px';
-      panel.style.maxHeight = '75vh';
-      panel.style.height = '';
-      panel.style.width = '300px';
-      resizeHandle.style.display = 'none';
-    }
-
-    // Resize handle (only visible when docked)
-    const resizeHandle = document.createElement('div');
-    Object.assign(resizeHandle.style, {
-      position: 'absolute', top: '0', width: '6px', height: '100%',
-      cursor: 'col-resize', display: 'none', zIndex: '1'
-    });
-    panel.appendChild(resizeHandle);
-
-    let resizing = false;
-    resizeHandle.addEventListener('mousedown', (e) => {
-      resizing = true;
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!resizing || !panelDocked) return;
-      let newW;
-      if (panelDocked === 'right') newW = window.innerWidth - e.clientX;
-      else newW = e.clientX;
-      newW = Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, newW));
-      panelWidth = newW;
-      panel.style.width = newW + 'px';
-      if (panelDocked === 'right') document.body.style.marginRight = newW + 'px';
-      else document.body.style.marginLeft = newW + 'px';
-    });
-    document.addEventListener('mouseup', () => { resizing = false; });
-
-    // Drag behavior
-    let dragging = false, dx = 0, dy = 0;
-    dragHandle.addEventListener('mousedown', (e) => {
-      dragging = true;
-      dx = e.clientX - panel.offsetLeft;
-      dy = e.clientY - panel.offsetTop;
-      dragHandle.style.cursor = 'grabbing';
-      if (panelDocked) undockPanel();
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      panelManuallyMoved = true;
-      panel.style.left = (e.clientX - dx) + 'px';
-      panel.style.top = (e.clientY - dy) + 'px';
-      panel.style.right = '';
-
-      const edge = getPanelSnapEdge(e.clientX);
-      if (edge) showPanelSnapPreview(edge);
-      else snapPreview.style.display = 'none';
-    });
-    document.addEventListener('mouseup', (e) => {
-      if (!dragging) return;
-      dragging = false;
-      dragHandle.style.cursor = 'grab';
-      snapPreview.style.display = 'none';
-
-      const edge = getPanelSnapEdge(e.clientX);
-      if (edge) applyPanelDock(edge);
-    });
-
-    panel.addEventListener('mousedown', (e) => { if (e.target.type !== 'range') e.preventDefault(); e.stopPropagation(); });
-    panel.addEventListener('click', (e) => e.stopPropagation());
-    panel.addEventListener('keydown', (e) => e.stopPropagation());
-
-    document.body.appendChild(panel);
-    inspectorUI.add(panel);
-  }
-
-  let activeTab = null; // track selected tab
+  // --- Render panel into rail content area ---
+  let activeTab = null;
 
   function renderPanel() {
-    if (!panel) createPanel();
-    const content = panel.querySelector('.dt-panel-content');
-    content.innerHTML = '';
-    if (!selected.length) { panel.style.display = 'none'; return; }
+    const container = document.createElement('div');
+    if (!selected.length) { hideRailPanel(); return; }
 
     const type = getMixedType(selected);
     const primary = selected[0].el;
@@ -1324,10 +867,9 @@
     tabs.push({ id: 'style', label: 'Style' });
     tabs.push({ id: 'classes', label: 'Classes' });
 
-    // Default to first tab if current doesn't exist
     if (!activeTab || !tabs.find(t => t.id === activeTab)) activeTab = tabs[0].id;
 
-    // Header row: element tag + reset
+    // Header row
     const header = document.createElement('div');
     Object.assign(header.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' });
     const title = document.createElement('span');
@@ -1336,7 +878,7 @@
     const resetBtn = makeBtn('Reset', () => resetAll());
     header.appendChild(title);
     header.appendChild(resetBtn);
-    content.appendChild(header);
+    container.appendChild(header);
 
     // Tab bar
     const tabBar = document.createElement('div');
@@ -1355,7 +897,7 @@
       t.addEventListener('click', (e) => { e.stopPropagation(); activeTab = tab.id; renderPanel(); });
       tabBar.appendChild(t);
     });
-    content.appendChild(tabBar);
+    container.appendChild(tabBar);
 
     // Tab content
     const tabContent = document.createElement('div');
@@ -1371,20 +913,69 @@
       });
     }
     else if (activeTab === 'classes') renderClassEditor(tabContent, primary);
-    content.appendChild(tabContent);
+    container.appendChild(tabContent);
 
-    // Footer: copy button
-    const footer = document.createElement('div');
-    Object.assign(footer.style, { display: 'flex', justifyContent: 'flex-end', marginTop: '8px' });
-    const copyBtn = makeBtn('Copy Classes', () => {
-      const classes = selected.map(s => s.el.className).join('\n');
-      navigator.clipboard.writeText(classes).then(() => showToast('Copied'));
-    }, true);
-    footer.appendChild(copyBtn);
-    content.appendChild(footer);
+    showRailPanel(container);
+  }
 
-    panel.style.display = 'block';
-    positionPanel();
+  // --- Exported: render Tailwind controls into a given container (used by annotations) ---
+  function renderDesignControls(container, elements, onChangeCallback) {
+    const origSelected = selected;
+    selected = elements;
+    const type = getMixedType(selected);
+    const primary = selected[0].el;
+
+    const tabs = [];
+    if (type === 'text' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'type', label: 'Type' });
+    if (type === 'container' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'layout', label: 'Layout' });
+    if (type === 'media') tabs.push({ id: 'media', label: 'Media' });
+    tabs.push({ id: 'style', label: 'Style' });
+    tabs.push({ id: 'classes', label: 'Classes' });
+
+    if (!activeTab || !tabs.find(t => t.id === activeTab)) activeTab = tabs[0].id;
+
+    // Tab bar
+    const tabBar = document.createElement('div');
+    Object.assign(tabBar.style, { display: 'flex', gap: '2px', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '6px' });
+    tabs.forEach(tab => {
+      const t = document.createElement('div');
+      t.textContent = tab.label;
+      const isActive = tab.id === activeTab;
+      Object.assign(t.style, {
+        padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: '600',
+        color: isActive ? '#ec4899' : '#888',
+        background: isActive ? 'rgba(236,72,153,0.12)' : 'transparent'
+      });
+      t.addEventListener('mouseenter', () => { if (!isActive) t.style.background = 'rgba(255,255,255,0.06)'; });
+      t.addEventListener('mouseleave', () => { if (!isActive) t.style.background = 'transparent'; });
+      t.addEventListener('click', (e) => {
+        e.stopPropagation();
+        activeTab = tab.id;
+        container.innerHTML = '';
+        renderDesignControls(container, selected, onChangeCallback);
+      });
+      tabBar.appendChild(t);
+    });
+    container.appendChild(tabBar);
+
+    // Tab content
+    const tabContent = document.createElement('div');
+    if (activeTab === 'type') renderTextControls(tabContent, primary);
+    else if (activeTab === 'layout') renderLayoutControls(tabContent, primary);
+    else if (activeTab === 'media') renderMediaControls(tabContent, primary);
+    else if (activeTab === 'style') {
+      renderSection(tabContent, 'Background', (sec) => renderColorSwatches(sec, BG_COLORS, primary));
+      renderSection(tabContent, 'Border & Effects', (sec) => {
+        sec.appendChild(makeSlider('Rounded', ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'], primary));
+        sec.appendChild(makeSlider('Shadow', ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'], primary));
+        sec.appendChild(makeSlider('Opacity', ['opacity-0','opacity-25','opacity-50','opacity-75','opacity-100'], primary));
+      });
+    }
+    else if (activeTab === 'classes') renderClassEditor(tabContent, primary);
+    container.appendChild(tabContent);
+
+    selected = origSelected;
+    if (onChangeCallback) onChangeCallback();
   }
 
   function renderSection(parent, label, renderFn) {
@@ -1401,7 +992,6 @@
   // --- Text controls ---
   function renderTextControls(parent, el) {
     renderSection(parent, 'Typography', (sec) => {
-      // Font family quick-pick
       const fontRow = makeRow();
       ['font-franklin','font-cheltenham','font-karnak'].forEach(cls => {
         const name = cls.replace('font-', '');
@@ -1413,25 +1003,20 @@
       });
       sec.appendChild(fontRow);
 
-      // Sliders
       TYPO_SLIDERS.forEach(s => sec.appendChild(makeSlider(s.label, s.options, el)));
 
-      // Toggles row
       const toggleRow = makeRow();
       toggleRow.appendChild(makeToggle('B', 'font-bold', ['font-thin','font-light','font-normal','font-medium','font-semibold','font-bold','font-extrabold','font-black'], el));
       toggleRow.appendChild(makeToggle('I', 'italic', ['italic','not-italic'], el));
       toggleRow.appendChild(makeToggle('U', 'underline', ['underline','no-underline'], el));
       toggleRow.appendChild(makeToggle('TT', 'uppercase', ['uppercase','lowercase','capitalize','normal-case'], el));
-      // Spacer
       const spacer = document.createElement('div'); spacer.style.flex = '1'; toggleRow.appendChild(spacer);
-      // Alignment
       ALIGN_OPTIONS.forEach(cls => {
         const icon = cls === 'text-left' ? '\u2190' : cls === 'text-center' ? '\u2194' : cls === 'text-right' ? '\u2192' : '\u2261';
         toggleRow.appendChild(makeToggle(icon, cls, ALIGN_OPTIONS, el));
       });
       sec.appendChild(toggleRow);
 
-      // Color swatches
       sec.appendChild(makeColorRow('Color', TEXT_COLORS, el));
     });
   }
@@ -1439,7 +1024,6 @@
   // --- Layout controls ---
   function renderLayoutControls(parent, el) {
     renderSection(parent, 'Layout', (sec) => {
-      // Display quick-pick
       const dispRow = makeRow();
       DISPLAY_OPTIONS.forEach(cls => {
         dispRow.appendChild(makePillBtn(cls, el.classList.contains(cls), () => {
@@ -1449,7 +1033,6 @@
       });
       sec.appendChild(dispRow);
 
-      // Justify + Align (only if flex/grid)
       const cs = getComputedStyle(el);
       if (cs.display === 'flex' || cs.display === 'grid' || el.classList.contains('flex') || el.classList.contains('grid')) {
         const flexRow = makeRow();
@@ -1469,7 +1052,6 @@
         sec.appendChild(itemsRow);
       }
 
-      // Spacing sliders
       LAYOUT_SLIDERS.forEach(s => sec.appendChild(makeSlider(s.label, s.options, el)));
     });
   }
@@ -1477,7 +1059,6 @@
   // --- Media controls ---
   function renderMediaControls(parent, el) {
     renderSection(parent, 'Media', (sec) => {
-      // Object fit
       const fitRow = makeRow();
       fitRow.appendChild(makeLabel('Fit'));
       OBJECT_FIT_OPTIONS.forEach(cls => {
@@ -1488,15 +1069,13 @@
       });
       sec.appendChild(fitRow);
 
-      // Size/visual sliders
       MEDIA_SLIDERS.forEach(s => sec.appendChild(makeSlider(s.label, s.options, el)));
     });
   }
 
-  // --- Class editor (always shown) ---
+  // --- Class editor ---
   function renderClassEditor(parent, el) {
     renderSection(parent, 'Classes', (sec) => {
-      // Chips
       const chips = document.createElement('div');
       Object.assign(chips.style, { display: 'flex', flexWrap: 'wrap', gap: '3px', marginBottom: '8px', maxHeight: '80px', overflowY: 'auto' });
       const classes = el.className.trim().split(/\s+/).filter(Boolean);
@@ -1519,7 +1098,6 @@
       });
       sec.appendChild(chips);
 
-      // Input + autocomplete
       const inputWrap = document.createElement('div');
       Object.assign(inputWrap.style, { position: 'relative' });
       const input = document.createElement('input');
@@ -1527,7 +1105,7 @@
       Object.assign(input.style, {
         width: '100%', padding: '5px 7px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.12)',
         background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '11px', outline: 'none',
-        fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace'
+        fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace', boxSizing: 'border-box'
       });
       const dropdown = document.createElement('div');
       Object.assign(dropdown.style, {
@@ -1579,8 +1157,8 @@
     const btn = document.createElement('button');
     btn.textContent = text;
     Object.assign(btn.style, {
-      background: primary ? '#ec4899' : 'rgba(255,255,255,0.08)', border: 'none',
-      color: primary ? '#fff' : '#ccc', padding: '3px 10px', borderRadius: '4px',
+      background: 'rgba(255,255,255,0.08)', border: 'none',
+      color: '#ccc', padding: '3px 10px', borderRadius: '4px',
       fontSize: '10px', fontWeight: '600', cursor: 'pointer'
     });
     btn.addEventListener('click', onClick);
@@ -1632,7 +1210,6 @@
     lbl.textContent = label;
     Object.assign(lbl.style, { fontSize: '10px', color: '#888', width: '48px', flexShrink: '0' });
 
-    // Find current index
     let currentIdx = 0;
     for (let i = 0; i < options.length; i++) {
       if (el.classList.contains(options[i])) { currentIdx = i; break; }
@@ -1665,14 +1242,12 @@
     return row;
   }
 
-  // All color classes for autocomplete
   const ALL_COLOR_CLASSES = CLASSES.filter(c => c.startsWith('text-') || c.startsWith('bg-') || c.startsWith('border-'));
 
   function makeColorRow(label, colors, el) {
     const wrap = document.createElement('div');
     Object.assign(wrap.style, { marginTop: '6px' });
 
-    // Swatch row
     const row = document.createElement('div');
     Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '3px', flexWrap: 'wrap' });
     const lbl = document.createElement('span');
@@ -1700,7 +1275,6 @@
     });
     wrap.appendChild(row);
 
-    // Color input with autocomplete
     const inputWrap = document.createElement('div');
     Object.assign(inputWrap.style, { position: 'relative', marginTop: '5px', marginLeft: '48px' });
     const input = document.createElement('input');
@@ -1708,7 +1282,7 @@
     Object.assign(input.style, {
       width: '100%', padding: '4px 6px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)',
       background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '10px', outline: 'none',
-      fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace'
+      fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace', boxSizing: 'border-box'
     });
     const dropdown = document.createElement('div');
     Object.assign(dropdown.style, {
@@ -1761,42 +1335,17 @@
     parent.appendChild(makeColorRow('Fill', colors, el));
   }
 
-  // --- Positioning ---
-  function positionPanel() {
-    if (!panel || !selected.length) return;
-    // If user dragged the panel, keep their position
-    if (panelManuallyMoved) return;
-
-    const el = selected[0].el;
-    const rect = el.getBoundingClientRect();
-    const vh = window.innerHeight;
-    const vw = window.innerWidth;
-    const panelH = panel.offsetHeight || 300;
-    const panelW = 300;
-
-    let top, left;
-    if (rect.bottom + panelH + 12 < vh) top = rect.bottom + 8;
-    else top = Math.max(8, rect.top - panelH - 8);
-    left = rect.left + rect.width / 2 - panelW / 2;
-    left = Math.max(8, Math.min(left, vw - panelW - 8));
-
-    panel.style.top = top + 'px';
-    panel.style.left = left + 'px';
-  }
-
   // --- Selection + highlight ---
   const TEXT_TAGS = ['P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI','BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL'];
 
   function selectElement(el, additive) {
     if (!additive) {
-      // Clear previous selection
       selected.forEach(s => {
         s.el.style.outline = s.origOutline;
         if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
       });
       selected = [];
     }
-    // Toggle if already selected
     const idx = selected.findIndex(s => s.el === el);
     if (idx !== -1) {
       el.style.outline = selected[idx].origOutline;
@@ -1822,80 +1371,55 @@
       if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
     });
     selected = [];
-    if (panel) { panel.style.display = 'none'; panel.querySelector('.dt-panel-content').innerHTML = ''; }
-    // Restore page margins if docked
-    document.body.style.marginLeft = '';
-    document.body.style.marginRight = '';
-    document.documentElement.style.overflowX = '';
+    hideRailPanel();
   }
 
-  // --- Copy all changes ---
-  function copyChanges() {
-    if (!selected.length) { showToast('No elements selected'); return; }
-    const diffs = selected.map(({ el, originalClasses }) => {
-      const origSet = new Set(originalClasses.trim().split(/\s+/).filter(Boolean));
-      const currSet = new Set(el.className.trim().split(/\s+/).filter(Boolean));
-      const added = [...currSet].filter(c => !origSet.has(c));
-      const removed = [...origSet].filter(c => !currSet.has(c));
-      const selector = getSelector(el);
-      let out = selector;
-      if (added.length) out += '\n  + ' + added.join(' ');
-      if (removed.length) out += '\n  - ' + removed.join(' ');
-      if (!added.length && !removed.length) out += '\n  (no changes)';
-      return out;
-    }).join('\n\n');
-    navigator.clipboard.writeText(diffs).then(() => showToast('Changes copied'));
-  }
-
-  // --- Click handler ---
   // --- Hover highlight ---
-  let hoveredEl = null;
+  let hoveredEl$1 = null;
 
-  function onMove(e) {
-    if (!activeMode) return;
+  function onMove$2(e) {
+    if (!activeMode$1) return;
     const el = e.target;
     if (isInspectorUI(el) || el === document.body || el === document.documentElement) {
-      clearHoverHighlight();
+      clearHoverHighlight$1();
       return;
     }
-    if (el === hoveredEl) return;
-    clearHoverHighlight();
-    // Don't highlight already-selected elements
+    if (el === hoveredEl$1) return;
+    clearHoverHighlight$1();
     if (selected.find(s => s.el === el)) return;
-    hoveredEl = el;
-    hoveredEl._smHoverOutline = hoveredEl.style.outline;
-    hoveredEl._smHoverBg = hoveredEl.style.backgroundColor;
-    hoveredEl.style.outline = '2px solid rgba(236,72,153,0.5)';
-    hoveredEl.style.backgroundColor = 'rgba(236,72,153,0.04)';
+    hoveredEl$1 = el;
+    hoveredEl$1._smHoverOutline = hoveredEl$1.style.outline;
+    hoveredEl$1._smHoverBg = hoveredEl$1.style.backgroundColor;
+    hoveredEl$1.style.outline = '2px solid rgba(236,72,153,0.5)';
+    hoveredEl$1.style.backgroundColor = 'rgba(236,72,153,0.04)';
   }
 
-  function clearHoverHighlight() {
-    if (hoveredEl) {
-      hoveredEl.style.outline = hoveredEl._smHoverOutline || '';
-      hoveredEl.style.backgroundColor = hoveredEl._smHoverBg || '';
-      delete hoveredEl._smHoverOutline;
-      delete hoveredEl._smHoverBg;
-      hoveredEl = null;
+  function clearHoverHighlight$1() {
+    if (hoveredEl$1) {
+      hoveredEl$1.style.outline = hoveredEl$1._smHoverOutline || '';
+      hoveredEl$1.style.backgroundColor = hoveredEl$1._smHoverBg || '';
+      delete hoveredEl$1._smHoverOutline;
+      delete hoveredEl$1._smHoverBg;
+      hoveredEl$1 = null;
     }
   }
 
   // --- Click handler ---
-  function onClick(e) {
-    if (!activeMode) return;
+  function onClick$2(e) {
+    if (!activeMode$1) return;
     const el = e.target;
     if (isInspectorUI(el)) return;
     if (el.closest && el.closest('.copy-box')) return;
 
-    // If clicking inside an already-selected text element, let the caret through
     const alreadySelected = selected.find(s => s.el === el || s.el.contains(el));
     if (alreadySelected && alreadySelected.madeEditable) {
       e.stopPropagation();
-      return; // don't preventDefault — let the caret land
+      return;
     }
 
     e.preventDefault();
     e.stopPropagation();
-    clearHoverHighlight();
+    clearHoverHighlight$1();
     selectElement(el, e.shiftKey);
   }
 
@@ -1914,28 +1438,551 @@
     shortcuts: [],
 
     init() {
-      document.addEventListener('click', onClick, true);
-      document.addEventListener('mousemove', onMove, true);
-      createCopyGroup(toolbar);
+      document.addEventListener('click', onClick$2, true);
+      document.addEventListener('mousemove', onMove$2, true);
     },
 
     activate() {
-      activeMode = true;
+      loadTailwind();
+      activeMode$1 = true;
       state.styleModActive = true;
       showToast('Design — click to style, shift+click multi-select');
     },
 
     deactivate() {
-      activeMode = false;
+      activeMode$1 = false;
       state.styleModActive = false;
-      clearHoverHighlight();
+      clearHoverHighlight$1();
       clearSelection();
-      if (copyGroup) copyGroup.style.display = 'none';
+    },
+
+    toggle() {
+      if (activeMode$1) { this.deactivate(); return false; }
+      else { this.activate(); return true; }
+    },
+
+    enable() {},
+    disable() { this.deactivate(); },
+  };
+
+  // --- Annotation store ---
+  let annotations = []; // { id, el, selector, note, originalClasses, labelEl }
+  let nextId = 1;
+  let activeMode = false;
+  let activeAnnotation = null; // currently editing
+
+  function getAnnotations() { return annotations; }
+
+  // --- Label anchored to element ---
+  function createLabel(annotation, num) {
+    const label = document.createElement('div');
+    label.textContent = num;
+    Object.assign(label.style, {
+      position: 'absolute', top: '-4px', right: '-4px',
+      width: '18px', height: '18px', borderRadius: '50%',
+      background: '#f59e0b', color: '#000', fontSize: '10px', fontWeight: '700',
+      fontFamily: 'system-ui, sans-serif',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', zIndex: String(Z.badge),
+      boxShadow: '0 1px 4px rgba(0,0,0,0.3)', pointerEvents: 'auto',
+      transition: 'transform 0.1s'
+    });
+
+    // Ensure element can hold absolute children
+    const pos = getComputedStyle(annotation.el).position;
+    if (pos === 'static') annotation.el.style.position = 'relative';
+
+    label.addEventListener('mouseenter', () => { label.style.transform = 'scale(1.2)'; });
+    label.addEventListener('mouseleave', () => { label.style.transform = 'scale(1)'; });
+    label.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      openAnnotation(annotation);
+    });
+
+    annotation.el.appendChild(label);
+    inspectorUI.add(label);
+    return label;
+  }
+
+  function renumberLabels() {
+    annotations.forEach((ann, i) => {
+      if (ann.labelEl) ann.labelEl.textContent = i + 1;
+    });
+  }
+
+  // --- Open annotation editor in rail panel ---
+  function openAnnotation(annotation) {
+    activeAnnotation = annotation;
+    const container = document.createElement('div');
+
+    // Header: element info
+    const header = document.createElement('div');
+    Object.assign(header.style, { marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' });
+    const tag = document.createElement('div');
+    tag.textContent = `<${annotation.el.tagName.toLowerCase()}>`;
+    Object.assign(tag.style, { fontSize: '11px', fontWeight: '600', color: '#f59e0b', marginBottom: '2px' });
+    const sel = document.createElement('div');
+    sel.textContent = annotation.selector;
+    Object.assign(sel.style, {
+      fontSize: '9px', color: '#888', fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace',
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+    });
+    header.appendChild(tag);
+    header.appendChild(sel);
+    container.appendChild(header);
+
+    // Prose note textarea
+    const noteLabel = document.createElement('div');
+    noteLabel.textContent = 'NOTE';
+    Object.assign(noteLabel.style, { fontSize: '9px', fontWeight: '700', color: '#666', marginBottom: '4px', letterSpacing: '0.5px' });
+    container.appendChild(noteLabel);
+
+    const textarea = document.createElement('textarea');
+    textarea.value = annotation.note || '';
+    textarea.placeholder = 'Describe what you want changed...';
+    Object.assign(textarea.style, {
+      width: '100%', minHeight: '60px', padding: '8px', borderRadius: '6px',
+      border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)',
+      color: '#fff', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
+      resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: '1.4'
+    });
+    textarea.addEventListener('input', () => {
+      annotation.note = textarea.value;
+      updateBadgeCount();
+    });
+    textarea.addEventListener('mousedown', (e) => e.stopPropagation());
+    textarea.addEventListener('keydown', (e) => e.stopPropagation());
+    container.appendChild(textarea);
+
+    // Divider
+    const divider = document.createElement('div');
+    Object.assign(divider.style, { height: '1px', background: 'rgba(255,255,255,0.08)', margin: '12px 0' });
+    container.appendChild(divider);
+
+    // Tailwind controls section
+    const twLabel = document.createElement('div');
+    twLabel.textContent = 'TAILWIND CLASSES';
+    Object.assign(twLabel.style, { fontSize: '9px', fontWeight: '700', color: '#666', marginBottom: '8px', letterSpacing: '0.5px' });
+    container.appendChild(twLabel);
+
+    const controlsContainer = document.createElement('div');
+    container.appendChild(controlsContainer);
+
+    // Render Tailwind design controls for this annotation's element
+    const elements = [{ el: annotation.el, originalClasses: annotation.originalClasses }];
+    renderDesignControls(controlsContainer, elements, () => {
+      updateBadgeCount();
+    });
+
+    // Delete annotation button
+    const deleteSection = document.createElement('div');
+    Object.assign(deleteSection.style, { marginTop: '14px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' });
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = 'Remove Annotation';
+    Object.assign(deleteBtn.style, {
+      background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
+      color: '#ef4444', padding: '5px 12px', borderRadius: '4px',
+      fontSize: '10px', fontWeight: '600', cursor: 'pointer', width: '100%'
+    });
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeAnnotation(annotation);
+    });
+    deleteSection.appendChild(deleteBtn);
+    container.appendChild(deleteSection);
+
+    showRailPanel(container);
+
+    // Highlight the annotated element
+    annotation.el.style.outline = '2px solid #f59e0b';
+  }
+
+  function removeAnnotation(annotation) {
+    // Remove label from DOM
+    if (annotation.labelEl) {
+      annotation.labelEl.remove();
+    }
+    // Restore element state
+    annotation.el.style.outline = '';
+    annotation.el.className = annotation.originalClasses;
+
+    // Remove from store
+    const idx = annotations.indexOf(annotation);
+    if (idx !== -1) annotations.splice(idx, 1);
+
+    renumberLabels();
+    updateBadgeCount();
+    activeAnnotation = null;
+    hideRailPanel();
+    showToast('Annotation removed');
+  }
+
+  function updateBadgeCount() {
+    const count = annotations.filter(a => {
+      const hasNote = a.note && a.note.trim().length > 0;
+      const hasClassChanges = a.el.className !== a.originalClasses;
+      return hasNote || hasClassChanges;
+    }).length;
+    updateCopyBadge(count);
+  }
+
+  // --- Hover highlight ---
+  let hoveredEl = null;
+
+  function onMove$1(e) {
+    if (!activeMode) return;
+    const el = e.target;
+    if (isInspectorUI(el) || el === document.body || el === document.documentElement) {
+      clearHoverHighlight();
+      return;
+    }
+    if (el === hoveredEl) return;
+    clearHoverHighlight();
+    hoveredEl = el;
+    hoveredEl._annHoverOutline = hoveredEl.style.outline;
+    hoveredEl.style.outline = '2px solid rgba(245,158,11,0.5)';
+  }
+
+  function clearHoverHighlight() {
+    if (hoveredEl) {
+      hoveredEl.style.outline = hoveredEl._annHoverOutline || '';
+      delete hoveredEl._annHoverOutline;
+      hoveredEl = null;
+    }
+  }
+
+  // --- Click handler ---
+  function onClick$1(e) {
+    if (!activeMode) return;
+    const el = e.target;
+    if (isInspectorUI(el)) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    clearHoverHighlight();
+
+    // If element already has an annotation, open it
+    const existing = annotations.find(a => a.el === el);
+    if (existing) {
+      openAnnotation(existing);
+      return;
+    }
+
+    // Create new annotation
+    const annotation = {
+      id: nextId++,
+      el,
+      selector: getSelector(el),
+      note: '',
+      originalClasses: el.className,
+      labelEl: null
+    };
+
+    annotations.push(annotation);
+    annotation.labelEl = createLabel(annotation, annotations.length);
+    openAnnotation(annotation);
+    updateBadgeCount();
+  }
+
+  var annotations$1 = {
+    id: 'annotations',
+    label: 'Annotate',
+    enabledByDefault: true,
+
+    button: {
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>',
+      tooltip: 'Annotate',
+      color: '#f59e0b',
+      order: 25,
+    },
+
+    shortcuts: [],
+
+    init() {
+      document.addEventListener('click', onClick$1, true);
+      document.addEventListener('mousemove', onMove$1, true);
+    },
+
+    activate() {
+      loadTailwind();
+      activeMode = true;
+      showToast('Annotate — click elements to add notes + class changes');
+    },
+
+    deactivate() {
+      activeMode = false;
+      clearHoverHighlight();
+      if (activeAnnotation) {
+        activeAnnotation.el.style.outline = '';
+        activeAnnotation = null;
+      }
+      hideRailPanel();
     },
 
     toggle() {
       if (activeMode) { this.deactivate(); return false; }
       else { this.activate(); return true; }
+    },
+
+    enable() {},
+    disable() { this.deactivate(); },
+  };
+
+  // Compute class diffs between original and current
+  function getClassDiff(el, originalClasses) {
+    const origSet = new Set(originalClasses.trim().split(/\s+/).filter(Boolean));
+    const currSet = new Set(el.className.trim().split(/\s+/).filter(Boolean));
+    const added = [...currSet].filter(c => !origSet.has(c));
+    const removed = [...origSet].filter(c => !currSet.has(c));
+    return { added, removed };
+  }
+
+  function buildOutput() {
+    const sections = [];
+    const annotatedEls = new Set();
+
+    // From annotations
+    const annotations = getAnnotations();
+    annotations.forEach(ann => {
+      annotatedEls.add(ann.el);
+      const { added, removed } = getClassDiff(ann.el, ann.originalClasses);
+      const hasNote = ann.note && ann.note.trim().length > 0;
+      const hasChanges = added.length > 0 || removed.length > 0;
+
+      if (!hasNote && !hasChanges) return;
+
+      let section = `### ${ann.selector}`;
+      if (hasNote) section += `\nNote: "${ann.note.trim()}"`;
+      if (hasChanges) {
+        section += '\nClasses:';
+        if (added.length) section += `\n  + ${added.join(' ')}`;
+        if (removed.length) section += `\n  - ${removed.join(' ')}`;
+      }
+      sections.push(section);
+    });
+
+    // From design-mode changes (elements without annotations)
+    const selected = getSelected();
+    selected.forEach(({ el, originalClasses }) => {
+      if (annotatedEls.has(el)) return;
+      if (el.className === originalClasses) return;
+
+      const { added, removed } = getClassDiff(el, originalClasses);
+      if (!added.length && !removed.length) return;
+
+      const selector = getSelector(el);
+      let section = `### ${selector}`;
+      section += '\nClasses:';
+      if (added.length) section += `\n  + ${added.join(' ')}`;
+      if (removed.length) section += `\n  - ${removed.join(' ')}`;
+      sections.push(section);
+    });
+
+    if (!sections.length) return null;
+    return '## DOM Changes\n\n' + sections.join('\n\n');
+  }
+
+  function copyAllChanges() {
+    const output = buildOutput();
+    if (!output) {
+      showToast('No changes to copy');
+      return;
+    }
+    navigator.clipboard.writeText(output).then(() => {
+      showToast('All changes copied');
+    }).catch(() => {
+      showToast(output.substring(0, 100) + '...');
+    });
+  }
+
+  function initCopyAll() {
+    const btn = getCopyButton();
+    if (btn) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        copyAllChanges();
+      });
+      btn.addEventListener('mouseenter', () => { btn.style.background = 'rgba(255,255,255,0.08)'; });
+      btn.addEventListener('mouseleave', () => { btn.style.background = 'transparent'; });
+    }
+  }
+
+  // Slot indicator line (created in init)
+  let slotLine = null;
+
+  function getSlotType(el, mouseX, mouseY) {
+    const rect = el.getBoundingClientRect();
+    const relX = (mouseX - rect.left) / rect.width;
+    const relY = (mouseY - rect.top) / rect.height;
+    const edge = 0.25;
+    const inXCenter = relX >= edge && relX <= (1 - edge);
+    const inYCenter = relY >= edge && relY <= (1 - edge);
+    if (inXCenter && inYCenter) return 'inside';
+    const dTop = relY, dBottom = 1 - relY, dLeft = relX, dRight = 1 - relX;
+    const min = Math.min(dTop, dBottom, dLeft, dRight);
+    if (min === dTop) return 'before';
+    if (min === dBottom) return 'after';
+    if (min === dLeft) return 'left';
+    return 'right';
+  }
+
+  function updateSlotLine(el, type) {
+    const rect = el.getBoundingClientRect();
+    if (type === 'inside') { slotLine.style.display = 'none'; return; }
+    if (type === 'before' || type === 'after') {
+      const y = type === 'before' ? rect.top : rect.bottom;
+      Object.assign(slotLine.style, { display: 'block', top: (y - 1) + 'px', left: rect.left + 'px', width: rect.width + 'px', height: '3px' });
+    } else {
+      const x = type === 'left' ? rect.left : rect.right;
+      Object.assign(slotLine.style, { display: 'block', top: rect.top + 'px', left: (x - 1) + 'px', width: '3px', height: rect.height + 'px' });
+    }
+  }
+
+  function getSlotDescription(el, type) {
+    const sel = getSelector(el);
+    const text = el.textContent.trim().substring(0, 60);
+    const textPreview = text ? ' | "' + text + (el.textContent.trim().length > 60 ? '...' : '') + '"' : '';
+    if (type === 'before') return 'Insert before: ' + sel + textPreview;
+    if (type === 'after') return 'Insert after: ' + sel + textPreview;
+    if (type === 'left') return 'Insert to the left of: ' + sel + textPreview;
+    if (type === 'right') return 'Insert to the right of: ' + sel + textPreview;
+    return 'Insert inside: ' + sel + ' (as child)' + textPreview;
+  }
+
+  function onMove(e) {
+    if (!state.active || state.editMode || state.cameraMode || state.annotateMode || state.styleModActive) return;
+    const el = e.target;
+    if (isInspectorUI(el) || el === document.body || el === document.documentElement) return;
+    if (el.closest && el.closest('.copy-box')) { clearHover(); return; }
+    if (state.hovered && state.hovered !== el) clearHover();
+    if (el !== state.hovered) {
+      el._origOutline = el._origOutline ?? el.style.outline;
+      el._origBg = el._origBg ?? el.style.backgroundColor;
+    }
+    if (state.altHeld) {
+      state.slotType = getSlotType(el, e.clientX, e.clientY);
+      el.style.outline = SLOT_OUTLINE;
+      el.style.backgroundColor = state.slotType === 'inside' ? SLOT_BG : (el._origBg || '');
+      updateSlotLine(el, state.slotType);
+    } else {
+      slotLine.style.display = 'none';
+      el.style.outline = OUTLINE;
+      el.style.backgroundColor = BG;
+    }
+    state.hovered = el;
+  }
+
+  function onClick(e) {
+    if ((!state.active && !state.annotateMode) || state.editMode || state.styleModActive) return;
+    const el = e.target;
+    if (isInspectorUI(el)) return;
+    if (el.closest && el.closest('.copy-box')) return;
+
+    if (state.annotateMode) return;
+    if (state.cameraMode) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    nudge(el);
+
+    if (e.altKey && state.slotType) {
+      const slotDesc = getSlotDescription(el, state.slotType);
+      slotLine.style.display = 'none';
+      navigator.clipboard.writeText(slotDesc).then(() => {
+        showToast('Slot copied: ' + slotDesc);
+      }).catch(() => showToast(slotDesc));
+    } else if (e.shiftKey) {
+      const desc = getContext(el);
+      const idx = state.selected.findIndex(s => s.el === el);
+      if (idx !== -1) {
+        el.style.outline = el._origOutline || '';
+        el.style.backgroundColor = el._origBg || '';
+        if (state.selected[idx].badge) state.selected[idx].badge.remove();
+        state.selected.splice(idx, 1);
+        refreshBadges();
+      } else {
+        el.style.outline = SEL_OUTLINE;
+        el.style.backgroundColor = SEL_BG;
+        const badge = addBadge(el, state.selected.length + 1);
+        state.selected.push({ el, desc, badge });
+      }
+      if (state.selected.length) {
+        const combined = state.selected.map((s, i) => `[${i + 1}] ${s.desc}`).join('\n');
+        navigator.clipboard.writeText(combined).then(() => {
+          showToast(`Copied ${state.selected.length} selection${state.selected.length > 1 ? 's' : ''}`);
+        }).catch(() => showToast(combined));
+      } else {
+        showToast('Selection cleared');
+      }
+    } else {
+      const desc = getContext(el);
+      clearSelection$1();
+      navigator.clipboard.writeText(desc).then(() => {
+        showToast('Copied: ' + desc);
+      }).catch(() => showToast(desc));
+    }
+  }
+
+  var selector = {
+    id: 'selector',
+    label: 'Selector',
+    enabledByDefault: true,
+
+    button: {
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
+      tooltip: 'Selector',
+      color: '#0066ff',
+      order: 5,
+    },
+
+    shortcuts: [
+      { key: 'K', meta: true, shift: true, action: 'toggle' }
+    ],
+
+    init() {
+      slotLine = document.createElement('div');
+      Object.assign(slotLine.style, {
+        position: 'fixed', left: '0', top: '0', height: '3px', width: '0',
+        background: '#00a651', zIndex: String(Z.tooltip), pointerEvents: 'none',
+        display: 'none', borderRadius: '2px',
+        boxShadow: '0 0 6px rgba(0, 166, 81, 0.5)'
+      });
+      document.body.appendChild(slotLine);
+      inspectorUI.add(slotLine);
+
+      document.addEventListener('mousemove', onMove, true);
+      document.addEventListener('mouseleave', clearHover, true);
+      document.addEventListener('click', onClick, true);
+      document.addEventListener('mousedown', (e) => {
+        if (!state.active) return;
+        if (e.shiftKey || e.altKey) e.preventDefault();
+      }, true);
+    },
+
+    activate() {
+      state.active = true;
+      document.body.style.cursor = 'crosshair';
+      showToast('Inspector ON — click to copy, Shift multi-select, Alt for slots');
+    },
+
+    deactivate() {
+      state.active = false;
+      clearHover();
+      clearSelection$1();
+      slotLine.style.display = 'none';
+    },
+
+    toggle() {
+      if (state.active && true && !state.cameraMode) {
+        this.deactivate();
+        document.body.style.cursor = 'crosshair';
+        showToast('Inspector OFF');
+        return false;
+      } else {
+        this.activate();
+        return true;
+      }
     },
 
     enable() {},
@@ -2344,188 +2391,6 @@
     disable() { this.deactivate(); },
   };
 
-  const stickyNotes = [];
-  let _justPlacedNote = false;
-
-  function deleteStickyNote(note) {
-    const idx = stickyNotes.indexOf(note);
-    if (idx !== -1) stickyNotes.splice(idx, 1);
-    inspectorUI.delete(note);
-    note.remove();
-  }
-
-  function createStickyNote(x, y, initialText) {
-    const pageX = x + window.scrollX;
-    const pageY = y + window.scrollY;
-    const note = document.createElement('div');
-
-    const topBar = document.createElement('div');
-    Object.assign(topBar.style, {
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      height: '18px', background: COLORS.stickyBorder, borderRadius: '3px 3px 0 0',
-      padding: '0 2px 0 0'
-    });
-    const handle = document.createElement('div');
-    Object.assign(handle.style, { flex: '1', height: '100%', cursor: 'grab', userSelect: 'none' });
-    const deleteBtn = document.createElement('div');
-    deleteBtn.textContent = '\u00d7';
-    Object.assign(deleteBtn.style, {
-      width: '16px', height: '16px', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', cursor: 'pointer', fontSize: '13px',
-      fontFamily: 'system-ui, sans-serif', color: '#666', borderRadius: '2px',
-      lineHeight: '1', flexShrink: '0'
-    });
-    deleteBtn.addEventListener('mouseenter', () => { deleteBtn.style.background = 'rgba(0,0,0,0.1)'; deleteBtn.style.color = '#333'; });
-    deleteBtn.addEventListener('mouseleave', () => { deleteBtn.style.background = ''; deleteBtn.style.color = '#666'; });
-    deleteBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteStickyNote(note); });
-    topBar.appendChild(handle);
-    topBar.appendChild(deleteBtn);
-
-    const body = document.createElement('div');
-    body.contentEditable = 'true';
-    body.textContent = initialText || 'Note';
-    Object.assign(body.style, {
-      padding: '6px 8px', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
-      color: '#333', outline: 'none', minHeight: '24px', lineHeight: '1.4'
-    });
-    note.appendChild(topBar);
-    note.appendChild(body);
-    Object.assign(note.style, {
-      position: 'absolute', left: pageX + 'px', top: pageY + 'px', width: '160px',
-      background: COLORS.stickyBg, border: '1px solid ' + COLORS.stickyBorder,
-      borderRadius: '4px', zIndex: String(Z.badge),
-      boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'default'
-    });
-    document.body.appendChild(note);
-    stickyNotes.push(note);
-    inspectorUI.add(note);
-    _justPlacedNote = true;
-    setTimeout(() => { body.focus(); document.execCommand('selectAll'); }, 0);
-
-    // Drag
-    let dragging = false, dx = 0, dy = 0;
-    handle.addEventListener('mousedown', (e) => {
-      e.stopPropagation();
-      dragging = true;
-      dx = (e.clientX + window.scrollX) - note.offsetLeft;
-      dy = (e.clientY + window.scrollY) - note.offsetTop;
-      handle.style.cursor = 'grabbing';
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      note.style.left = (e.clientX + window.scrollX - dx) + 'px';
-      note.style.top = (e.clientY + window.scrollY - dy) + 'px';
-    });
-    document.addEventListener('mouseup', () => {
-      if (dragging) { dragging = false; handle.style.cursor = 'grab'; }
-    });
-    note.addEventListener('mousedown', (e) => {
-      // Option/Alt + click to duplicate
-      if (e.altKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        const noteBody = note.querySelector('div[contenteditable]');
-        const text = noteBody ? noteBody.textContent : 'Note';
-        const offsetX = parseInt(note.style.left) + 20 - window.scrollX;
-        const offsetY = parseInt(note.style.top) + 20 - window.scrollY;
-        createStickyNote(offsetX, offsetY, text);
-        return;
-      }
-      e.stopPropagation();
-    });
-    note.addEventListener('click', (e) => { e.stopPropagation(); _justPlacedNote = false; });
-    note.addEventListener('keydown', (e) => e.stopPropagation());
-  }
-
-  var stickyNotes$1 = {
-    id: 'sticky-notes',
-    label: 'Sticky Notes',
-    enabledByDefault: true,
-
-    button: {
-      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M19 3H4.99c-1.1 0-1.98.9-1.98 2L3 19c0 1.1.89 2 1.99 2H15l6-6V5c0-1.1-.9-2-2-2zm-7 8H7v-2h5v2zm5-4H7V5h10v2zm-1 10v-4h4l-4 4z"/></svg>',
-      tooltip: 'Sticky Note',
-      color: COLORS.annotate,
-      order: 20,
-    },
-
-    shortcuts: [],
-
-    init() {
-      // Ghost note that follows cursor
-      const ghost = document.createElement('div');
-      Object.assign(ghost.style, {
-        position: 'fixed', width: '160px', pointerEvents: 'none',
-        background: COLORS.stickyBg, border: '1px solid ' + COLORS.stickyBorder,
-        borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        opacity: '0.5', display: 'none', zIndex: String(Z.badge),
-        padding: '20px 8px 8px', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
-        color: '#999'
-      });
-      ghost.textContent = 'Note';
-      // Yellow top bar
-      const ghostBar = document.createElement('div');
-      Object.assign(ghostBar.style, {
-        position: 'absolute', top: '0', left: '0', right: '0', height: '18px',
-        background: COLORS.stickyBorder, borderRadius: '3px 3px 0 0'
-      });
-      ghost.appendChild(ghostBar);
-      document.body.appendChild(ghost);
-      inspectorUI.add(ghost);
-
-      document.addEventListener('mousemove', (e) => {
-        if (!state.stickyMode) { ghost.style.display = 'none'; return; }
-        ghost.style.display = 'block';
-        ghost.style.left = (e.clientX + 8) + 'px';
-        ghost.style.top = (e.clientY + 8) + 'px';
-      });
-
-      this._ghost = ghost;
-    },
-
-    activate() {
-      state.annotateMode = true;
-      state.annotateSub = 'sticky';
-      state.stickyMode = true;
-      document.body.style.cursor = 'crosshair';
-      showToast('Click to place a note');
-    },
-
-    deactivate() {
-      if (state.annotateSub === 'sticky') {
-        state.annotateMode = false;
-      }
-      state.stickyMode = false;
-      if (this._ghost) this._ghost.style.display = 'none';
-    },
-
-    handleClick(e) {
-      if (!state.annotateMode || state.annotateSub !== 'sticky') return false;
-      e.preventDefault();
-      e.stopPropagation();
-      if (_justPlacedNote) {
-        _justPlacedNote = false;
-        if (document.activeElement && document.activeElement.isContentEditable) {
-          document.activeElement.blur();
-        }
-        return true;
-      }
-      createStickyNote(e.clientX, e.clientY);
-      // Exit sticky mode after placing — user must click button again for next note
-      this.deactivate();
-      return true;
-    },
-
-    clear() {
-      stickyNotes.forEach(n => { inspectorUI.delete(n); n.remove(); });
-      stickyNotes.length = 0;
-      showToast('Notes cleared');
-    },
-
-    enable() {},
-    disable() { this.deactivate(); },
-  };
-
   /**
    * DOM-Tools
    * Drop <script src="dom-tools.js"></script> before </body> in any HTML file.
@@ -2538,15 +2403,16 @@
   if (new URLSearchParams(window.location.search).has('dom-tools')) {
     initHelpers();
 
+    register(annotations$1);
     register(draw);
-    register(stickyNotes$1);
-    register(camera);
     register(styleModifier);
+    register(camera);
     register(selector);
 
-    renderToolbar();
-    initSettings(toolbar);
+    renderRail();
+    initSettings();
     boot();
+    initCopyAll();
     initKeyboard();
 
     // ?dom-tools=design launches directly into Design mode
@@ -2554,6 +2420,9 @@
     if (mode === 'design') {
       styleModifier.activate();
       setActiveButton('style-modifier');
+    } else if (mode === 'annotate') {
+      annotations$1.activate();
+      setActiveButton('annotations');
     } else {
       selector.activate();
     }
