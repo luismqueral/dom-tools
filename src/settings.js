@@ -112,8 +112,8 @@ export function toggleSettings() {
   } else {
     hideRailPanel();
     if (_settingsBtn) _settingsBtn.style.background = 'transparent';
-    activateModule('selector');
-    setActiveButton('selector');
+    activateModule('style-modifier');
+    setActiveButton('style-modifier');
   }
 }
 

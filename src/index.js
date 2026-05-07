@@ -11,7 +11,6 @@ import { renderRail, rail, setActiveButton } from './rail.js';
 import { initKeyboard } from './keyboard.js';
 import { initSettings } from './settings.js';
 import { initCopyAll } from './features/copy-all.js';
-import selector from './features/selector.js';
 import styleModifier from './features/style-modifier.js';
 import annotations from './features/annotations.js';
 import camera from './features/camera.js';
@@ -25,7 +24,6 @@ if (new URLSearchParams(window.location.search).has('dom-tools')) {
   register(draw);
   register(styleModifier);
   register(camera);
-  register(selector);
 
   renderRail();
   initSettings(rail);
@@ -33,15 +31,8 @@ if (new URLSearchParams(window.location.search).has('dom-tools')) {
   initCopyAll();
   initKeyboard();
 
-  // ?dom-tools=design launches directly into Design mode
-  const mode = new URLSearchParams(window.location.search).get('dom-tools');
-  if (mode === 'design') {
-    styleModifier.activate();
-    setActiveButton('style-modifier');
-  } else if (mode === 'annotate') {
-    annotations.activate();
-    setActiveButton('annotations');
-  } else {
-    selector.activate();
-  }
+  // Design mode is the home tool. All URL forms (?dom-tools, ?dom-tools=design,
+  // and the legacy ?dom-tools=annotate) launch into it.
+  styleModifier.activate();
+  setActiveButton('style-modifier');
 }

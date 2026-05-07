@@ -1,8 +1,12 @@
 import { state, inspectorUI } from '../core/state.js';
 import { Z } from '../core/constants.js';
 import { showToast, isInspectorUI, getSelector, addTooltip } from '../core/helpers.js';
-import { showRailPanel, hideRailPanel } from '../rail.js';
+import { showRailPanel, hideRailPanel, setActiveButton } from '../rail.js';
+import { activateModule } from '../core/registry.js';
 import { loadTailwind } from '../core/tailwind.js';
+// NOTE: circular import with annotations.js is intentional and safe — both
+// only call each other from runtime event handlers, never at module eval.
+import { setElementNote, getElementNote, queueRepositionAll, setElementText, evaluateAnnotation } from './annotations.js';
 
 // --- Tailwind class database ---
 const CLASSES = [
@@ -134,41 +138,106 @@ function applyToAll(addCls, groupOptions) {
     if (groupOptions) groupOptions.forEach(c => el.classList.remove(c));
     if (addCls) el.classList.add(addCls);
   });
+  queueRepositionAll();
 }
 
 function removeFromAll(cls) {
   selected.forEach(({ el }) => el.classList.remove(cls));
+  queueRepositionAll();
 }
 
 function resetAll() {
   selected.forEach(({ el, originalClasses }) => { el.className = originalClasses; });
+  // Re-run setElementNote so any annotation that's now empty (no note, no
+  // class diff after the reset) gets cleaned up automatically.
+  selected.forEach(({ el, originalClasses }) => {
+    setElementNote(el, getElementNote(el), originalClasses);
+  });
+  queueRepositionAll();
   renderPanel();
   showToast('Reset');
 }
 
+// --- Render all design controls vertically into a container.
+//     Section visibility:
+//       - single selection → conditional on element type (text vs container vs media)
+//       - multi-selection → show Type + Layout + Style + Classes always, plus
+//         Media if any media element is in the selection. Class changes apply
+//         to every selection via applyToAll. ---
+function renderAllSections(container, primaryEl) {
+  const isMulti = selected.length > 1;
+  const types = new Set(selected.map(s => getElType(s.el)));
+  const type = types.size === 1 ? [...types][0] : 'mixed';
+
+  const showText = isMulti || type === 'text' || type === 'mixed' || type === 'interactive';
+  const showLayout = isMulti || type === 'container' || type === 'mixed' || type === 'interactive';
+  const showMedia = isMulti ? types.has('media') : type === 'media';
+
+  if (showText) renderTextControls(container, primaryEl);
+  if (showLayout) renderLayoutControls(container, primaryEl);
+  if (showMedia) renderMediaControls(container, primaryEl);
+
+  renderSection(container, 'Background', (sec) => renderColorSwatches(sec, BG_COLORS, primaryEl));
+  renderSection(container, 'Border & Effects', (sec) => {
+    sec.appendChild(makeSlider('Rounded', ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'], primaryEl));
+    sec.appendChild(makeSlider('Shadow', ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'], primaryEl));
+    sec.appendChild(makeSlider('Opacity', ['opacity-0','opacity-25','opacity-50','opacity-75','opacity-100'], primaryEl));
+  });
+
+  renderClassEditor(container, primaryEl);
+}
+
+// --- Note section: surfaces annotations.setElementNote in design view so the
+//     user can leave on-page feedback without leaving Design mode. Works for
+//     single OR multi-selection — when multi, typing applies the same note to
+//     every selected element (each gets its own bubble, anchored to itself).
+//     If the selected elements have differing existing notes, the textarea
+//     starts empty so a fresh edit doesn't clobber any one of them silently. ---
+function renderNoteSection(container) {
+  const sec = document.createElement('div');
+  Object.assign(sec.style, { marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)' });
+
+  const label = document.createElement('div');
+  label.textContent = selected.length > 1 ? `NOTE (${selected.length} elements)` : 'NOTE';
+  Object.assign(label.style, { fontSize: '9px', fontWeight: '700', color: '#666', marginBottom: '4px', letterSpacing: '0.5px' });
+  sec.appendChild(label);
+
+  const existing = selected.map(s => getElementNote(s.el));
+  const allMatch = existing.every(n => n === existing[0]);
+
+  const ta = document.createElement('textarea');
+  ta.value = allMatch ? existing[0] : '';
+  ta.placeholder = selected.length > 1
+    ? `Leave feedback for ${selected.length} elements (visible on the page)…`
+    : 'Leave feedback (visible on the page)…';
+  Object.assign(ta.style, {
+    width: '100%', minHeight: '48px', padding: '7px', borderRadius: '5px',
+    border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)',
+    color: '#fff', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
+    resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: '1.4'
+  });
+  ta.addEventListener('input', () => {
+    selected.forEach(s => setElementNote(s.el, ta.value, s.originalClasses));
+  });
+  ta.addEventListener('mousedown', (e) => e.stopPropagation());
+  ta.addEventListener('keydown', (e) => e.stopPropagation());
+  sec.appendChild(ta);
+
+  container.appendChild(sec);
+}
+
 // --- Render panel into rail content area ---
-let activeTab = null;
-
-function renderPanel() {
-  const container = document.createElement('div');
+// `focusNote` is set to true on fresh element selection so the user can just
+// start typing — most common interaction. Re-renders triggered by class
+// tweaks, slider drags, etc. pass false so they don't steal focus mid-edit.
+function renderPanel(focusNote = false) {
   if (!selected.length) { hideRailPanel(); return; }
-
-  const type = getMixedType(selected);
   const primary = selected[0].el;
 
-  // Determine available tabs
-  const tabs = [];
-  if (type === 'text' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'type', label: 'Type' });
-  if (type === 'container' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'layout', label: 'Layout' });
-  if (type === 'media') tabs.push({ id: 'media', label: 'Media' });
-  tabs.push({ id: 'style', label: 'Style' });
-  tabs.push({ id: 'classes', label: 'Classes' });
+  const container = document.createElement('div');
 
-  if (!activeTab || !tabs.find(t => t.id === activeTab)) activeTab = tabs[0].id;
-
-  // Header row
   const header = document.createElement('div');
-  Object.assign(header.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' });
+  Object.assign(header.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' });
   const title = document.createElement('span');
   title.textContent = selected.length > 1 ? `${selected.length} elements` : `<${primary.tagName.toLowerCase()}>`;
   Object.assign(title.style, { fontWeight: '600', fontSize: '11px', color: '#666' });
@@ -177,99 +246,27 @@ function renderPanel() {
   header.appendChild(resetBtn);
   container.appendChild(header);
 
-  // Tab bar
-  const tabBar = document.createElement('div');
-  Object.assign(tabBar.style, { display: 'flex', gap: '2px', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '6px' });
-  tabs.forEach(tab => {
-    const t = document.createElement('div');
-    t.textContent = tab.label;
-    const isActive = tab.id === activeTab;
-    Object.assign(t.style, {
-      padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: '600',
-      color: isActive ? '#ec4899' : '#888',
-      background: isActive ? 'rgba(236,72,153,0.12)' : 'transparent'
-    });
-    t.addEventListener('mouseenter', () => { if (!isActive) t.style.background = 'rgba(255,255,255,0.06)'; });
-    t.addEventListener('mouseleave', () => { if (!isActive) t.style.background = 'transparent'; });
-    t.addEventListener('click', (e) => { e.stopPropagation(); activeTab = tab.id; renderPanel(); });
-    tabBar.appendChild(t);
-  });
-  container.appendChild(tabBar);
-
-  // Tab content
-  const tabContent = document.createElement('div');
-  if (activeTab === 'type') renderTextControls(tabContent, primary);
-  else if (activeTab === 'layout') renderLayoutControls(tabContent, primary);
-  else if (activeTab === 'media') renderMediaControls(tabContent, primary);
-  else if (activeTab === 'style') {
-    renderSection(tabContent, 'Background', (sec) => renderColorSwatches(sec, BG_COLORS, primary));
-    renderSection(tabContent, 'Border & Effects', (sec) => {
-      sec.appendChild(makeSlider('Rounded', ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'], primary));
-      sec.appendChild(makeSlider('Shadow', ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'], primary));
-      sec.appendChild(makeSlider('Opacity', ['opacity-0','opacity-25','opacity-50','opacity-75','opacity-100'], primary));
-    });
-  }
-  else if (activeTab === 'classes') renderClassEditor(tabContent, primary);
-  container.appendChild(tabContent);
-
+  renderNoteSection(container);
+  renderAllSections(container, primary);
   showRailPanel(container);
+
+  if (focusNote) {
+    const ta = container.querySelector('textarea');
+    if (ta) {
+      ta.focus();
+      const end = ta.value.length;
+      try { ta.setSelectionRange(end, end); } catch (_) {}
+    }
+  }
 }
 
 // --- Exported: render Tailwind controls into a given container (used by annotations) ---
 export function renderDesignControls(container, elements, onChangeCallback) {
   const origSelected = selected;
   selected = elements;
-  const type = getMixedType(selected);
   const primary = selected[0].el;
 
-  const tabs = [];
-  if (type === 'text' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'type', label: 'Type' });
-  if (type === 'container' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'layout', label: 'Layout' });
-  if (type === 'media') tabs.push({ id: 'media', label: 'Media' });
-  tabs.push({ id: 'style', label: 'Style' });
-  tabs.push({ id: 'classes', label: 'Classes' });
-
-  if (!activeTab || !tabs.find(t => t.id === activeTab)) activeTab = tabs[0].id;
-
-  // Tab bar
-  const tabBar = document.createElement('div');
-  Object.assign(tabBar.style, { display: 'flex', gap: '2px', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '6px' });
-  tabs.forEach(tab => {
-    const t = document.createElement('div');
-    t.textContent = tab.label;
-    const isActive = tab.id === activeTab;
-    Object.assign(t.style, {
-      padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: '600',
-      color: isActive ? '#ec4899' : '#888',
-      background: isActive ? 'rgba(236,72,153,0.12)' : 'transparent'
-    });
-    t.addEventListener('mouseenter', () => { if (!isActive) t.style.background = 'rgba(255,255,255,0.06)'; });
-    t.addEventListener('mouseleave', () => { if (!isActive) t.style.background = 'transparent'; });
-    t.addEventListener('click', (e) => {
-      e.stopPropagation();
-      activeTab = tab.id;
-      container.innerHTML = '';
-      renderDesignControls(container, selected, onChangeCallback);
-    });
-    tabBar.appendChild(t);
-  });
-  container.appendChild(tabBar);
-
-  // Tab content
-  const tabContent = document.createElement('div');
-  if (activeTab === 'type') renderTextControls(tabContent, primary);
-  else if (activeTab === 'layout') renderLayoutControls(tabContent, primary);
-  else if (activeTab === 'media') renderMediaControls(tabContent, primary);
-  else if (activeTab === 'style') {
-    renderSection(tabContent, 'Background', (sec) => renderColorSwatches(sec, BG_COLORS, primary));
-    renderSection(tabContent, 'Border & Effects', (sec) => {
-      sec.appendChild(makeSlider('Rounded', ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'], primary));
-      sec.appendChild(makeSlider('Shadow', ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'], primary));
-      sec.appendChild(makeSlider('Opacity', ['opacity-0','opacity-25','opacity-50','opacity-75','opacity-100'], primary));
-    });
-  }
-  else if (activeTab === 'classes') renderClassEditor(tabContent, primary);
-  container.appendChild(tabContent);
+  renderAllSections(container, primary);
 
   selected = origSelected;
   if (onChangeCallback) onChangeCallback();
@@ -635,18 +632,21 @@ function renderColorSwatches(parent, colors, el) {
 // --- Selection + highlight ---
 const TEXT_TAGS = ['P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI','BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL'];
 
+function teardownEntry(s) {
+  s.el.style.outline = s.origOutline;
+  if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
+  if (s.onTextInput) { s.el.removeEventListener('input', s.onTextInput); s.onTextInput = null; }
+}
+
 function selectElement(el, additive) {
   if (!additive) {
-    selected.forEach(s => {
-      s.el.style.outline = s.origOutline;
-      if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
-    });
+    selected.forEach(teardownEntry);
     selected = [];
   }
   const idx = selected.findIndex(s => s.el === el);
+  let added = false;
   if (idx !== -1) {
-    el.style.outline = selected[idx].origOutline;
-    if (selected[idx].madeEditable) { el.contentEditable = 'false'; el.style.cursor = ''; }
+    teardownEntry(selected[idx]);
     selected.splice(idx, 1);
   } else {
     const isText = TEXT_TAGS.includes(el.tagName);
@@ -655,20 +655,39 @@ function selectElement(el, additive) {
       el.contentEditable = 'true';
       el.style.cursor = 'text';
       entry.madeEditable = true;
+      entry.originalText = el.innerText;
+      // Lazy registration: only register with the annotation system once
+      // the user actually types. Keeps the store clean for plain selections.
+      entry.onTextInput = () => {
+        setElementText(el, entry.originalText, entry.originalClasses);
+        evaluateAnnotation(el);
+        queueRepositionAll();
+      };
+      el.addEventListener('input', entry.onTextInput);
     }
     selected.push(entry);
     el.style.outline = '2px solid #ec4899';
+    added = true;
   }
-  renderPanel();
+  renderPanel(added);
 }
 
 function clearSelection() {
-  selected.forEach(s => {
-    s.el.style.outline = s.origOutline;
-    if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
-  });
+  selected.forEach(teardownEntry);
   selected = [];
   hideRailPanel();
+}
+
+// --- Public: activate Design mode (if needed) and single-select an element.
+//     Used by annotation bubbles so clicking one drops you into Design mode
+//     editing that element — same panel as everywhere else. ---
+export function focusElement(el) {
+  if (!activeMode) {
+    activateModule('style-modifier');
+    setActiveButton('style-modifier');
+  }
+  selectElement(el, false);
+  el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 // --- Hover highlight ---
@@ -726,10 +745,10 @@ export default {
   enabledByDefault: true,
 
   button: {
-    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M12 22C6.49 22 2 17.51 2 12S6.49 2 12 2s10 4.04 10 9c0 3.31-2.69 6-6 6h-1.77c-.28 0-.5.22-.5.5 0 .12.05.23.13.33.41.47.64 1.06.64 1.67A2.5 2.5 0 0112 22zm0-18c-4.41 0-8 3.59-8 8s3.59 8 8 8c.28 0 .5-.22.5-.5a.54.54 0 00-.14-.35c-.41-.46-.63-1.05-.63-1.65a2.5 2.5 0 012.5-2.5H16c2.21 0 4-1.79 4-4 0-3.86-3.59-7-8-7z"/><circle cx="6.5" cy="11.5" r="1.5"/><circle cx="9.5" cy="7.5" r="1.5"/><circle cx="14.5" cy="7.5" r="1.5"/><circle cx="17.5" cy="11.5" r="1.5"/></svg>',
+    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
     tooltip: 'Design',
     color: '#ec4899',
-    order: 35,
+    order: 5,
   },
 
   shortcuts: [],
@@ -753,9 +772,12 @@ export default {
     clearSelection();
   },
 
+  // Design is the home mode — clicking its button or hitting its shortcut
+  // always activates (no-op if already on). Other tools toggle off back to
+  // Design via the rail's fallback path.
   toggle() {
-    if (activeMode) { this.deactivate(); return false; }
-    else { this.activate(); return true; }
+    this.activate();
+    return true;
   },
 
   enable() {},

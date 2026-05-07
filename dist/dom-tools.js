@@ -54,7 +54,6 @@
     selected: [],      // {el, desc, badge}[]
     altHeld: false,
     slotType: null,    // 'before' | 'after' | 'left' | 'right' | 'inside'
-    editMode: false,
     cameraMode: false,
     annotateMode: false,
     annotateSub: 'sticky', // 'pen' | 'sticky'
@@ -71,13 +70,8 @@
     annotate: '#7c3aed',
     pen: '#dc2626',
   };
-
-  const OUTLINE = '2px solid ' + COLORS.selector;
-  const BG = 'rgba(0, 102, 255, 0.08)';
   const SEL_OUTLINE = '2px solid ' + COLORS.selector;
   const SEL_BG = 'rgba(0, 102, 255, 0.12)';
-  const SLOT_OUTLINE = '2px solid #00a651';
-  const SLOT_BG = 'rgba(0, 166, 81, 0.08)';
   const CAM_OUTLINE = '2px solid ' + COLORS.camera;
   const CAM_BG = 'rgba(204, 51, 0, 0.06)';
   const PEN_WIDTH = 2.5;
@@ -202,14 +196,6 @@
     return path.join(' > ');
   }
 
-  function getContext(el) {
-    const sel = getSelector(el);
-    const text = el.textContent.trim().substring(0, 80);
-    let desc = sel;
-    if (text) desc += ' | "' + text + (el.textContent.trim().length > 80 ? '...' : '') + '"';
-    return desc;
-  }
-
   function isInspectorUI(el) {
     let node = el;
     while (node) {
@@ -233,37 +219,6 @@
     }
   }
 
-  function clearSelection$1() {
-    state.selected.forEach(s => {
-      s.el.style.outline = s.el._origOutline || '';
-      s.el.style.backgroundColor = s.el._origBg || '';
-      if (s.badge) s.badge.remove();
-    });
-    state.selected = [];
-  }
-
-  function addBadge(el, num) {
-    const badge = document.createElement('div');
-    badge.textContent = num;
-    Object.assign(badge.style, {
-      position: 'absolute', top: '-6px', left: '-6px', width: '18px', height: '18px',
-      background: '#0066ff', color: '#fff', borderRadius: '50%', fontSize: '11px',
-      fontWeight: '700', fontFamily: 'system-ui, sans-serif', display: 'flex',
-      alignItems: 'center', justifyContent: 'center', zIndex: String(Z.badge),
-      boxShadow: '0 1px 4px rgba(0,0,0,0.25)', pointerEvents: 'none'
-    });
-    const pos = getComputedStyle(el).position;
-    if (pos === 'static') el.style.position = 'relative';
-    el.appendChild(badge);
-    return badge;
-  }
-
-  function refreshBadges() {
-    state.selected.forEach((s, i) => {
-      if (s.badge) s.badge.textContent = i + 1;
-    });
-  }
-
   const RAIL_WIDTH = 48;
   const PANEL_WIDTH = 300;
 
@@ -275,7 +230,7 @@
     zIndex: String(Z.toolbar), padding: '8px 0',
     background: 'rgba(24,24,24,0.96)', borderRight: '1px solid rgba(255,255,255,0.08)',
     backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-    boxShadow: '2px 0 20px rgba(0,0,0,0.3)', fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'system-ui, sans-serif',
     boxSizing: 'border-box'
   });
 
@@ -302,7 +257,7 @@
     width: PANEL_WIDTH + 'px', background: 'rgba(24,24,24,0.96)',
     borderRight: '1px solid rgba(255,255,255,0.08)',
     backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-    boxShadow: '2px 0 16px rgba(0,0,0,0.2)', overflowY: 'auto',
+    overflowY: 'auto',
     display: 'none', zIndex: String(Z.toolbar - 1), padding: '14px',
     boxSizing: 'border-box', fontSize: '11px', color: '#eee',
     fontFamily: 'system-ui, sans-serif'
@@ -344,9 +299,11 @@
         if (stayed) {
           setActiveButton(mod.id);
         } else {
-          const selectorMod = getModules().find(m => m.id === 'selector');
-          if (selectorMod && selectorMod.activate) selectorMod.activate();
-          setActiveButton('selector');
+          // Fall back to the home tool (Design) when the user toggles a
+          // secondary tool off.
+          const home = getModules().find(m => m.id === 'style-modifier');
+          if (home && home.activate) home.activate();
+          setActiveButton('style-modifier');
         }
       } else {
         activateModule(mod.id);
@@ -368,14 +325,11 @@
       }
     });
 
-    // Update URL param to reflect active tool
+    // Update URL param to reflect active tool. Design is the default, so it
+    // writes an empty value (?dom-tools). Other tools write their id.
     const url = new URL(window.location);
-    const paramVal = (activeId === 'selector') ? '' : activeId === 'style-modifier' ? 'design' : activeId;
-    if (paramVal) {
-      url.searchParams.set('dom-tools', paramVal);
-    } else {
-      url.searchParams.set('dom-tools', '');
-    }
+    const paramVal = (activeId === 'style-modifier') ? '' : (activeId || '');
+    url.searchParams.set('dom-tools', paramVal);
     history.replaceState(null, '', url);
   }
 
@@ -470,21 +424,27 @@
     // Push page content (use documentElement to avoid conflicting with body margin:auto)
     document.body.style.paddingLeft = RAIL_WIDTH + 'px';
 
-    setActiveButton('selector');
+    setActiveButton('style-modifier');
+  }
+
+  const HOME_MOD_ID = 'style-modifier';
+
+  function activateHome(modules) {
+    const home = modules.find(m => m.id === HOME_MOD_ID);
+    if (home && home.activate) home.activate();
+    setActiveButton(HOME_MOD_ID);
   }
 
   let lastEsc = 0;
 
   function initKeyboard() {
     document.addEventListener('keydown', (e) => {
-      // Alt key for slot mode
       if (e.key === 'Alt') {
         e.preventDefault();
         state.altHeld = true;
         return;
       }
 
-      // Check module shortcuts
       const modules = getModules();
       for (const mod of modules) {
         if (!isEnabled(mod.id) || !mod.shortcuts) continue;
@@ -497,13 +457,8 @@
             e.preventDefault();
             if (sc.action === 'toggle' && mod.toggle) {
               const stayed = mod.toggle();
-              if (stayed) {
-                setActiveButton(mod.id);
-              } else {
-                const selectorMod = modules.find(m => m.id === 'selector');
-                if (selectorMod && selectorMod.activate) selectorMod.activate();
-                setActiveButton('selector');
-              }
+              if (stayed) setActiveButton(mod.id);
+              else activateHome(modules);
             } else if (sc.action && mod[sc.action]) {
               mod[sc.action]();
             }
@@ -512,34 +467,26 @@
         }
       }
 
-
-      // Escape handling
       if (e.key === 'Escape') {
         if (state.annotateMode) {
           e.preventDefault();
-          const selectorMod = modules.find(m => m.id === 'selector');
-          if (selectorMod) { selectorMod.activate(); setActiveButton('selector'); }
-          modules.filter(m => m.id === 'draw' || m.id === 'annotations').forEach(m => m.deactivate?.());
+          modules.filter(m => m.id === 'draw').forEach(m => m.deactivate?.());
           state.annotateMode = false;
+          activateHome(modules);
           return;
         }
         if (state.cameraMode) {
           e.preventDefault();
           const cameraMod = modules.find(m => m.id === 'camera');
           if (cameraMod) cameraMod.deactivate();
-          const selectorMod = modules.find(m => m.id === 'selector');
-          if (selectorMod) selectorMod.activate();
-          setActiveButton('selector');
+          activateHome(modules);
           return;
         }
-        // Double-tap escape toggles selector
+        // Double-tap Escape: re-focus the home tool (Design). Always activates;
+        // there's no "off" state for the home mode.
         const now = Date.now();
         if (now - lastEsc < 400) {
-          const selectorMod = modules.find(m => m.id === 'selector');
-          if (selectorMod && selectorMod.toggle) {
-            const stayed = selectorMod.toggle();
-            setActiveButton(stayed ? 'selector' : '');
-          }
+          activateHome(modules);
           lastEsc = 0;
         } else {
           lastEsc = now;
@@ -662,8 +609,8 @@
     } else {
       hideRailPanel();
       if (_settingsBtn) _settingsBtn.style.background = 'transparent';
-      activateModule('selector');
-      setActiveButton('selector');
+      activateModule('style-modifier');
+      setActiveButton('style-modifier');
     }
   }
 
@@ -698,14 +645,39 @@
     inspectorUI.add(_settingsBtn);
   }
 
-  // Inject Tailwind CDN (async, preflight disabled) so design-mode classes render.
-  // Called lazily — only when user first enters a mode that needs Tailwind.
+  /**
+   * Inject the precompiled Tailwind stylesheet so design-mode classes render.
+   *
+   * No CDN/JIT runtime: this is a static CSS file built at `npm run build:css`.
+   * We resolve its URL relative to wherever `dom-tools.js` is loaded from, so
+   * the same code works in local dev (./dist/dom-tools.css) and when the script
+   * is hosted (https://.../tools/dom-tools/dom-tools.css).
+   */
+
+  const HOSTED_FALLBACK = 'https://design.nyt.net/tools/dom-tools/dom-tools.css';
+
+  function resolveStylesheetUrl() {
+    const scripts = document.querySelectorAll('script[src]');
+    for (const s of scripts) {
+      const src = s.getAttribute('src') || '';
+      const match = src.match(/^(.*\/)?dom-tools(\.min)?\.js(?:\?.*)?$/);
+      if (match) {
+        const dir = match[1] || '';
+        return dir + 'dom-tools.css';
+      }
+    }
+    return HOSTED_FALLBACK;
+  }
+
   function loadTailwind() {
-    if (window.tailwind || document.querySelector('script[src*="tailwindcss"]')) return;
-    window.tailwind = { config: { corePlugins: { preflight: false } } };
-    const s = document.createElement('script');
-    s.src = 'https://cdn.tailwindcss.com';
-    document.head.appendChild(s);
+    if (document.querySelector('link[data-dom-tools-tw]')) return;
+    if (document.querySelector('link[rel="stylesheet"][href*="dom-tools.css"]')) return;
+
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = resolveStylesheetUrl();
+    link.dataset.domToolsTw = '1';
+    document.head.appendChild(link);
   }
 
   // --- Tailwind class database ---
@@ -811,7 +783,7 @@
 
   // --- State ---
   let selected = []; // { el, originalClasses }[]
-  let activeMode$1 = false;
+  let activeMode = false;
 
   // --- Export for copy-all and annotations ---
   function getSelected() { return selected; }
@@ -825,53 +797,112 @@
     return 'container';
   }
 
-  function getMixedType(elements) {
-    const types = new Set(elements.map(s => getElType(s.el)));
-    if (types.size === 1) return [...types][0];
-    return 'mixed';
-  }
-
   // --- Apply class to all selected ---
   function applyToAll(addCls, groupOptions) {
     selected.forEach(({ el }) => {
       if (groupOptions) groupOptions.forEach(c => el.classList.remove(c));
       if (addCls) el.classList.add(addCls);
     });
+    queueRepositionAll();
   }
 
   function removeFromAll(cls) {
     selected.forEach(({ el }) => el.classList.remove(cls));
+    queueRepositionAll();
   }
 
   function resetAll() {
     selected.forEach(({ el, originalClasses }) => { el.className = originalClasses; });
+    // Re-run setElementNote so any annotation that's now empty (no note, no
+    // class diff after the reset) gets cleaned up automatically.
+    selected.forEach(({ el, originalClasses }) => {
+      setElementNote(el, getElementNote(el), originalClasses);
+    });
+    queueRepositionAll();
     renderPanel();
     showToast('Reset');
   }
 
+  // --- Render all design controls vertically into a container.
+  //     Section visibility:
+  //       - single selection → conditional on element type (text vs container vs media)
+  //       - multi-selection → show Type + Layout + Style + Classes always, plus
+  //         Media if any media element is in the selection. Class changes apply
+  //         to every selection via applyToAll. ---
+  function renderAllSections(container, primaryEl) {
+    const isMulti = selected.length > 1;
+    const types = new Set(selected.map(s => getElType(s.el)));
+    const type = types.size === 1 ? [...types][0] : 'mixed';
+
+    const showText = isMulti || type === 'text' || type === 'mixed' || type === 'interactive';
+    const showLayout = isMulti || type === 'container' || type === 'mixed' || type === 'interactive';
+    const showMedia = isMulti ? types.has('media') : type === 'media';
+
+    if (showText) renderTextControls(container, primaryEl);
+    if (showLayout) renderLayoutControls(container, primaryEl);
+    if (showMedia) renderMediaControls(container, primaryEl);
+
+    renderSection(container, 'Background', (sec) => renderColorSwatches(sec, BG_COLORS, primaryEl));
+    renderSection(container, 'Border & Effects', (sec) => {
+      sec.appendChild(makeSlider('Rounded', ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'], primaryEl));
+      sec.appendChild(makeSlider('Shadow', ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'], primaryEl));
+      sec.appendChild(makeSlider('Opacity', ['opacity-0','opacity-25','opacity-50','opacity-75','opacity-100'], primaryEl));
+    });
+
+    renderClassEditor(container, primaryEl);
+  }
+
+  // --- Note section: surfaces annotations.setElementNote in design view so the
+  //     user can leave on-page feedback without leaving Design mode. Works for
+  //     single OR multi-selection — when multi, typing applies the same note to
+  //     every selected element (each gets its own bubble, anchored to itself).
+  //     If the selected elements have differing existing notes, the textarea
+  //     starts empty so a fresh edit doesn't clobber any one of them silently. ---
+  function renderNoteSection(container) {
+    const sec = document.createElement('div');
+    Object.assign(sec.style, { marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)' });
+
+    const label = document.createElement('div');
+    label.textContent = selected.length > 1 ? `NOTE (${selected.length} elements)` : 'NOTE';
+    Object.assign(label.style, { fontSize: '9px', fontWeight: '700', color: '#666', marginBottom: '4px', letterSpacing: '0.5px' });
+    sec.appendChild(label);
+
+    const existing = selected.map(s => getElementNote(s.el));
+    const allMatch = existing.every(n => n === existing[0]);
+
+    const ta = document.createElement('textarea');
+    ta.value = allMatch ? existing[0] : '';
+    ta.placeholder = selected.length > 1
+      ? `Leave feedback for ${selected.length} elements (visible on the page)…`
+      : 'Leave feedback (visible on the page)…';
+    Object.assign(ta.style, {
+      width: '100%', minHeight: '48px', padding: '7px', borderRadius: '5px',
+      border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)',
+      color: '#fff', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
+      resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: '1.4'
+    });
+    ta.addEventListener('input', () => {
+      selected.forEach(s => setElementNote(s.el, ta.value, s.originalClasses));
+    });
+    ta.addEventListener('mousedown', (e) => e.stopPropagation());
+    ta.addEventListener('keydown', (e) => e.stopPropagation());
+    sec.appendChild(ta);
+
+    container.appendChild(sec);
+  }
+
   // --- Render panel into rail content area ---
-  let activeTab = null;
-
-  function renderPanel() {
-    const container = document.createElement('div');
+  // `focusNote` is set to true on fresh element selection so the user can just
+  // start typing — most common interaction. Re-renders triggered by class
+  // tweaks, slider drags, etc. pass false so they don't steal focus mid-edit.
+  function renderPanel(focusNote = false) {
     if (!selected.length) { hideRailPanel(); return; }
-
-    const type = getMixedType(selected);
     const primary = selected[0].el;
 
-    // Determine available tabs
-    const tabs = [];
-    if (type === 'text' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'type', label: 'Type' });
-    if (type === 'container' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'layout', label: 'Layout' });
-    if (type === 'media') tabs.push({ id: 'media', label: 'Media' });
-    tabs.push({ id: 'style', label: 'Style' });
-    tabs.push({ id: 'classes', label: 'Classes' });
+    const container = document.createElement('div');
 
-    if (!activeTab || !tabs.find(t => t.id === activeTab)) activeTab = tabs[0].id;
-
-    // Header row
     const header = document.createElement('div');
-    Object.assign(header.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' });
+    Object.assign(header.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' });
     const title = document.createElement('span');
     title.textContent = selected.length > 1 ? `${selected.length} elements` : `<${primary.tagName.toLowerCase()}>`;
     Object.assign(title.style, { fontWeight: '600', fontSize: '11px', color: '#666' });
@@ -880,102 +911,18 @@
     header.appendChild(resetBtn);
     container.appendChild(header);
 
-    // Tab bar
-    const tabBar = document.createElement('div');
-    Object.assign(tabBar.style, { display: 'flex', gap: '2px', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '6px' });
-    tabs.forEach(tab => {
-      const t = document.createElement('div');
-      t.textContent = tab.label;
-      const isActive = tab.id === activeTab;
-      Object.assign(t.style, {
-        padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: '600',
-        color: isActive ? '#ec4899' : '#888',
-        background: isActive ? 'rgba(236,72,153,0.12)' : 'transparent'
-      });
-      t.addEventListener('mouseenter', () => { if (!isActive) t.style.background = 'rgba(255,255,255,0.06)'; });
-      t.addEventListener('mouseleave', () => { if (!isActive) t.style.background = 'transparent'; });
-      t.addEventListener('click', (e) => { e.stopPropagation(); activeTab = tab.id; renderPanel(); });
-      tabBar.appendChild(t);
-    });
-    container.appendChild(tabBar);
-
-    // Tab content
-    const tabContent = document.createElement('div');
-    if (activeTab === 'type') renderTextControls(tabContent, primary);
-    else if (activeTab === 'layout') renderLayoutControls(tabContent, primary);
-    else if (activeTab === 'media') renderMediaControls(tabContent, primary);
-    else if (activeTab === 'style') {
-      renderSection(tabContent, 'Background', (sec) => renderColorSwatches(sec, BG_COLORS, primary));
-      renderSection(tabContent, 'Border & Effects', (sec) => {
-        sec.appendChild(makeSlider('Rounded', ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'], primary));
-        sec.appendChild(makeSlider('Shadow', ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'], primary));
-        sec.appendChild(makeSlider('Opacity', ['opacity-0','opacity-25','opacity-50','opacity-75','opacity-100'], primary));
-      });
-    }
-    else if (activeTab === 'classes') renderClassEditor(tabContent, primary);
-    container.appendChild(tabContent);
-
+    renderNoteSection(container);
+    renderAllSections(container, primary);
     showRailPanel(container);
-  }
 
-  // --- Exported: render Tailwind controls into a given container (used by annotations) ---
-  function renderDesignControls(container, elements, onChangeCallback) {
-    const origSelected = selected;
-    selected = elements;
-    const type = getMixedType(selected);
-    const primary = selected[0].el;
-
-    const tabs = [];
-    if (type === 'text' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'type', label: 'Type' });
-    if (type === 'container' || type === 'mixed' || type === 'interactive') tabs.push({ id: 'layout', label: 'Layout' });
-    if (type === 'media') tabs.push({ id: 'media', label: 'Media' });
-    tabs.push({ id: 'style', label: 'Style' });
-    tabs.push({ id: 'classes', label: 'Classes' });
-
-    if (!activeTab || !tabs.find(t => t.id === activeTab)) activeTab = tabs[0].id;
-
-    // Tab bar
-    const tabBar = document.createElement('div');
-    Object.assign(tabBar.style, { display: 'flex', gap: '2px', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '6px' });
-    tabs.forEach(tab => {
-      const t = document.createElement('div');
-      t.textContent = tab.label;
-      const isActive = tab.id === activeTab;
-      Object.assign(t.style, {
-        padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: '600',
-        color: isActive ? '#ec4899' : '#888',
-        background: isActive ? 'rgba(236,72,153,0.12)' : 'transparent'
-      });
-      t.addEventListener('mouseenter', () => { if (!isActive) t.style.background = 'rgba(255,255,255,0.06)'; });
-      t.addEventListener('mouseleave', () => { if (!isActive) t.style.background = 'transparent'; });
-      t.addEventListener('click', (e) => {
-        e.stopPropagation();
-        activeTab = tab.id;
-        container.innerHTML = '';
-        renderDesignControls(container, selected, onChangeCallback);
-      });
-      tabBar.appendChild(t);
-    });
-    container.appendChild(tabBar);
-
-    // Tab content
-    const tabContent = document.createElement('div');
-    if (activeTab === 'type') renderTextControls(tabContent, primary);
-    else if (activeTab === 'layout') renderLayoutControls(tabContent, primary);
-    else if (activeTab === 'media') renderMediaControls(tabContent, primary);
-    else if (activeTab === 'style') {
-      renderSection(tabContent, 'Background', (sec) => renderColorSwatches(sec, BG_COLORS, primary));
-      renderSection(tabContent, 'Border & Effects', (sec) => {
-        sec.appendChild(makeSlider('Rounded', ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'], primary));
-        sec.appendChild(makeSlider('Shadow', ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'], primary));
-        sec.appendChild(makeSlider('Opacity', ['opacity-0','opacity-25','opacity-50','opacity-75','opacity-100'], primary));
-      });
+    if (focusNote) {
+      const ta = container.querySelector('textarea');
+      if (ta) {
+        ta.focus();
+        const end = ta.value.length;
+        try { ta.setSelectionRange(end, end); } catch (_) {}
+      }
     }
-    else if (activeTab === 'classes') renderClassEditor(tabContent, primary);
-    container.appendChild(tabContent);
-
-    selected = origSelected;
-    if (onChangeCallback) onChangeCallback();
   }
 
   function renderSection(parent, label, renderFn) {
@@ -1338,18 +1285,21 @@
   // --- Selection + highlight ---
   const TEXT_TAGS = ['P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI','BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL'];
 
+  function teardownEntry(s) {
+    s.el.style.outline = s.origOutline;
+    if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
+    if (s.onTextInput) { s.el.removeEventListener('input', s.onTextInput); s.onTextInput = null; }
+  }
+
   function selectElement(el, additive) {
     if (!additive) {
-      selected.forEach(s => {
-        s.el.style.outline = s.origOutline;
-        if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
-      });
+      selected.forEach(teardownEntry);
       selected = [];
     }
     const idx = selected.findIndex(s => s.el === el);
+    let added = false;
     if (idx !== -1) {
-      el.style.outline = selected[idx].origOutline;
-      if (selected[idx].madeEditable) { el.contentEditable = 'false'; el.style.cursor = ''; }
+      teardownEntry(selected[idx]);
       selected.splice(idx, 1);
     } else {
       const isText = TEXT_TAGS.includes(el.tagName);
@@ -1358,55 +1308,74 @@
         el.contentEditable = 'true';
         el.style.cursor = 'text';
         entry.madeEditable = true;
+        entry.originalText = el.innerText;
+        // Lazy registration: only register with the annotation system once
+        // the user actually types. Keeps the store clean for plain selections.
+        entry.onTextInput = () => {
+          setElementText(el, entry.originalText, entry.originalClasses);
+          evaluateAnnotation(el);
+          queueRepositionAll();
+        };
+        el.addEventListener('input', entry.onTextInput);
       }
       selected.push(entry);
       el.style.outline = '2px solid #ec4899';
+      added = true;
     }
-    renderPanel();
+    renderPanel(added);
   }
 
   function clearSelection() {
-    selected.forEach(s => {
-      s.el.style.outline = s.origOutline;
-      if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
-    });
+    selected.forEach(teardownEntry);
     selected = [];
     hideRailPanel();
   }
 
-  // --- Hover highlight ---
-  let hoveredEl$1 = null;
-
-  function onMove$2(e) {
-    if (!activeMode$1) return;
-    const el = e.target;
-    if (isInspectorUI(el) || el === document.body || el === document.documentElement) {
-      clearHoverHighlight$1();
-      return;
+  // --- Public: activate Design mode (if needed) and single-select an element.
+  //     Used by annotation bubbles so clicking one drops you into Design mode
+  //     editing that element — same panel as everywhere else. ---
+  function focusElement(el) {
+    if (!activeMode) {
+      activateModule('style-modifier');
+      setActiveButton('style-modifier');
     }
-    if (el === hoveredEl$1) return;
-    clearHoverHighlight$1();
-    if (selected.find(s => s.el === el)) return;
-    hoveredEl$1 = el;
-    hoveredEl$1._smHoverOutline = hoveredEl$1.style.outline;
-    hoveredEl$1._smHoverBg = hoveredEl$1.style.backgroundColor;
-    hoveredEl$1.style.outline = '2px solid rgba(236,72,153,0.5)';
-    hoveredEl$1.style.backgroundColor = 'rgba(236,72,153,0.04)';
+    selectElement(el, false);
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
-  function clearHoverHighlight$1() {
-    if (hoveredEl$1) {
-      hoveredEl$1.style.outline = hoveredEl$1._smHoverOutline || '';
-      hoveredEl$1.style.backgroundColor = hoveredEl$1._smHoverBg || '';
-      delete hoveredEl$1._smHoverOutline;
-      delete hoveredEl$1._smHoverBg;
-      hoveredEl$1 = null;
+  // --- Hover highlight ---
+  let hoveredEl = null;
+
+  function onMove(e) {
+    if (!activeMode) return;
+    const el = e.target;
+    if (isInspectorUI(el) || el === document.body || el === document.documentElement) {
+      clearHoverHighlight();
+      return;
+    }
+    if (el === hoveredEl) return;
+    clearHoverHighlight();
+    if (selected.find(s => s.el === el)) return;
+    hoveredEl = el;
+    hoveredEl._smHoverOutline = hoveredEl.style.outline;
+    hoveredEl._smHoverBg = hoveredEl.style.backgroundColor;
+    hoveredEl.style.outline = '2px solid rgba(236,72,153,0.5)';
+    hoveredEl.style.backgroundColor = 'rgba(236,72,153,0.04)';
+  }
+
+  function clearHoverHighlight() {
+    if (hoveredEl) {
+      hoveredEl.style.outline = hoveredEl._smHoverOutline || '';
+      hoveredEl.style.backgroundColor = hoveredEl._smHoverBg || '';
+      delete hoveredEl._smHoverOutline;
+      delete hoveredEl._smHoverBg;
+      hoveredEl = null;
     }
   }
 
   // --- Click handler ---
-  function onClick$2(e) {
-    if (!activeMode$1) return;
+  function onClick(e) {
+    if (!activeMode) return;
     const el = e.target;
     if (isInspectorUI(el)) return;
     if (el.closest && el.closest('.copy-box')) return;
@@ -1419,7 +1388,7 @@
 
     e.preventDefault();
     e.stopPropagation();
-    clearHoverHighlight$1();
+    clearHoverHighlight();
     selectElement(el, e.shiftKey);
   }
 
@@ -1429,304 +1398,327 @@
     enabledByDefault: true,
 
     button: {
-      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M12 22C6.49 22 2 17.51 2 12S6.49 2 12 2s10 4.04 10 9c0 3.31-2.69 6-6 6h-1.77c-.28 0-.5.22-.5.5 0 .12.05.23.13.33.41.47.64 1.06.64 1.67A2.5 2.5 0 0112 22zm0-18c-4.41 0-8 3.59-8 8s3.59 8 8 8c.28 0 .5-.22.5-.5a.54.54 0 00-.14-.35c-.41-.46-.63-1.05-.63-1.65a2.5 2.5 0 012.5-2.5H16c2.21 0 4-1.79 4-4 0-3.86-3.59-7-8-7z"/><circle cx="6.5" cy="11.5" r="1.5"/><circle cx="9.5" cy="7.5" r="1.5"/><circle cx="14.5" cy="7.5" r="1.5"/><circle cx="17.5" cy="11.5" r="1.5"/></svg>',
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
       tooltip: 'Design',
       color: '#ec4899',
-      order: 35,
+      order: 5,
     },
 
     shortcuts: [],
 
     init() {
-      document.addEventListener('click', onClick$2, true);
-      document.addEventListener('mousemove', onMove$2, true);
+      document.addEventListener('click', onClick, true);
+      document.addEventListener('mousemove', onMove, true);
     },
 
     activate() {
       loadTailwind();
-      activeMode$1 = true;
+      activeMode = true;
       state.styleModActive = true;
       showToast('Design — click to style, shift+click multi-select');
     },
 
     deactivate() {
-      activeMode$1 = false;
+      activeMode = false;
       state.styleModActive = false;
-      clearHoverHighlight$1();
+      clearHoverHighlight();
       clearSelection();
     },
 
+    // Design is the home mode — clicking its button or hitting its shortcut
+    // always activates (no-op if already on). Other tools toggle off back to
+    // Design via the rail's fallback path.
     toggle() {
-      if (activeMode$1) { this.deactivate(); return false; }
-      else { this.activate(); return true; }
+      this.activate();
+      return true;
     },
 
     enable() {},
     disable() { this.deactivate(); },
   };
 
+  /**
+   * Annotations service.
+   *
+   * Used to be a standalone "Annotate" rail tool. Design mode now owns the
+   * note-leaving UX (textarea + on-page bubble), so this file is just the
+   * shared store + bubble layer it depends on. No rail button, no mode
+   * lifecycle — it registers only to install scroll/resize listeners that
+   * keep bubbles anchored to their elements.
+   *
+   * Public API consumed by Design mode (style-modifier.js):
+   *   setElementNote(el, text, originalClasses) → create/update/remove an
+   *     annotation for `el` based on `text`. The on-page bubble auto-syncs.
+   *   getElementNote(el) → string note for an element (or '').
+   *   queueRepositionAll() → request a rAF-batched bubble reposition (call
+   *     after class changes that may affect element bounds).
+   *   getAnnotations() → annotation list (used by copy-all to build output).
+   */
+
+
   // --- Annotation store ---
-  let annotations = []; // { id, el, selector, note, originalClasses, labelEl }
+  // Each annotation tracks up to three kinds of change for one element:
+  //   - note (free-form prose, shown as on-page bubble)
+  //   - originalClasses (compared to el.className → class diff)
+  //   - originalText (compared to el.innerText → text diff, shown as a small
+  //     emerald pencil marker; visually distinct from the amber note bubble)
+  const annotations = []; // { id, el, selector, note, originalClasses, originalText, bubbleEl, textMarkerEl }
   let nextId = 1;
-  let activeMode = false;
-  let activeAnnotation = null; // currently editing
 
   function getAnnotations() { return annotations; }
+  function findAnnotationByEl(el) { return annotations.find(a => a.el === el) || null; }
+  function getElementNote(el) {
+    const a = findAnnotationByEl(el);
+    return a ? a.note : '';
+  }
 
-  // --- Label anchored to element ---
-  function createLabel(annotation, num) {
-    const label = document.createElement('div');
-    label.textContent = num;
-    Object.assign(label.style, {
-      position: 'absolute', top: '-4px', right: '-4px',
-      width: '18px', height: '18px', borderRadius: '50%',
-      background: '#f59e0b', color: '#000', fontSize: '10px', fontWeight: '700',
-      fontFamily: 'system-ui, sans-serif',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      cursor: 'pointer', zIndex: String(Z.badge),
-      boxShadow: '0 1px 4px rgba(0,0,0,0.3)', pointerEvents: 'auto',
+  function hasTextDiff(annotation) {
+    return annotation.originalText != null
+      && annotation.el.innerText !== annotation.originalText;
+  }
+
+  function hasClassDiff(annotation) {
+    return annotation.el.className !== annotation.originalClasses;
+  }
+
+  function hasNote(annotation) {
+    return !!(annotation.note && annotation.note.trim().length);
+  }
+
+  function isAnnotationEmpty(annotation) {
+    return !hasNote(annotation)
+      && !hasClassDiff(annotation)
+      && !hasTextDiff(annotation);
+  }
+
+  // --- Persistent on-page note bubble ---
+  // Anchored via getBoundingClientRect so it can extend outside the element's
+  // bounds (avoids clipping by overflow:hidden ancestors). Repositions on
+  // scroll/resize via rAF-batched listener installed on registry init().
+  function createBubble(annotation) {
+    const bubble = document.createElement('div');
+    Object.assign(bubble.style, {
+      position: 'absolute',
+      background: '#ec4899',
+      border: 'none',
+      borderRadius: '6px',
+      padding: '6px 9px',
+      fontSize: '11px', lineHeight: '1.4',
+      fontFamily: 'system-ui, sans-serif', color: '#fff',
+      maxWidth: '220px', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+      cursor: 'pointer', zIndex: String(Z.badge - 1),
+      boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+      pointerEvents: 'auto',
       transition: 'transform 0.1s'
     });
-
-    // Ensure element can hold absolute children
-    const pos = getComputedStyle(annotation.el).position;
-    if (pos === 'static') annotation.el.style.position = 'relative';
-
-    label.addEventListener('mouseenter', () => { label.style.transform = 'scale(1.2)'; });
-    label.addEventListener('mouseleave', () => { label.style.transform = 'scale(1)'; });
-    label.addEventListener('click', (e) => {
+    bubble.addEventListener('mouseenter', () => { bubble.style.transform = 'scale(1.03)'; });
+    bubble.addEventListener('mouseleave', () => { bubble.style.transform = 'scale(1)'; });
+    bubble.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      openAnnotation(annotation);
+      focusElement(annotation.el);
     });
-
-    annotation.el.appendChild(label);
-    inspectorUI.add(label);
-    return label;
+    document.body.appendChild(bubble);
+    inspectorUI.add(bubble);
+    return bubble;
   }
 
-  function renumberLabels() {
-    annotations.forEach((ann, i) => {
-      if (ann.labelEl) ann.labelEl.textContent = i + 1;
+  // Always anchored to the element's top-left: bubble's bottom-left sits at
+  // the element's top-left corner with a small 6px gap. No flipping to below
+  // the element regardless of viewport — predictable, consistent placement.
+  function positionBubble(bubble, el) {
+    const r = el.getBoundingClientRect();
+    const bubbleH = bubble.offsetHeight || 32;
+    bubble.style.left = (r.left + window.scrollX) + 'px';
+    bubble.style.top = (r.top + window.scrollY - bubbleH - 6) + 'px';
+  }
+
+  let _repositionQueued = false;
+  function queueRepositionAll() {
+    if (_repositionQueued) return;
+    _repositionQueued = true;
+    requestAnimationFrame(() => {
+      _repositionQueued = false;
+      annotations.forEach(a => {
+        if (a.bubbleEl) positionBubble(a.bubbleEl, a.el);
+        if (a.textMarkerEl) positionTextMarker(a.textMarkerEl, a.el);
+      });
     });
   }
 
-  // --- Open annotation editor in rail panel ---
-  function openAnnotation(annotation) {
-    activeAnnotation = annotation;
-    const container = document.createElement('div');
+  function removeBubble(annotation) {
+    if (!annotation.bubbleEl) return;
+    inspectorUI.delete(annotation.bubbleEl);
+    annotation.bubbleEl.remove();
+    annotation.bubbleEl = null;
+  }
 
-    // Header: element info
-    const header = document.createElement('div');
-    Object.assign(header.style, { marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' });
-    const tag = document.createElement('div');
-    tag.textContent = `<${annotation.el.tagName.toLowerCase()}>`;
-    Object.assign(tag.style, { fontSize: '11px', fontWeight: '600', color: '#f59e0b', marginBottom: '2px' });
-    const sel = document.createElement('div');
-    sel.textContent = annotation.selector;
-    Object.assign(sel.style, {
-      fontSize: '9px', color: '#888', fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace',
-      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+  function syncBubble(annotation) {
+    if (hasNote(annotation)) {
+      if (!annotation.bubbleEl) annotation.bubbleEl = createBubble(annotation);
+      annotation.bubbleEl.textContent = annotation.note;
+      positionBubble(annotation.bubbleEl, annotation.el);
+    } else {
+      removeBubble(annotation);
+    }
+  }
+
+  // --- Text-edit marker (emerald pencil, top-right of element) ---
+  function createTextMarker(annotation) {
+    const marker = document.createElement('div');
+    marker.textContent = '\u270E'; // ✎
+    Object.assign(marker.style, {
+      position: 'absolute',
+      width: '20px', height: '20px',
+      background: '#10b981',
+      color: '#fff',
+      borderRadius: '4px',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '12px', fontWeight: '700',
+      fontFamily: 'system-ui, sans-serif',
+      cursor: 'pointer', zIndex: String(Z.badge - 1),
+      boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+      pointerEvents: 'auto',
+      transition: 'transform 0.1s'
     });
-    header.appendChild(tag);
-    header.appendChild(sel);
-    container.appendChild(header);
-
-    // Prose note textarea
-    const noteLabel = document.createElement('div');
-    noteLabel.textContent = 'NOTE';
-    Object.assign(noteLabel.style, { fontSize: '9px', fontWeight: '700', color: '#666', marginBottom: '4px', letterSpacing: '0.5px' });
-    container.appendChild(noteLabel);
-
-    const textarea = document.createElement('textarea');
-    textarea.value = annotation.note || '';
-    textarea.placeholder = 'Describe what you want changed...';
-    Object.assign(textarea.style, {
-      width: '100%', minHeight: '60px', padding: '8px', borderRadius: '6px',
-      border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)',
-      color: '#fff', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
-      resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: '1.4'
-    });
-    textarea.addEventListener('input', () => {
-      annotation.note = textarea.value;
-      updateBadgeCount();
-    });
-    textarea.addEventListener('mousedown', (e) => e.stopPropagation());
-    textarea.addEventListener('keydown', (e) => e.stopPropagation());
-    container.appendChild(textarea);
-
-    // Divider
-    const divider = document.createElement('div');
-    Object.assign(divider.style, { height: '1px', background: 'rgba(255,255,255,0.08)', margin: '12px 0' });
-    container.appendChild(divider);
-
-    // Tailwind controls section
-    const twLabel = document.createElement('div');
-    twLabel.textContent = 'TAILWIND CLASSES';
-    Object.assign(twLabel.style, { fontSize: '9px', fontWeight: '700', color: '#666', marginBottom: '8px', letterSpacing: '0.5px' });
-    container.appendChild(twLabel);
-
-    const controlsContainer = document.createElement('div');
-    container.appendChild(controlsContainer);
-
-    // Render Tailwind design controls for this annotation's element
-    const elements = [{ el: annotation.el, originalClasses: annotation.originalClasses }];
-    renderDesignControls(controlsContainer, elements, () => {
-      updateBadgeCount();
-    });
-
-    // Delete annotation button
-    const deleteSection = document.createElement('div');
-    Object.assign(deleteSection.style, { marginTop: '14px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' });
-    const deleteBtn = document.createElement('button');
-    deleteBtn.textContent = 'Remove Annotation';
-    Object.assign(deleteBtn.style, {
-      background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
-      color: '#ef4444', padding: '5px 12px', borderRadius: '4px',
-      fontSize: '10px', fontWeight: '600', cursor: 'pointer', width: '100%'
-    });
-    deleteBtn.addEventListener('click', (e) => {
+    marker.title = 'Text edited (click to view)';
+    marker.addEventListener('mouseenter', () => { marker.style.transform = 'scale(1.15)'; });
+    marker.addEventListener('mouseleave', () => { marker.style.transform = 'scale(1)'; });
+    marker.addEventListener('click', (e) => {
       e.stopPropagation();
-      removeAnnotation(annotation);
+      e.preventDefault();
+      focusElement(annotation.el);
     });
-    deleteSection.appendChild(deleteBtn);
-    container.appendChild(deleteSection);
+    document.body.appendChild(marker);
+    inspectorUI.add(marker);
+    return marker;
+  }
 
-    showRailPanel(container);
+  function positionTextMarker(marker, el) {
+    const r = el.getBoundingClientRect();
+    // Top-right, slightly outside the element to not overlap content. Falls
+    // back inside the right edge if the element is up against the viewport.
+    const x = Math.min(r.right + 4, window.innerWidth - 24) + window.scrollX;
+    marker.style.left = (x - 20) + 'px';
+    marker.style.top = (r.top + window.scrollY + 4) + 'px';
+  }
 
-    // Highlight the annotated element
-    annotation.el.style.outline = '2px solid #f59e0b';
+  function removeTextMarker(annotation) {
+    if (!annotation.textMarkerEl) return;
+    inspectorUI.delete(annotation.textMarkerEl);
+    annotation.textMarkerEl.remove();
+    annotation.textMarkerEl = null;
+  }
+
+  function syncTextMarker(annotation) {
+    if (hasTextDiff(annotation)) {
+      if (!annotation.textMarkerEl) annotation.textMarkerEl = createTextMarker(annotation);
+      positionTextMarker(annotation.textMarkerEl, annotation.el);
+    } else {
+      removeTextMarker(annotation);
+    }
   }
 
   function removeAnnotation(annotation) {
-    // Remove label from DOM
-    if (annotation.labelEl) {
-      annotation.labelEl.remove();
-    }
-    // Restore element state
-    annotation.el.style.outline = '';
+    removeBubble(annotation);
+    removeTextMarker(annotation);
+    // Restore class state. Text is intentionally NOT restored — clearing the
+    // tracking entry shouldn't undo what the user typed. (If they want a
+    // text revert, they'd type the original back manually.)
     annotation.el.className = annotation.originalClasses;
-
-    // Remove from store
     const idx = annotations.indexOf(annotation);
     if (idx !== -1) annotations.splice(idx, 1);
-
-    renumberLabels();
     updateBadgeCount();
-    activeAnnotation = null;
-    hideRailPanel();
-    showToast('Annotation removed');
   }
 
   function updateBadgeCount() {
-    const count = annotations.filter(a => {
-      const hasNote = a.note && a.note.trim().length > 0;
-      const hasClassChanges = a.el.className !== a.originalClasses;
-      return hasNote || hasClassChanges;
-    }).length;
+    const count = annotations.filter(a =>
+      hasNote(a) || hasClassDiff(a) || hasTextDiff(a)
+    ).length;
     updateCopyBadge(count);
   }
 
-  // --- Hover highlight ---
-  let hoveredEl = null;
-
-  function onMove$1(e) {
-    if (!activeMode) return;
-    const el = e.target;
-    if (isInspectorUI(el) || el === document.body || el === document.documentElement) {
-      clearHoverHighlight();
-      return;
-    }
-    if (el === hoveredEl) return;
-    clearHoverHighlight();
-    hoveredEl = el;
-    hoveredEl._annHoverOutline = hoveredEl.style.outline;
-    hoveredEl.style.outline = '2px solid rgba(245,158,11,0.5)';
-  }
-
-  function clearHoverHighlight() {
-    if (hoveredEl) {
-      hoveredEl.style.outline = hoveredEl._annHoverOutline || '';
-      delete hoveredEl._annHoverOutline;
-      hoveredEl = null;
-    }
-  }
-
-  // --- Click handler ---
-  function onClick$1(e) {
-    if (!activeMode) return;
-    const el = e.target;
-    if (isInspectorUI(el)) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    clearHoverHighlight();
-
-    // If element already has an annotation, open it
-    const existing = annotations.find(a => a.el === el);
-    if (existing) {
-      openAnnotation(existing);
-      return;
-    }
-
-    // Create new annotation
-    const annotation = {
+  // Build a fresh annotation object. Caller is responsible for pushing it onto
+  // the store and calling evaluateAnnotation afterward.
+  function newAnnotation(el, opts) {
+    return {
       id: nextId++,
       el,
       selector: getSelector(el),
-      note: '',
-      originalClasses: el.className,
-      labelEl: null
+      note: opts.note != null ? opts.note : '',
+      originalClasses: opts.originalClasses != null ? opts.originalClasses : el.className,
+      originalText: opts.originalText != null ? opts.originalText : null,
+      bubbleEl: null,
+      textMarkerEl: null,
     };
-
-    annotations.push(annotation);
-    annotation.labelEl = createLabel(annotation, annotations.length);
-    openAnnotation(annotation);
-    updateBadgeCount();
   }
 
+  // --- Public: re-sync all on-page indicators for an element's annotation
+  //     and prune the annotation if it has no remaining changes. Used by
+  //     style-modifier after class or text mutations. ---
+  function evaluateAnnotation(el) {
+    const a = findAnnotationByEl(el);
+    if (!a) return;
+    syncBubble(a);
+    syncTextMarker(a);
+    updateBadgeCount();
+    if (isAnnotationEmpty(a)) removeAnnotation(a);
+  }
+
+  // --- Public: set/clear a note for an element. Lazily creates the
+  //     annotation; auto-removes when no note, no class diff, and no text
+  //     diff remain. ---
+  function setElementNote(el, text, originalClasses) {
+    let a = findAnnotationByEl(el);
+    const trimmed = (text || '').trim();
+
+    if (!a) {
+      if (!trimmed) return null;
+      a = newAnnotation(el, { note: text, originalClasses });
+      annotations.push(a);
+    } else {
+      a.note = text;
+    }
+
+    syncBubble(a);
+    updateBadgeCount();
+
+    if (isAnnotationEmpty(a)) {
+      removeAnnotation(a);
+      return null;
+    }
+
+    return a;
+  }
+
+  // --- Public: capture the original text of an element (idempotent — only
+  //     sets it the first time). Call once when the element becomes editable
+  //     in Design mode. Pair with evaluateAnnotation(el) on text input to
+  //     keep the marker + badge count up to date. ---
+  function setElementText(el, originalText, originalClasses) {
+    let a = findAnnotationByEl(el);
+    if (!a) {
+      // No existing annotation: create one solely to track text. Marker + badge
+      // appear lazily once the user actually changes the text.
+      a = newAnnotation(el, { originalClasses, originalText });
+      annotations.push(a);
+    } else if (a.originalText == null) {
+      a.originalText = originalText;
+    }
+    evaluateAnnotation(el);
+    return a;
+  }
+
+  // --- Module shell: registered with the rail registry only so init() runs at
+  //     boot. No `button` — won't appear in the rail UI. ---
   var annotations$1 = {
     id: 'annotations',
-    label: 'Annotate',
     enabledByDefault: true,
 
-    button: {
-      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>',
-      tooltip: 'Annotate',
-      color: '#f59e0b',
-      order: 25,
-    },
-
-    shortcuts: [],
-
     init() {
-      document.addEventListener('click', onClick$1, true);
-      document.addEventListener('mousemove', onMove$1, true);
+      window.addEventListener('scroll', queueRepositionAll, true);
+      window.addEventListener('resize', queueRepositionAll);
     },
-
-    activate() {
-      loadTailwind();
-      activeMode = true;
-      showToast('Annotate — click elements to add notes + class changes');
-    },
-
-    deactivate() {
-      activeMode = false;
-      clearHoverHighlight();
-      if (activeAnnotation) {
-        activeAnnotation.el.style.outline = '';
-        activeAnnotation = null;
-      }
-      hideRailPanel();
-    },
-
-    toggle() {
-      if (activeMode) { this.deactivate(); return false; }
-      else { this.activate(); return true; }
-    },
-
-    enable() {},
-    disable() { this.deactivate(); },
   };
 
   // Compute class diffs between original and current
@@ -1742,19 +1734,26 @@
     const sections = [];
     const annotatedEls = new Set();
 
-    // From annotations
+    // From annotations: includes notes, class diffs, and text edits.
     const annotations = getAnnotations();
     annotations.forEach(ann => {
       annotatedEls.add(ann.el);
       const { added, removed } = getClassDiff(ann.el, ann.originalClasses);
       const hasNote = ann.note && ann.note.trim().length > 0;
-      const hasChanges = added.length > 0 || removed.length > 0;
+      const hasClassChanges = added.length > 0 || removed.length > 0;
+      const hasTextChange = ann.originalText != null
+        && ann.el.innerText !== ann.originalText;
 
-      if (!hasNote && !hasChanges) return;
+      if (!hasNote && !hasClassChanges && !hasTextChange) return;
 
       let section = `### ${ann.selector}`;
       if (hasNote) section += `\nNote: "${ann.note.trim()}"`;
-      if (hasChanges) {
+      if (hasTextChange) {
+        const before = ann.originalText.replace(/\n/g, '\\n');
+        const after = ann.el.innerText.replace(/\n/g, '\\n');
+        section += `\nText: "${before}" → "${after}"`;
+      }
+      if (hasClassChanges) {
         section += '\nClasses:';
         if (added.length) section += `\n  + ${added.join(' ')}`;
         if (removed.length) section += `\n  - ${removed.join(' ')}`;
@@ -1807,187 +1806,6 @@
       btn.addEventListener('mouseleave', () => { btn.style.background = 'transparent'; });
     }
   }
-
-  // Slot indicator line (created in init)
-  let slotLine = null;
-
-  function getSlotType(el, mouseX, mouseY) {
-    const rect = el.getBoundingClientRect();
-    const relX = (mouseX - rect.left) / rect.width;
-    const relY = (mouseY - rect.top) / rect.height;
-    const edge = 0.25;
-    const inXCenter = relX >= edge && relX <= (1 - edge);
-    const inYCenter = relY >= edge && relY <= (1 - edge);
-    if (inXCenter && inYCenter) return 'inside';
-    const dTop = relY, dBottom = 1 - relY, dLeft = relX, dRight = 1 - relX;
-    const min = Math.min(dTop, dBottom, dLeft, dRight);
-    if (min === dTop) return 'before';
-    if (min === dBottom) return 'after';
-    if (min === dLeft) return 'left';
-    return 'right';
-  }
-
-  function updateSlotLine(el, type) {
-    const rect = el.getBoundingClientRect();
-    if (type === 'inside') { slotLine.style.display = 'none'; return; }
-    if (type === 'before' || type === 'after') {
-      const y = type === 'before' ? rect.top : rect.bottom;
-      Object.assign(slotLine.style, { display: 'block', top: (y - 1) + 'px', left: rect.left + 'px', width: rect.width + 'px', height: '3px' });
-    } else {
-      const x = type === 'left' ? rect.left : rect.right;
-      Object.assign(slotLine.style, { display: 'block', top: rect.top + 'px', left: (x - 1) + 'px', width: '3px', height: rect.height + 'px' });
-    }
-  }
-
-  function getSlotDescription(el, type) {
-    const sel = getSelector(el);
-    const text = el.textContent.trim().substring(0, 60);
-    const textPreview = text ? ' | "' + text + (el.textContent.trim().length > 60 ? '...' : '') + '"' : '';
-    if (type === 'before') return 'Insert before: ' + sel + textPreview;
-    if (type === 'after') return 'Insert after: ' + sel + textPreview;
-    if (type === 'left') return 'Insert to the left of: ' + sel + textPreview;
-    if (type === 'right') return 'Insert to the right of: ' + sel + textPreview;
-    return 'Insert inside: ' + sel + ' (as child)' + textPreview;
-  }
-
-  function onMove(e) {
-    if (!state.active || state.editMode || state.cameraMode || state.annotateMode || state.styleModActive) return;
-    const el = e.target;
-    if (isInspectorUI(el) || el === document.body || el === document.documentElement) return;
-    if (el.closest && el.closest('.copy-box')) { clearHover(); return; }
-    if (state.hovered && state.hovered !== el) clearHover();
-    if (el !== state.hovered) {
-      el._origOutline = el._origOutline ?? el.style.outline;
-      el._origBg = el._origBg ?? el.style.backgroundColor;
-    }
-    if (state.altHeld) {
-      state.slotType = getSlotType(el, e.clientX, e.clientY);
-      el.style.outline = SLOT_OUTLINE;
-      el.style.backgroundColor = state.slotType === 'inside' ? SLOT_BG : (el._origBg || '');
-      updateSlotLine(el, state.slotType);
-    } else {
-      slotLine.style.display = 'none';
-      el.style.outline = OUTLINE;
-      el.style.backgroundColor = BG;
-    }
-    state.hovered = el;
-  }
-
-  function onClick(e) {
-    if ((!state.active && !state.annotateMode) || state.editMode || state.styleModActive) return;
-    const el = e.target;
-    if (isInspectorUI(el)) return;
-    if (el.closest && el.closest('.copy-box')) return;
-
-    if (state.annotateMode) return;
-    if (state.cameraMode) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    nudge(el);
-
-    if (e.altKey && state.slotType) {
-      const slotDesc = getSlotDescription(el, state.slotType);
-      slotLine.style.display = 'none';
-      navigator.clipboard.writeText(slotDesc).then(() => {
-        showToast('Slot copied: ' + slotDesc);
-      }).catch(() => showToast(slotDesc));
-    } else if (e.shiftKey) {
-      const desc = getContext(el);
-      const idx = state.selected.findIndex(s => s.el === el);
-      if (idx !== -1) {
-        el.style.outline = el._origOutline || '';
-        el.style.backgroundColor = el._origBg || '';
-        if (state.selected[idx].badge) state.selected[idx].badge.remove();
-        state.selected.splice(idx, 1);
-        refreshBadges();
-      } else {
-        el.style.outline = SEL_OUTLINE;
-        el.style.backgroundColor = SEL_BG;
-        const badge = addBadge(el, state.selected.length + 1);
-        state.selected.push({ el, desc, badge });
-      }
-      if (state.selected.length) {
-        const combined = state.selected.map((s, i) => `[${i + 1}] ${s.desc}`).join('\n');
-        navigator.clipboard.writeText(combined).then(() => {
-          showToast(`Copied ${state.selected.length} selection${state.selected.length > 1 ? 's' : ''}`);
-        }).catch(() => showToast(combined));
-      } else {
-        showToast('Selection cleared');
-      }
-    } else {
-      const desc = getContext(el);
-      clearSelection$1();
-      navigator.clipboard.writeText(desc).then(() => {
-        showToast('Copied: ' + desc);
-      }).catch(() => showToast(desc));
-    }
-  }
-
-  var selector = {
-    id: 'selector',
-    label: 'Selector',
-    enabledByDefault: true,
-
-    button: {
-      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
-      tooltip: 'Selector',
-      color: '#0066ff',
-      order: 5,
-    },
-
-    shortcuts: [
-      { key: 'K', meta: true, shift: true, action: 'toggle' }
-    ],
-
-    init() {
-      slotLine = document.createElement('div');
-      Object.assign(slotLine.style, {
-        position: 'fixed', left: '0', top: '0', height: '3px', width: '0',
-        background: '#00a651', zIndex: String(Z.tooltip), pointerEvents: 'none',
-        display: 'none', borderRadius: '2px',
-        boxShadow: '0 0 6px rgba(0, 166, 81, 0.5)'
-      });
-      document.body.appendChild(slotLine);
-      inspectorUI.add(slotLine);
-
-      document.addEventListener('mousemove', onMove, true);
-      document.addEventListener('mouseleave', clearHover, true);
-      document.addEventListener('click', onClick, true);
-      document.addEventListener('mousedown', (e) => {
-        if (!state.active) return;
-        if (e.shiftKey || e.altKey) e.preventDefault();
-      }, true);
-    },
-
-    activate() {
-      state.active = true;
-      document.body.style.cursor = 'crosshair';
-      showToast('Inspector ON — click to copy, Shift multi-select, Alt for slots');
-    },
-
-    deactivate() {
-      state.active = false;
-      clearHover();
-      clearSelection$1();
-      slotLine.style.display = 'none';
-    },
-
-    toggle() {
-      if (state.active && true && !state.cameraMode) {
-        this.deactivate();
-        document.body.style.cursor = 'crosshair';
-        showToast('Inspector OFF');
-        return false;
-      } else {
-        this.activate();
-        return true;
-      }
-    },
-
-    enable() {},
-    disable() { this.deactivate(); },
-  };
 
   let selBox = null;
   function playShutter() {
@@ -2407,7 +2225,6 @@
     register(draw);
     register(styleModifier);
     register(camera);
-    register(selector);
 
     renderRail();
     initSettings();
@@ -2415,17 +2232,10 @@
     initCopyAll();
     initKeyboard();
 
-    // ?dom-tools=design launches directly into Design mode
-    const mode = new URLSearchParams(window.location.search).get('dom-tools');
-    if (mode === 'design') {
-      styleModifier.activate();
-      setActiveButton('style-modifier');
-    } else if (mode === 'annotate') {
-      annotations$1.activate();
-      setActiveButton('annotations');
-    } else {
-      selector.activate();
-    }
+    // Design mode is the home tool. All URL forms (?dom-tools, ?dom-tools=design,
+    // and the legacy ?dom-tools=annotate) launch into it.
+    styleModifier.activate();
+    setActiveButton('style-modifier');
   }
 
 })();

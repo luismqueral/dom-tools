@@ -16,19 +16,26 @@ function buildOutput() {
   const sections = [];
   const annotatedEls = new Set();
 
-  // From annotations
+  // From annotations: includes notes, class diffs, and text edits.
   const annotations = getAnnotations();
   annotations.forEach(ann => {
     annotatedEls.add(ann.el);
     const { added, removed } = getClassDiff(ann.el, ann.originalClasses);
     const hasNote = ann.note && ann.note.trim().length > 0;
-    const hasChanges = added.length > 0 || removed.length > 0;
+    const hasClassChanges = added.length > 0 || removed.length > 0;
+    const hasTextChange = ann.originalText != null
+      && ann.el.innerText !== ann.originalText;
 
-    if (!hasNote && !hasChanges) return;
+    if (!hasNote && !hasClassChanges && !hasTextChange) return;
 
     let section = `### ${ann.selector}`;
     if (hasNote) section += `\nNote: "${ann.note.trim()}"`;
-    if (hasChanges) {
+    if (hasTextChange) {
+      const before = ann.originalText.replace(/\n/g, '\\n');
+      const after = ann.el.innerText.replace(/\n/g, '\\n');
+      section += `\nText: "${before}" → "${after}"`;
+    }
+    if (hasClassChanges) {
       section += '\nClasses:';
       if (added.length) section += `\n  + ${added.join(' ')}`;
       if (removed.length) section += `\n  - ${removed.join(' ')}`;

@@ -14,7 +14,7 @@ Object.assign(rail.style, {
   zIndex: String(Z.toolbar), padding: '8px 0',
   background: 'rgba(24,24,24,0.96)', borderRight: '1px solid rgba(255,255,255,0.08)',
   backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-  boxShadow: '2px 0 20px rgba(0,0,0,0.3)', fontFamily: 'system-ui, sans-serif',
+  fontFamily: 'system-ui, sans-serif',
   boxSizing: 'border-box'
 });
 
@@ -41,7 +41,7 @@ Object.assign(contentPanel.style, {
   width: PANEL_WIDTH + 'px', background: 'rgba(24,24,24,0.96)',
   borderRight: '1px solid rgba(255,255,255,0.08)',
   backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-  boxShadow: '2px 0 16px rgba(0,0,0,0.2)', overflowY: 'auto',
+  overflowY: 'auto',
   display: 'none', zIndex: String(Z.toolbar - 1), padding: '14px',
   boxSizing: 'border-box', fontSize: '11px', color: '#eee',
   fontFamily: 'system-ui, sans-serif'
@@ -83,9 +83,11 @@ export function createButton(mod) {
       if (stayed) {
         setActiveButton(mod.id);
       } else {
-        const selectorMod = getModules().find(m => m.id === 'selector');
-        if (selectorMod && selectorMod.activate) selectorMod.activate();
-        setActiveButton('selector');
+        // Fall back to the home tool (Design) when the user toggles a
+        // secondary tool off.
+        const home = getModules().find(m => m.id === 'style-modifier');
+        if (home && home.activate) home.activate();
+        setActiveButton('style-modifier');
       }
     } else {
       activateModule(mod.id);
@@ -107,14 +109,11 @@ export function setActiveButton(activeId) {
     }
   });
 
-  // Update URL param to reflect active tool
+  // Update URL param to reflect active tool. Design is the default, so it
+  // writes an empty value (?dom-tools). Other tools write their id.
   const url = new URL(window.location);
-  const paramVal = (activeId === 'selector') ? '' : activeId === 'style-modifier' ? 'design' : activeId;
-  if (paramVal) {
-    url.searchParams.set('dom-tools', paramVal);
-  } else {
-    url.searchParams.set('dom-tools', '');
-  }
+  const paramVal = (activeId === 'style-modifier') ? '' : (activeId || '');
+  url.searchParams.set('dom-tools', paramVal);
   history.replaceState(null, '', url);
 }
 
@@ -213,7 +212,7 @@ export function renderRail() {
   // Push page content (use documentElement to avoid conflicting with body margin:auto)
   document.body.style.paddingLeft = RAIL_WIDTH + 'px';
 
-  setActiveButton('selector');
+  setActiveButton('style-modifier');
 }
 
 export { rail, contentPanel, bottomSection };
