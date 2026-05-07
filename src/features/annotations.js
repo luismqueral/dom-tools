@@ -1,13 +1,13 @@
 /**
  * Annotations service.
  *
- * Used to be a standalone "Annotate" rail tool. Design mode now owns the
- * note-leaving UX (textarea + on-page bubble), so this file is just the
- * shared store + bubble layer it depends on. No rail button, no mode
- * lifecycle — it registers only to install scroll/resize listeners that
- * keep bubbles anchored to their elements.
+ * The Comment tool (style-modifier) owns the note-leaving UX (popover
+ * textarea + on-page bubble); this file is just the shared store + bubble
+ * layer it depends on. No toolbar button, no mode lifecycle — it registers
+ * only to install scroll/resize listeners that keep bubbles anchored to
+ * their elements.
  *
- * Public API consumed by Design mode (style-modifier.js):
+ * Public API consumed by the Comment tool (style-modifier.js):
  *   setElementNote(el, text, originalClasses) → create/update/remove an
  *     annotation for `el` based on `text`. The on-page bubble auto-syncs.
  *   getElementNote(el) → string note for an element (or '').
@@ -19,7 +19,7 @@
 import { inspectorUI } from '../core/state.js';
 import { Z } from '../core/constants.js';
 import { getSelector } from '../core/helpers.js';
-import { updateCopyBadge } from '../rail.js';
+import { updateCopyBadge } from '../toolbar.js';
 // NOTE: circular import with style-modifier.js is intentional and safe — both
 // only call each other from runtime event handlers, never at module eval.
 import { focusElement } from './style-modifier.js';
@@ -277,8 +277,8 @@ export function setElementText(el, originalText, originalClasses) {
   return a;
 }
 
-// --- Module shell: registered with the rail registry only so init() runs at
-//     boot. No `button` — won't appear in the rail UI. ---
+// --- Module shell: registered with the registry only so init() runs at
+//     boot. No `button` — won't appear in the toolbar. ---
 export default {
   id: 'annotations',
   enabledByDefault: true,

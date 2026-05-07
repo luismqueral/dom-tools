@@ -1,6 +1,6 @@
 import { state } from './core/state.js';
 import { getModules, isEnabled } from './core/registry.js';
-import { setActiveButton } from './rail.js';
+import { setActiveButton } from './toolbar.js';
 
 const HOME_MOD_ID = 'style-modifier';
 

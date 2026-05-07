@@ -1,7 +1,7 @@
 import { showToast, getSelector } from '../core/helpers.js';
 import { getAnnotations } from './annotations.js';
 import { getSelected } from './style-modifier.js';
-import { getCopyButton, updateCopyBadge } from '../rail.js';
+import { getCopyButton, updateCopyBadge } from '../toolbar.js';
 
 // Compute class diffs between original and current
 function getClassDiff(el, originalClasses) {
@@ -84,7 +84,7 @@ export function initCopyAll() {
       e.stopPropagation();
       copyAllChanges();
     });
-    btn.addEventListener('mouseenter', () => { btn.style.background = 'rgba(255,255,255,0.08)'; });
-    btn.addEventListener('mouseleave', () => { btn.style.background = 'transparent'; });
+    btn.addEventListener('mouseenter', () => { btn.style.background = '#333'; });
+    btn.addEventListener('mouseleave', () => { btn.style.background = '#222'; });
   }
 }

@@ -3,12 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build:js": "rollup -c build/rollup.config.mjs",
-    "build:css": "tailwindcss -c tailwind.config.js -i src/tailwind.input.css -o dist/dom-tools.css --minify",
-    "build": "npm run build:css && npm run build:js",
-    "dev:js": "rollup -c build/rollup.config.mjs --watch",
-    "dev:css": "tailwindcss -c tailwind.config.js -i src/tailwind.input.css -o dist/dom-tools.css --watch",
-    "dev": "npm run dev:css & npm run dev:js",
+    "build": "rollup -c build/rollup.config.mjs",
+    "dev": "rollup -c build/rollup.config.mjs --watch",
     "bridge": "node bridge-server.js"
   },
   "dependencies": {
@@ -16,7 +12,6 @@
   },
   "devDependencies": {
     "@rollup/plugin-terser": "^1.0.0",
-    "rollup": "^4.60.3",
-    "tailwindcss": "^3.4.19"
+    "rollup": "^4.60.3"
   }
 }

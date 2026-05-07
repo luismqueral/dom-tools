@@ -205,7 +205,7 @@
     return false;
   }
 
-  function clearHover() {
+  function clearHover$1() {
     if (state.hovered) {
       const idx = state.selected.findIndex(s => s.el === state.hovered);
       if (idx !== -1) {
@@ -219,62 +219,149 @@
     }
   }
 
-  const RAIL_WIDTH = 48;
-  const PANEL_WIDTH = 300;
+  /**
+   * Floating, draggable toolbar (bottom-center pill).
+   *
+   * Adapted from the main-branch toolbar to drive the minimal build:
+   *  - style-modifier is the home tool (cursor) instead of the original selector
+   *  - inline copy-all button + badge (was in the rail's bottomSection)
+   *  - tiny dock/snap to bottom/top/left/right edges
+   */
 
-  // Rail container
-  const rail = document.createElement('div');
-  Object.assign(rail.style, {
-    position: 'fixed', left: '0', top: '0', height: '100vh', width: RAIL_WIDTH + 'px',
-    display: 'flex', flexDirection: 'column', alignItems: 'center',
-    zIndex: String(Z.toolbar), padding: '8px 0',
-    background: 'rgba(24,24,24,0.96)', borderRight: '1px solid rgba(255,255,255,0.08)',
-    backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-    fontFamily: 'system-ui, sans-serif',
-    boxSizing: 'border-box'
-  });
 
-  // Icon container (top section)
-  const iconSection = document.createElement('div');
-  Object.assign(iconSection.style, {
-    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
-    flex: '1'
-  });
-  rail.appendChild(iconSection);
+  function isDockEnabled() {
+    try { const e = JSON.parse(localStorage.getItem('dom-tools-experiments') || '{}'); return e.dock !== false; } catch (e) { return true; }
+  }
 
-  // Bottom section (copy + settings)
-  const bottomSection = document.createElement('div');
-  Object.assign(bottomSection.style, {
-    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
-    paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)'
-  });
-  rail.appendChild(bottomSection);
-
-  // Content panel (expandable, sits to the right of the icon column)
-  const contentPanel = document.createElement('div');
-  Object.assign(contentPanel.style, {
-    position: 'fixed', left: RAIL_WIDTH + 'px', top: '0', height: '100vh',
-    width: PANEL_WIDTH + 'px', background: 'rgba(24,24,24,0.96)',
-    borderRight: '1px solid rgba(255,255,255,0.08)',
-    backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-    overflowY: 'auto',
-    display: 'none', zIndex: String(Z.toolbar - 1), padding: '14px',
-    boxSizing: 'border-box', fontSize: '11px', color: '#eee',
-    fontFamily: 'system-ui, sans-serif'
-  });
-  rail.appendChild(contentPanel);
-
-  // Button style
   const btnStyle = {
-    width: '36px', height: '36px', background: 'transparent', color: '#fff',
-    borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    cursor: 'pointer', userSelect: 'none', flexShrink: '0', transition: 'background 0.12s'
+    width: '40px', height: '40px', background: '#222', color: '#fff',
+    borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
+    flexShrink: '0', position: 'relative'
   };
 
-  // Map: moduleId → button element
+  const toolbar = document.createElement('div');
+  Object.assign(toolbar.style, {
+    position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+    display: 'flex', gap: '6px', alignItems: 'center',
+    zIndex: String(Z.toolbar), padding: '6px 8px',
+    background: 'rgba(30,30,30,0.85)', borderRadius: '10px',
+    backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+  });
+
+  const tbHandle = document.createElement('div');
+  tbHandle.innerHTML = '\u2837';
+  Object.assign(tbHandle.style, {
+    color: 'rgba(255,255,255,0.35)', fontSize: '14px', cursor: 'grab',
+    userSelect: 'none', padding: '0 4px 0 2px', lineHeight: '1', letterSpacing: '1px'
+  });
+  toolbar.appendChild(tbHandle);
+
+  // --- Drag + edge snap ---
+  let tbDragging = false, tbDx = 0, tbDy = 0;
+  let docked = null;
+  const SNAP_THRESHOLD = 40;
+
+  function resetToolbarPosition() {
+    toolbar.style.top = ''; toolbar.style.bottom = '';
+    toolbar.style.left = ''; toolbar.style.right = '';
+    toolbar.style.transform = 'none';
+    toolbar.style.flexDirection = 'row';
+    toolbar.style.borderRadius = '10px';
+  }
+
+  function applyDock(edge) {
+    docked = edge;
+    resetToolbarPosition();
+    if (edge === 'bottom') {
+      toolbar.style.bottom = '0px'; toolbar.style.left = '50%'; toolbar.style.transform = 'translateX(-50%)';
+      toolbar.style.borderRadius = '10px 10px 0 0';
+    } else if (edge === 'top') {
+      toolbar.style.top = '0px'; toolbar.style.left = '50%'; toolbar.style.transform = 'translateX(-50%)';
+      toolbar.style.borderRadius = '0 0 10px 10px';
+    } else if (edge === 'left') {
+      toolbar.style.flexDirection = 'column';
+      toolbar.style.left = '0px'; toolbar.style.top = '50%'; toolbar.style.transform = 'translateY(-50%)';
+      toolbar.style.borderRadius = '0 10px 10px 0';
+    } else if (edge === 'right') {
+      toolbar.style.flexDirection = 'column';
+      toolbar.style.right = '0px'; toolbar.style.top = '50%'; toolbar.style.transform = 'translateY(-50%)';
+      toolbar.style.borderRadius = '10px 0 0 10px';
+    }
+  }
+
+  function undock() {
+    docked = null;
+    toolbar.style.right = '';
+    toolbar.style.flexDirection = 'row';
+    toolbar.style.borderRadius = '10px';
+  }
+
+  tbHandle.addEventListener('mousedown', (e) => {
+    tbDragging = true;
+    const tbRect = toolbar.getBoundingClientRect();
+    tbDx = e.clientX - tbRect.left;
+    tbDy = e.clientY - tbRect.top;
+    tbHandle.style.cursor = 'grabbing';
+    if (docked) undock();
+    e.preventDefault();
+  });
+
+  const snapIndicator = document.createElement('div');
+  Object.assign(snapIndicator.style, {
+    position: 'fixed', background: 'rgba(236,72,153,0.1)', border: '2px dashed rgba(236,72,153,0.4)',
+    borderRadius: '8px', zIndex: String(Z.toolbar - 1), display: 'none', pointerEvents: 'none',
+    transition: 'all 0.15s ease'
+  });
+  document.body.appendChild(snapIndicator);
+
+  function showSnapPreview(edge) {
+    const pad = 4;
+    snapIndicator.style.display = 'block';
+    if (edge === 'bottom') Object.assign(snapIndicator.style, { left: '20%', right: '20%', bottom: pad + 'px', top: '', height: '52px', width: '' });
+    else if (edge === 'top') Object.assign(snapIndicator.style, { left: '20%', right: '20%', top: pad + 'px', bottom: '', height: '52px', width: '' });
+    else if (edge === 'left') Object.assign(snapIndicator.style, { left: pad + 'px', right: '', top: '20%', bottom: '20%', width: '52px', height: '' });
+    else if (edge === 'right') Object.assign(snapIndicator.style, { right: pad + 'px', left: '', top: '20%', bottom: '20%', width: '52px', height: '' });
+  }
+
+  function hideSnapPreview() { snapIndicator.style.display = 'none'; }
+
+  function getSnapEdge(x, y) {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    if (y > vh - SNAP_THRESHOLD) return 'bottom';
+    if (y < SNAP_THRESHOLD) return 'top';
+    if (x < SNAP_THRESHOLD) return 'left';
+    if (x > vw - SNAP_THRESHOLD) return 'right';
+    return null;
+  }
+
+  document.addEventListener('mousemove', (e) => {
+    if (!tbDragging) return;
+    toolbar.style.left = (e.clientX - tbDx) + 'px';
+    toolbar.style.top = (e.clientY - tbDy) + 'px';
+    toolbar.style.transform = 'none';
+    toolbar.style.bottom = 'auto';
+    toolbar.style.right = '';
+    if (isDockEnabled()) {
+      const edge = getSnapEdge(e.clientX, e.clientY);
+      if (edge) showSnapPreview(edge); else hideSnapPreview();
+    }
+  });
+
+  document.addEventListener('mouseup', (e) => {
+    if (!tbDragging) return;
+    tbDragging = false;
+    tbHandle.style.cursor = 'grab';
+    hideSnapPreview();
+    if (!isDockEnabled()) return;
+    const edge = getSnapEdge(e.clientX, e.clientY);
+    if (edge) applyDock(edge);
+  });
+
+  // --- Buttons ---
   const buttonMap = new Map();
 
-  // Callbacks for tool activation
   const onToolActivateCallbacks = [];
   function onToolActivate(fn) { onToolActivateCallbacks.push(fn); }
   function fireToolActivate() { onToolActivateCallbacks.forEach(fn => fn()); }
@@ -283,12 +370,8 @@
     const btn = document.createElement('div');
     btn.innerHTML = mod.button.icon;
     Object.assign(btn.style, btnStyle);
-    btn.addEventListener('mouseenter', () => {
-      if (btn.style.background === 'transparent') btn.style.background = 'rgba(255,255,255,0.08)';
-    });
-    btn.addEventListener('mouseleave', () => {
-      if (btn.style.background === 'rgba(255,255,255,0.08)') btn.style.background = 'transparent';
-    });
+    btn.addEventListener('mouseenter', () => { if (btn.style.background === 'rgb(34, 34, 34)' || btn.style.background === '#222') btn.style.background = '#333'; });
+    btn.addEventListener('mouseleave', () => { if (btn.style.background === 'rgb(51, 51, 51)' || btn.style.background === '#333') btn.style.background = '#222'; });
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       nudge(btn);
@@ -296,15 +379,8 @@
       const module = getModules().find(m => m.id === mod.id);
       if (module && module.toggle) {
         const stayed = module.toggle();
-        if (stayed) {
-          setActiveButton(mod.id);
-        } else {
-          // Fall back to the home tool (Design) when the user toggles a
-          // secondary tool off.
-          const home = getModules().find(m => m.id === 'style-modifier');
-          if (home && home.activate) home.activate();
-          setActiveButton('style-modifier');
-        }
+        if (stayed) setActiveButton(mod.id);
+        else activateHome$1();
       } else {
         activateModule(mod.id);
         setActiveButton(mod.id);
@@ -315,22 +391,18 @@
     return btn;
   }
 
+  function activateHome$1() {
+    const home = getModules().find(m => m.id === 'style-modifier');
+    if (home && home.activate) home.activate();
+    setActiveButton('style-modifier');
+  }
+
   function setActiveButton(activeId) {
     buttonMap.forEach((btn, id) => {
       const mod = getModules().find(m => m.id === id);
-      if (id === activeId && mod && mod.button) {
-        btn.style.background = mod.button.color;
-      } else {
-        btn.style.background = 'transparent';
-      }
+      if (id === activeId && mod && mod.button) btn.style.background = mod.button.color;
+      else btn.style.background = '#222';
     });
-
-    // Update URL param to reflect active tool. Design is the default, so it
-    // writes an empty value (?dom-tools). Other tools write their id.
-    const url = new URL(window.location);
-    const paramVal = (activeId === 'style-modifier') ? '' : (activeId || '');
-    url.searchParams.set('dom-tools', paramVal);
-    history.replaceState(null, '', url);
   }
 
   function showButton(id) {
@@ -343,25 +415,7 @@
     if (btn) btn.style.display = 'none';
   }
 
-  // Panel API — modules call these to show/hide content in the expandable panel
-  function showRailPanel(content) {
-    contentPanel.innerHTML = '';
-    if (typeof content === 'string') {
-      contentPanel.innerHTML = content;
-    } else if (content instanceof HTMLElement) {
-      contentPanel.appendChild(content);
-    }
-    contentPanel.style.display = 'block';
-    document.body.style.paddingLeft = (RAIL_WIDTH + PANEL_WIDTH) + 'px';
-  }
-
-  function hideRailPanel() {
-    contentPanel.style.display = 'none';
-    contentPanel.innerHTML = '';
-    document.body.style.paddingLeft = RAIL_WIDTH + 'px';
-  }
-
-  // Copy All Changes button (wired externally by copy-all.js)
+  // --- Copy-all button (with badge for changed-element count) ---
   let copyBtn = null;
   let copyBadge = null;
 
@@ -370,7 +424,7 @@
   function updateCopyBadge(count) {
     if (!copyBadge) return;
     if (count > 0) {
-      copyBadge.textContent = count;
+      copyBadge.textContent = String(count);
       copyBadge.style.display = 'flex';
     } else {
       copyBadge.style.display = 'none';
@@ -383,7 +437,6 @@
     Object.assign(copyBtn.style, btnStyle);
     addTooltip(copyBtn, 'Copy All Changes');
 
-    // Badge
     copyBadge = document.createElement('div');
     Object.assign(copyBadge.style, {
       position: 'absolute', top: '-2px', right: '-2px', minWidth: '14px', height: '14px',
@@ -391,38 +444,34 @@
       fontWeight: '700', display: 'none', alignItems: 'center', justifyContent: 'center',
       padding: '0 3px', lineHeight: '1'
     });
-    copyBtn.style.position = 'relative';
     copyBtn.appendChild(copyBadge);
-
-    bottomSection.appendChild(copyBtn);
-    inspectorUI.add(copyBtn);
+    return copyBtn;
   }
 
-  function renderRail() {
+  function renderToolbar() {
     const modules = getModules();
-    const allButtons = [];
+    const toolButtons = [];
     modules.forEach(mod => {
       if (mod.button && isEnabled(mod.id)) {
-        allButtons.push({ ...mod.button, id: mod.id, mod });
+        toolButtons.push({ ...mod.button, id: mod.id, mod });
       }
     });
-    allButtons.sort((a, b) => a.order - b.order);
+    toolButtons.sort((a, b) => a.order - b.order);
 
-    allButtons.forEach(def => {
+    toolButtons.forEach(def => {
       const btn = createButton(def.mod);
-      iconSection.appendChild(btn);
+      toolbar.appendChild(btn);
       inspectorUI.add(btn);
     });
 
-    // Copy all changes button
-    createCopyButton();
+    // Copy-all button at the end (settings.js will append its own button after this)
+    const cBtn = createCopyButton();
+    toolbar.appendChild(cBtn);
+    inspectorUI.add(cBtn);
 
-    document.body.appendChild(rail);
-    inspectorUI.add(rail);
-    inspectorUI.add(contentPanel);
-
-    // Push page content (use documentElement to avoid conflicting with body margin:auto)
-    document.body.style.paddingLeft = RAIL_WIDTH + 'px';
+    document.body.appendChild(toolbar);
+    inspectorUI.add(toolbar);
+    inspectorUI.add(tbHandle);
 
     setActiveButton('style-modifier');
   }
@@ -502,17 +551,26 @@
     });
   }
 
+  /**
+   * Settings popover, anchored above the toolbar's settings button.
+   *
+   * Self-contained for the minimal build — doesn't depend on a side panel.
+   * Click the gear → small dark popover floats just above the gear with the
+   * feature toggles. Click the gear again or activate any tool → closes.
+   */
+
+
   let visible = false;
   let _settingsBtn = null;
+  let _popover = null;
   const SETTINGS_COLOR = '#0066ff';
 
-  // --- Experiments ---
   const EXP_KEY = 'dom-tools-experiments';
   let experiments = {};
   try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (e) {}
 
   const EXPERIMENT_DEFS = [
-    { id: 'design', label: 'Design Mode', description: 'Contextual style editor with Tailwind class controls', default: true },
+    { id: 'dock', label: 'Edge snap', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
   ];
 
   function isExperimentEnabled(id) {
@@ -551,8 +609,7 @@
       checkbox.style.accentColor = mod.button.color || COLORS.selector;
       checkbox.addEventListener('change', () => {
         setEnabled(mod.id, checkbox.checked);
-        if (checkbox.checked) showButton(mod.id);
-        else hideButton(mod.id);
+        if (checkbox.checked) showButton(mod.id); else hideButton(mod.id);
       });
       const label = document.createElement('span');
       label.textContent = mod.label || mod.id;
@@ -561,7 +618,6 @@
       container.appendChild(row);
     });
 
-    // --- Experiments section ---
     const expTitle = document.createElement('div');
     expTitle.textContent = 'Experiments';
     Object.assign(expTitle.style, {
@@ -599,16 +655,60 @@
     return container;
   }
 
+  function positionPopover$1() {
+    if (!_popover || !_settingsBtn) return;
+    const r = _settingsBtn.getBoundingClientRect();
+    const popW = _popover.offsetWidth || 220;
+    const popH = _popover.offsetHeight || 200;
+    // Place popover above the gear button. If no room, place below.
+    let top = r.top - popH - 8;
+    if (top < 8) top = r.bottom + 8;
+    let left = r.left + (r.width / 2) - (popW / 2);
+    left = Math.max(8, Math.min(left, window.innerWidth - popW - 8));
+    _popover.style.left = left + 'px';
+    _popover.style.top = top + 'px';
+  }
+
+  function showPopover$1() {
+    _popover = document.createElement('div');
+    Object.assign(_popover.style, {
+      position: 'fixed', zIndex: String(Z.toolbar + 1),
+      width: '220px', padding: '14px',
+      background: 'rgba(24,24,24,0.96)', borderRadius: '10px',
+      border: '1px solid rgba(255,255,255,0.08)',
+      boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+      backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+      fontFamily: 'system-ui, sans-serif', fontSize: '11px', color: '#eee',
+      boxSizing: 'border-box'
+    });
+    _popover.appendChild(buildSettingsPanel());
+    document.body.appendChild(_popover);
+    inspectorUI.add(_popover);
+    positionPopover$1();
+    window.addEventListener('resize', positionPopover$1);
+    window.addEventListener('scroll', positionPopover$1, true);
+  }
+
+  function hidePopover$1() {
+    if (_popover) {
+      inspectorUI.delete(_popover);
+      _popover.remove();
+      _popover = null;
+      window.removeEventListener('resize', positionPopover$1);
+      window.removeEventListener('scroll', positionPopover$1, true);
+    }
+  }
+
   function toggleSettings() {
     visible = !visible;
     if (visible) {
       activateModule(null);
       setActiveButton(null);
-      showRailPanel(buildSettingsPanel());
+      showPopover$1();
       if (_settingsBtn) _settingsBtn.style.background = SETTINGS_COLOR;
     } else {
-      hideRailPanel();
-      if (_settingsBtn) _settingsBtn.style.background = 'transparent';
+      hidePopover$1();
+      if (_settingsBtn) _settingsBtn.style.background = '#222';
       activateModule('style-modifier');
       setActiveButton('style-modifier');
     }
@@ -617,753 +717,205 @@
   function closeSettings() {
     if (visible) {
       visible = false;
-      hideRailPanel();
-      if (_settingsBtn) _settingsBtn.style.background = 'transparent';
+      hidePopover$1();
+      if (_settingsBtn) _settingsBtn.style.background = '#222';
     }
   }
 
-  function initSettings(rail) {
-
-    // Close settings when another tool is activated
+  function initSettings() {
     onToolActivate(closeSettings);
 
     const btnStyle = {
-      width: '36px', height: '36px', background: 'transparent', color: '#fff',
-      borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      cursor: 'pointer', userSelect: 'none', transition: 'background 0.12s', flexShrink: '0'
+      width: '40px', height: '40px', background: '#222', color: '#fff',
+      borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
+      flexShrink: '0'
     };
     _settingsBtn = document.createElement('div');
     _settingsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.44.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 110-7.2 3.6 3.6 0 010 7.2z"/></svg>';
     Object.assign(_settingsBtn.style, btnStyle);
-    _settingsBtn.addEventListener('mouseenter', () => { if (!visible) _settingsBtn.style.background = 'rgba(255,255,255,0.08)'; });
-    _settingsBtn.addEventListener('mouseleave', () => { if (!visible) _settingsBtn.style.background = 'transparent'; });
+    _settingsBtn.addEventListener('mouseenter', () => { if (!visible) _settingsBtn.style.background = '#333'; });
+    _settingsBtn.addEventListener('mouseleave', () => { if (!visible) _settingsBtn.style.background = '#222'; });
     _settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); nudge(_settingsBtn); toggleSettings(); });
     addTooltip(_settingsBtn, 'Settings');
 
-    // Append settings button to the bottom section of the rail
-    bottomSection.appendChild(_settingsBtn);
+    toolbar.appendChild(_settingsBtn);
     inspectorUI.add(_settingsBtn);
   }
 
   /**
-   * Inject the precompiled Tailwind stylesheet so design-mode classes render.
+   * Comment tool — minimal click-to-leave-feedback mode.
    *
-   * No CDN/JIT runtime: this is a static CSS file built at `npm run build:css`.
-   * We resolve its URL relative to wherever `dom-tools.js` is loaded from, so
-   * the same code works in local dev (./dist/dom-tools.css) and when the script
-   * is hosted (https://.../tools/dom-tools/dom-tools.css).
+   * Click any element on the page → it gets a pink outline and a small dark
+   * popover floats near it with a textarea. Type your note; it's saved live to
+   * the annotation store and shows up as a persistent on-page bubble (handled by
+   * annotations.js). Esc or blur closes the popover. Text-tagged elements are
+   * also editable inline; edits are tracked and surfaced through copy-all.
+   *
+   * Replaces the old Tailwind-driven Design mode for the minimal build.
    */
 
-  const HOSTED_FALLBACK = 'https://design.nyt.net/tools/dom-tools/dom-tools.css';
 
-  function resolveStylesheetUrl() {
-    const scripts = document.querySelectorAll('script[src]');
-    for (const s of scripts) {
-      const src = s.getAttribute('src') || '';
-      const match = src.match(/^(.*\/)?dom-tools(\.min)?\.js(?:\?.*)?$/);
-      if (match) {
-        const dir = match[1] || '';
-        return dir + 'dom-tools.css';
-      }
-    }
-    return HOSTED_FALLBACK;
-  }
+  const TEXT_TAGS = ['P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI','BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL'];
+  const PINK = '#ec4899';
 
-  function loadTailwind() {
-    if (document.querySelector('link[data-dom-tools-tw]')) return;
-    if (document.querySelector('link[rel="stylesheet"][href*="dom-tools.css"]')) return;
-
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = resolveStylesheetUrl();
-    link.dataset.domToolsTw = '1';
-    document.head.appendChild(link);
-  }
-
-  // --- Tailwind class database ---
-  const CLASSES = [
-    'block','inline-block','inline','flex','inline-flex','grid','inline-grid','hidden','contents',
-    'static','fixed','absolute','relative','sticky',
-    'flex-row','flex-row-reverse','flex-col','flex-col-reverse',
-    'flex-wrap','flex-nowrap','flex-1','flex-auto','flex-none','grow','grow-0','shrink','shrink-0',
-    'justify-start','justify-end','justify-center','justify-between','justify-around','justify-evenly',
-    'items-start','items-end','items-center','items-baseline','items-stretch',
-    'grid-cols-1','grid-cols-2','grid-cols-3','grid-cols-4','grid-cols-6','grid-cols-12',
-    'gap-0','gap-1','gap-2','gap-3','gap-4','gap-5','gap-6','gap-8','gap-10','gap-12',
-    'p-0','p-1','p-2','p-3','p-4','p-5','p-6','p-8','p-10','p-12','p-16','p-20',
-    'px-0','px-1','px-2','px-3','px-4','px-6','px-8','px-12',
-    'py-0','py-1','py-2','py-3','py-4','py-6','py-8','py-12',
-    'm-0','m-1','m-2','m-3','m-4','m-6','m-8','m-auto',
-    'mx-0','mx-1','mx-2','mx-4','mx-6','mx-8','mx-auto',
-    'my-0','my-1','my-2','my-4','my-6','my-8',
-    'mt-0','mt-1','mt-2','mt-4','mt-6','mt-8','mt-12',
-    'mb-0','mb-1','mb-2','mb-4','mb-6','mb-8','mb-12',
-    'w-auto','w-full','w-screen','w-fit','w-1/2','w-1/3','w-2/3','w-1/4','w-3/4',
-    'h-auto','h-full','h-screen','h-fit',
-    'max-w-none','max-w-xs','max-w-sm','max-w-md','max-w-lg','max-w-xl','max-w-2xl','max-w-4xl','max-w-full','max-w-prose',
-    'text-xs','text-sm','text-base','text-lg','text-xl','text-2xl','text-3xl','text-4xl','text-5xl',
-    'font-thin','font-light','font-normal','font-medium','font-semibold','font-bold','font-extrabold','font-black',
-    'italic','not-italic','underline','no-underline','uppercase','lowercase','normal-case',
-    'text-left','text-center','text-right','text-justify',
-    'leading-none','leading-tight','leading-snug','leading-normal','leading-relaxed','leading-loose',
-    'tracking-tighter','tracking-tight','tracking-normal','tracking-wide','tracking-wider','tracking-widest',
-    'text-transparent','text-black','text-white','text-gray-500','text-gray-700','text-gray-900',
-    'text-red-600','text-blue-600','text-green-600','text-nyt-fg','text-nyt-dim','text-nyt-accent',
-    'bg-transparent','bg-black','bg-white','bg-gray-50','bg-gray-100','bg-gray-200','bg-gray-500','bg-gray-800','bg-gray-900',
-    'bg-red-50','bg-blue-50','bg-green-50','bg-nyt-bg-alt',
-    'border','border-0','border-2','border-4',
-    'border-solid','border-dashed','border-none',
-    'border-gray-200','border-gray-300','border-gray-500','border-nyt-border',
-    'rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full',
-    'shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl',
-    'opacity-0','opacity-25','opacity-50','opacity-75','opacity-100',
-    'overflow-hidden','overflow-auto','overflow-visible',
-    'object-contain','object-cover','object-fill','object-none',
-    'font-franklin','font-cheltenham','font-karnak',
-    'transition','transition-all','transition-colors','transition-opacity',
-    'duration-150','duration-200','duration-300','duration-500',
-  ];
-
-  // --- Slider configurations per context ---
-  const TYPO_SLIDERS = [
-    { label: 'Size', options: ['text-xs','text-sm','text-base','text-lg','text-xl','text-2xl','text-3xl','text-4xl','text-5xl'] },
-    { label: 'Weight', options: ['font-thin','font-light','font-normal','font-medium','font-semibold','font-bold','font-extrabold','font-black'] },
-    { label: 'Leading', options: ['leading-none','leading-tight','leading-snug','leading-normal','leading-relaxed','leading-loose'] },
-    { label: 'Tracking', options: ['tracking-tighter','tracking-tight','tracking-normal','tracking-wide','tracking-wider','tracking-widest'] },
-  ];
-
-  const LAYOUT_SLIDERS = [
-    { label: 'Padding', options: ['p-0','p-1','p-2','p-3','p-4','p-5','p-6','p-8','p-10','p-12','p-16','p-20'] },
-    { label: 'Pad X', options: ['px-0','px-1','px-2','px-3','px-4','px-6','px-8','px-12'] },
-    { label: 'Pad Y', options: ['py-0','py-1','py-2','py-3','py-4','py-6','py-8','py-12'] },
-    { label: 'Gap', options: ['gap-0','gap-1','gap-2','gap-3','gap-4','gap-5','gap-6','gap-8','gap-10','gap-12'] },
-    { label: 'Rounded', options: ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'] },
-    { label: 'Shadow', options: ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'] },
-  ];
-
-  const MEDIA_SLIDERS = [
-    { label: 'Rounded', options: ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'] },
-    { label: 'Shadow', options: ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'] },
-    { label: 'Opacity', options: ['opacity-0','opacity-25','opacity-50','opacity-75','opacity-100'] },
-  ];
-
-  const TEXT_COLORS = [
-    { cls: 'text-black', color: '#000' },
-    { cls: 'text-gray-900', color: '#111827' },
-    { cls: 'text-gray-700', color: '#374151' },
-    { cls: 'text-gray-500', color: '#6b7280' },
-    { cls: 'text-white', color: '#fff' },
-    { cls: 'text-red-600', color: '#dc2626' },
-    { cls: 'text-blue-600', color: '#2563eb' },
-    { cls: 'text-green-600', color: '#16a34a' },
-    { cls: 'text-nyt-fg', color: '#121212' },
-    { cls: 'text-nyt-dim', color: '#5a5a5a' },
-    { cls: 'text-nyt-accent', color: '#326891' },
-  ];
-
-  const BG_COLORS = [
-    { cls: 'bg-transparent', color: 'transparent' },
-    { cls: 'bg-white', color: '#fff' },
-    { cls: 'bg-gray-50', color: '#f9fafb' },
-    { cls: 'bg-gray-100', color: '#f3f4f6' },
-    { cls: 'bg-gray-200', color: '#e5e7eb' },
-    { cls: 'bg-gray-800', color: '#1f2937' },
-    { cls: 'bg-gray-900', color: '#111827' },
-    { cls: 'bg-black', color: '#000' },
-    { cls: 'bg-blue-50', color: '#eff6ff' },
-    { cls: 'bg-red-50', color: '#fef2f2' },
-    { cls: 'bg-nyt-bg-alt', color: '#f5f5f2' },
-  ];
-
-  const ALIGN_OPTIONS = ['text-left','text-center','text-right','text-justify'];
-  const DISPLAY_OPTIONS = ['block','flex','grid','inline','inline-flex','hidden'];
-  const JUSTIFY_OPTIONS = ['justify-start','justify-center','justify-end','justify-between','justify-around'];
-  const ITEMS_OPTIONS = ['items-start','items-center','items-end','items-stretch','items-baseline'];
-  const OBJECT_FIT_OPTIONS = ['object-contain','object-cover','object-fill','object-none'];
-
-  // --- State ---
-  let selected = []; // { el, originalClasses }[]
   let activeMode = false;
+  let selected = [];
 
-  // --- Export for copy-all and annotations ---
   function getSelected() { return selected; }
 
-  // --- Element type detection ---
-  function getElType(el) {
-    const tag = el.tagName;
-    if (['IMG','VIDEO','SVG','PICTURE','CANVAS'].includes(tag)) return 'media';
-    if (['P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI','BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL'].includes(tag)) return 'text';
-    if (['BUTTON','INPUT','SELECT','TEXTAREA'].includes(tag)) return 'interactive';
-    return 'container';
-  }
+  // --- Floating popover (the input itself) ---------------------------------
+  let popover = null;
+  let popoverTextarea = null;
+  let popoverEl = null;
 
-  // --- Apply class to all selected ---
-  function applyToAll(addCls, groupOptions) {
-    selected.forEach(({ el }) => {
-      if (groupOptions) groupOptions.forEach(c => el.classList.remove(c));
-      if (addCls) el.classList.add(addCls);
+  function buildPopover() {
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
+      position: 'absolute',
+      width: '260px',
+      padding: '8px',
+      background: 'rgba(24,24,24,0.96)',
+      border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: '8px',
+      boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+      backdropFilter: 'blur(14px)',
+      WebkitBackdropFilter: 'blur(14px)',
+      zIndex: String(Z.toolbar),
+      fontFamily: 'system-ui, sans-serif',
+      boxSizing: 'border-box',
     });
-    queueRepositionAll();
-  }
-
-  function removeFromAll(cls) {
-    selected.forEach(({ el }) => el.classList.remove(cls));
-    queueRepositionAll();
-  }
-
-  function resetAll() {
-    selected.forEach(({ el, originalClasses }) => { el.className = originalClasses; });
-    // Re-run setElementNote so any annotation that's now empty (no note, no
-    // class diff after the reset) gets cleaned up automatically.
-    selected.forEach(({ el, originalClasses }) => {
-      setElementNote(el, getElementNote(el), originalClasses);
-    });
-    queueRepositionAll();
-    renderPanel();
-    showToast('Reset');
-  }
-
-  // --- Render all design controls vertically into a container.
-  //     Section visibility:
-  //       - single selection → conditional on element type (text vs container vs media)
-  //       - multi-selection → show Type + Layout + Style + Classes always, plus
-  //         Media if any media element is in the selection. Class changes apply
-  //         to every selection via applyToAll. ---
-  function renderAllSections(container, primaryEl) {
-    const isMulti = selected.length > 1;
-    const types = new Set(selected.map(s => getElType(s.el)));
-    const type = types.size === 1 ? [...types][0] : 'mixed';
-
-    const showText = isMulti || type === 'text' || type === 'mixed' || type === 'interactive';
-    const showLayout = isMulti || type === 'container' || type === 'mixed' || type === 'interactive';
-    const showMedia = isMulti ? types.has('media') : type === 'media';
-
-    if (showText) renderTextControls(container, primaryEl);
-    if (showLayout) renderLayoutControls(container, primaryEl);
-    if (showMedia) renderMediaControls(container, primaryEl);
-
-    renderSection(container, 'Background', (sec) => renderColorSwatches(sec, BG_COLORS, primaryEl));
-    renderSection(container, 'Border & Effects', (sec) => {
-      sec.appendChild(makeSlider('Rounded', ['rounded-none','rounded-sm','rounded','rounded-md','rounded-lg','rounded-xl','rounded-2xl','rounded-full'], primaryEl));
-      sec.appendChild(makeSlider('Shadow', ['shadow-none','shadow-sm','shadow','shadow-md','shadow-lg','shadow-xl','shadow-2xl'], primaryEl));
-      sec.appendChild(makeSlider('Opacity', ['opacity-0','opacity-25','opacity-50','opacity-75','opacity-100'], primaryEl));
-    });
-
-    renderClassEditor(container, primaryEl);
-  }
-
-  // --- Note section: surfaces annotations.setElementNote in design view so the
-  //     user can leave on-page feedback without leaving Design mode. Works for
-  //     single OR multi-selection — when multi, typing applies the same note to
-  //     every selected element (each gets its own bubble, anchored to itself).
-  //     If the selected elements have differing existing notes, the textarea
-  //     starts empty so a fresh edit doesn't clobber any one of them silently. ---
-  function renderNoteSection(container) {
-    const sec = document.createElement('div');
-    Object.assign(sec.style, { marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)' });
-
-    const label = document.createElement('div');
-    label.textContent = selected.length > 1 ? `NOTE (${selected.length} elements)` : 'NOTE';
-    Object.assign(label.style, { fontSize: '9px', fontWeight: '700', color: '#666', marginBottom: '4px', letterSpacing: '0.5px' });
-    sec.appendChild(label);
-
-    const existing = selected.map(s => getElementNote(s.el));
-    const allMatch = existing.every(n => n === existing[0]);
 
     const ta = document.createElement('textarea');
-    ta.value = allMatch ? existing[0] : '';
-    ta.placeholder = selected.length > 1
-      ? `Leave feedback for ${selected.length} elements (visible on the page)…`
-      : 'Leave feedback (visible on the page)…';
+    ta.placeholder = 'Describe the change…';
     Object.assign(ta.style, {
-      width: '100%', minHeight: '48px', padding: '7px', borderRadius: '5px',
-      border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)',
-      color: '#fff', fontSize: '12px', fontFamily: 'system-ui, sans-serif',
-      resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: '1.4'
+      width: '100%', minHeight: '60px', padding: '7px',
+      border: '1px solid rgba(255,255,255,0.12)',
+      background: 'rgba(255,255,255,0.05)',
+      color: '#fff', fontSize: '12px', lineHeight: '1.4',
+      fontFamily: 'system-ui, sans-serif', resize: 'vertical',
+      outline: 'none', boxSizing: 'border-box', borderRadius: '4px'
     });
-    ta.addEventListener('input', () => {
-      selected.forEach(s => setElementNote(s.el, ta.value, s.originalClasses));
+    wrap.appendChild(ta);
+
+    // Stop click/mousedown from bubbling so the doc-level handlers below
+    // (which clear selection on outside-click) don't fire on our own UI.
+    ['mousedown','click','mouseup'].forEach(t => {
+      wrap.addEventListener(t, (e) => e.stopPropagation());
     });
-    ta.addEventListener('mousedown', (e) => e.stopPropagation());
-    ta.addEventListener('keydown', (e) => e.stopPropagation());
-    sec.appendChild(ta);
-
-    container.appendChild(sec);
-  }
-
-  // --- Render panel into rail content area ---
-  // `focusNote` is set to true on fresh element selection so the user can just
-  // start typing — most common interaction. Re-renders triggered by class
-  // tweaks, slider drags, etc. pass false so they don't steal focus mid-edit.
-  function renderPanel(focusNote = false) {
-    if (!selected.length) { hideRailPanel(); return; }
-    const primary = selected[0].el;
-
-    const container = document.createElement('div');
-
-    const header = document.createElement('div');
-    Object.assign(header.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' });
-    const title = document.createElement('span');
-    title.textContent = selected.length > 1 ? `${selected.length} elements` : `<${primary.tagName.toLowerCase()}>`;
-    Object.assign(title.style, { fontWeight: '600', fontSize: '11px', color: '#666' });
-    const resetBtn = makeBtn('Reset', () => resetAll());
-    header.appendChild(title);
-    header.appendChild(resetBtn);
-    container.appendChild(header);
-
-    renderNoteSection(container);
-    renderAllSections(container, primary);
-    showRailPanel(container);
-
-    if (focusNote) {
-      const ta = container.querySelector('textarea');
-      if (ta) {
-        ta.focus();
-        const end = ta.value.length;
-        try { ta.setSelectionRange(end, end); } catch (_) {}
-      }
-    }
-  }
-
-  function renderSection(parent, label, renderFn) {
-    const sec = document.createElement('div');
-    Object.assign(sec.style, { marginBottom: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' });
-    const heading = document.createElement('div');
-    heading.textContent = label;
-    Object.assign(heading.style, { fontSize: '10px', fontWeight: '600', color: '#666', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' });
-    sec.appendChild(heading);
-    parent.appendChild(sec);
-    renderFn(sec);
-  }
-
-  // --- Text controls ---
-  function renderTextControls(parent, el) {
-    renderSection(parent, 'Typography', (sec) => {
-      const fontRow = makeRow();
-      ['font-franklin','font-cheltenham','font-karnak'].forEach(cls => {
-        const name = cls.replace('font-', '');
-        const btn = makePillBtn(name, el.classList.contains(cls), () => {
-          applyToAll(cls, ['font-franklin','font-cheltenham','font-karnak']);
-          renderPanel();
-        });
-        fontRow.appendChild(btn);
-      });
-      sec.appendChild(fontRow);
-
-      TYPO_SLIDERS.forEach(s => sec.appendChild(makeSlider(s.label, s.options, el)));
-
-      const toggleRow = makeRow();
-      toggleRow.appendChild(makeToggle('B', 'font-bold', ['font-thin','font-light','font-normal','font-medium','font-semibold','font-bold','font-extrabold','font-black'], el));
-      toggleRow.appendChild(makeToggle('I', 'italic', ['italic','not-italic'], el));
-      toggleRow.appendChild(makeToggle('U', 'underline', ['underline','no-underline'], el));
-      toggleRow.appendChild(makeToggle('TT', 'uppercase', ['uppercase','lowercase','capitalize','normal-case'], el));
-      const spacer = document.createElement('div'); spacer.style.flex = '1'; toggleRow.appendChild(spacer);
-      ALIGN_OPTIONS.forEach(cls => {
-        const icon = cls === 'text-left' ? '\u2190' : cls === 'text-center' ? '\u2194' : cls === 'text-right' ? '\u2192' : '\u2261';
-        toggleRow.appendChild(makeToggle(icon, cls, ALIGN_OPTIONS, el));
-      });
-      sec.appendChild(toggleRow);
-
-      sec.appendChild(makeColorRow('Color', TEXT_COLORS, el));
-    });
-  }
-
-  // --- Layout controls ---
-  function renderLayoutControls(parent, el) {
-    renderSection(parent, 'Layout', (sec) => {
-      const dispRow = makeRow();
-      DISPLAY_OPTIONS.forEach(cls => {
-        dispRow.appendChild(makePillBtn(cls, el.classList.contains(cls), () => {
-          applyToAll(cls, DISPLAY_OPTIONS);
-          renderPanel();
-        }));
-      });
-      sec.appendChild(dispRow);
-
-      const cs = getComputedStyle(el);
-      if (cs.display === 'flex' || cs.display === 'grid' || el.classList.contains('flex') || el.classList.contains('grid')) {
-        const flexRow = makeRow();
-        flexRow.appendChild(makeLabel('Justify'));
-        JUSTIFY_OPTIONS.forEach(cls => {
-          const short = cls.replace('justify-', '')[0].toUpperCase();
-          flexRow.appendChild(makeToggle(short, cls, JUSTIFY_OPTIONS, el));
-        });
-        sec.appendChild(flexRow);
-
-        const itemsRow = makeRow();
-        itemsRow.appendChild(makeLabel('Items'));
-        ITEMS_OPTIONS.forEach(cls => {
-          const short = cls.replace('items-', '')[0].toUpperCase();
-          itemsRow.appendChild(makeToggle(short, cls, ITEMS_OPTIONS, el));
-        });
-        sec.appendChild(itemsRow);
-      }
-
-      LAYOUT_SLIDERS.forEach(s => sec.appendChild(makeSlider(s.label, s.options, el)));
-    });
-  }
-
-  // --- Media controls ---
-  function renderMediaControls(parent, el) {
-    renderSection(parent, 'Media', (sec) => {
-      const fitRow = makeRow();
-      fitRow.appendChild(makeLabel('Fit'));
-      OBJECT_FIT_OPTIONS.forEach(cls => {
-        fitRow.appendChild(makePillBtn(cls.replace('object-', ''), el.classList.contains(cls), () => {
-          applyToAll(cls, OBJECT_FIT_OPTIONS);
-          renderPanel();
-        }));
-      });
-      sec.appendChild(fitRow);
-
-      MEDIA_SLIDERS.forEach(s => sec.appendChild(makeSlider(s.label, s.options, el)));
-    });
-  }
-
-  // --- Class editor ---
-  function renderClassEditor(parent, el) {
-    renderSection(parent, 'Classes', (sec) => {
-      const chips = document.createElement('div');
-      Object.assign(chips.style, { display: 'flex', flexWrap: 'wrap', gap: '3px', marginBottom: '8px', maxHeight: '80px', overflowY: 'auto' });
-      const classes = el.className.trim().split(/\s+/).filter(Boolean);
-      classes.forEach(cls => {
-        const chip = document.createElement('span');
-        Object.assign(chip.style, {
-          display: 'inline-flex', alignItems: 'center', gap: '2px',
-          background: 'rgba(255,255,255,0.08)', borderRadius: '3px', padding: '2px 5px',
-          fontSize: '10px', fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace', color: '#ccc'
-        });
-        chip.textContent = cls;
-        const x = document.createElement('span');
-        x.textContent = '\u00d7';
-        Object.assign(x.style, { cursor: 'pointer', color: '#888', marginLeft: '2px', fontSize: '12px' });
-        x.addEventListener('click', () => { removeFromAll(cls); renderPanel(); });
-        x.addEventListener('mouseenter', () => { x.style.color = '#fff'; });
-        x.addEventListener('mouseleave', () => { x.style.color = '#888'; });
-        chip.appendChild(x);
-        chips.appendChild(chip);
-      });
-      sec.appendChild(chips);
-
-      const inputWrap = document.createElement('div');
-      Object.assign(inputWrap.style, { position: 'relative' });
-      const input = document.createElement('input');
-      input.placeholder = '+ Add class...';
-      Object.assign(input.style, {
-        width: '100%', padding: '5px 7px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.12)',
-        background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '11px', outline: 'none',
-        fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace', boxSizing: 'border-box'
-      });
-      const dropdown = document.createElement('div');
-      Object.assign(dropdown.style, {
-        position: 'absolute', left: '0', right: '0', top: '100%', marginTop: '3px',
-        background: 'rgba(35,35,35,0.98)', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.1)',
-        maxHeight: '120px', overflowY: 'auto', display: 'none', zIndex: '1'
-      });
-      input.addEventListener('input', () => {
-        const q = input.value.trim().toLowerCase();
-        if (!q) { dropdown.style.display = 'none'; return; }
-        const matches = CLASSES.filter(c => c.startsWith(q)).concat(CLASSES.filter(c => !c.startsWith(q) && c.includes(q))).slice(0, 8);
-        dropdown.innerHTML = '';
-        matches.forEach(cls => {
-          const item = document.createElement('div');
-          item.textContent = cls;
-          Object.assign(item.style, { padding: '4px 8px', cursor: 'pointer', fontSize: '10px', color: '#ccc', fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace' });
-          item.addEventListener('mouseenter', () => { item.style.background = 'rgba(255,255,255,0.06)'; });
-          item.addEventListener('mouseleave', () => { item.style.background = ''; });
-          item.addEventListener('mousedown', (e) => { e.preventDefault(); applyToAll(cls, null); input.value = ''; dropdown.style.display = 'none'; renderPanel(); });
-          dropdown.appendChild(item);
-        });
-        dropdown.style.display = matches.length ? 'block' : 'none';
-      });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && input.value.trim()) { e.preventDefault(); applyToAll(input.value.trim(), null); input.value = ''; dropdown.style.display = 'none'; renderPanel(); }
-        if (e.key === 'Escape') { dropdown.style.display = 'none'; input.value = ''; }
-      });
-      inputWrap.appendChild(input);
-      inputWrap.appendChild(dropdown);
-      sec.appendChild(inputWrap);
-    });
-  }
-
-  // --- UI helpers ---
-  function makeRow() {
-    const r = document.createElement('div');
-    Object.assign(r.style, { display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '5px', flexWrap: 'wrap' });
-    return r;
-  }
-
-  function makeLabel(text) {
-    const l = document.createElement('span');
-    l.textContent = text;
-    Object.assign(l.style, { fontSize: '10px', color: '#888', width: '40px', flexShrink: '0' });
-    return l;
-  }
-
-  function makeBtn(text, onClick, primary) {
-    const btn = document.createElement('button');
-    btn.textContent = text;
-    Object.assign(btn.style, {
-      background: 'rgba(255,255,255,0.08)', border: 'none',
-      color: '#ccc', padding: '3px 10px', borderRadius: '4px',
-      fontSize: '10px', fontWeight: '600', cursor: 'pointer'
-    });
-    btn.addEventListener('click', onClick);
-    return btn;
-  }
-
-  function makePillBtn(text, isActive, onClick) {
-    const btn = document.createElement('div');
-    btn.textContent = text;
-    Object.assign(btn.style, {
-      padding: '2px 6px', borderRadius: '3px', cursor: 'pointer', fontSize: '10px',
-      fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace',
-      background: isActive ? 'rgba(236,72,153,0.25)' : 'rgba(255,255,255,0.06)',
-      color: isActive ? '#ec4899' : '#aaa', fontWeight: isActive ? '600' : '400'
-    });
-    btn.addEventListener('mouseenter', () => { if (!isActive) btn.style.background = 'rgba(255,255,255,0.1)'; });
-    btn.addEventListener('mouseleave', () => { if (!isActive) btn.style.background = 'rgba(255,255,255,0.06)'; });
-    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
-    return btn;
-  }
-
-  function makeToggle(label, activeClass, group, el) {
-    const isActive = el.classList.contains(activeClass);
-    const btn = document.createElement('div');
-    btn.textContent = label;
-    Object.assign(btn.style, {
-      width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      borderRadius: '3px', cursor: 'pointer', fontSize: label.length > 1 ? '8px' : '11px',
-      fontWeight: '700', color: isActive ? '#ec4899' : '#999',
-      background: isActive ? 'rgba(236,72,153,0.2)' : 'rgba(255,255,255,0.04)',
-      fontStyle: label === 'I' ? 'italic' : 'normal',
-      textDecoration: label === 'U' ? 'underline' : 'none'
-    });
-    btn.addEventListener('click', (e) => {
+    ta.addEventListener('keydown', (e) => {
       e.stopPropagation();
-      const has = selected[0].el.classList.contains(activeClass);
-      if (has) { applyToAll(null, [activeClass]); }
-      else { applyToAll(activeClass, group); }
-      renderPanel();
+      if (e.key === 'Escape') { hidePopover(); }
     });
-    return btn;
-  }
-
-  function makeSlider(label, options, el) {
-    const row = document.createElement('div');
-    Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' });
-
-    const lbl = document.createElement('span');
-    lbl.textContent = label;
-    Object.assign(lbl.style, { fontSize: '10px', color: '#888', width: '48px', flexShrink: '0' });
-
-    let currentIdx = 0;
-    for (let i = 0; i < options.length; i++) {
-      if (el.classList.contains(options[i])) { currentIdx = i; break; }
-    }
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = '0';
-    slider.max = String(options.length - 1);
-    slider.value = String(currentIdx);
-    Object.assign(slider.style, { flex: '1', height: '4px', accentColor: '#ec4899', cursor: 'pointer' });
-
-    const val = document.createElement('span');
-    val.textContent = options[currentIdx];
-    Object.assign(val.style, {
-      fontSize: '9px', color: '#aaa', width: '56px', textAlign: 'right', flexShrink: '0',
-      fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace', overflow: 'hidden',
-      textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+    ta.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (popoverTextarea && document.activeElement !== popoverTextarea) hidePopover();
+      }, 120);
     });
 
-    slider.addEventListener('input', () => {
-      const cls = options[parseInt(slider.value)];
-      val.textContent = cls;
-      applyToAll(cls, options);
-    });
-
-    row.appendChild(lbl);
-    row.appendChild(slider);
-    row.appendChild(val);
-    return row;
-  }
-
-  const ALL_COLOR_CLASSES = CLASSES.filter(c => c.startsWith('text-') || c.startsWith('bg-') || c.startsWith('border-'));
-
-  function makeColorRow(label, colors, el) {
-    const wrap = document.createElement('div');
-    Object.assign(wrap.style, { marginTop: '6px' });
-
-    const row = document.createElement('div');
-    Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '3px', flexWrap: 'wrap' });
-    const lbl = document.createElement('span');
-    lbl.textContent = label;
-    Object.assign(lbl.style, { fontSize: '10px', color: '#888', width: '48px', flexShrink: '0' });
-    row.appendChild(lbl);
-
-    const allCls = colors.map(c => c.cls);
-    colors.forEach(({ cls, color }) => {
-      const isActive = el.classList.contains(cls);
-      const swatch = document.createElement('div');
-      Object.assign(swatch.style, {
-        width: '14px', height: '14px', borderRadius: '50%', cursor: 'pointer',
-        background: color === 'transparent' ? 'repeating-conic-gradient(#666 0% 25%, #444 0% 50%) 50%/8px 8px' : color,
-        border: isActive ? '2px solid #ec4899' : '2px solid rgba(255,255,255,0.1)',
-        boxSizing: 'border-box'
-      });
-      swatch.title = cls;
-      swatch.addEventListener('click', (e) => {
-        e.stopPropagation();
-        applyToAll(cls, allCls);
-        renderPanel();
-      });
-      row.appendChild(swatch);
-    });
-    wrap.appendChild(row);
-
-    const inputWrap = document.createElement('div');
-    Object.assign(inputWrap.style, { position: 'relative', marginTop: '5px', marginLeft: '48px' });
-    const input = document.createElement('input');
-    input.placeholder = label === 'Fill' ? 'bg-...' : 'text-...';
-    Object.assign(input.style, {
-      width: '100%', padding: '4px 6px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)',
-      background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '10px', outline: 'none',
-      fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace', boxSizing: 'border-box'
-    });
-    const dropdown = document.createElement('div');
-    Object.assign(dropdown.style, {
-      position: 'absolute', left: '0', right: '0', top: '100%', marginTop: '2px',
-      background: 'rgba(35,35,35,0.98)', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.1)',
-      maxHeight: '100px', overflowY: 'auto', display: 'none', zIndex: '1'
-    });
-
-    const prefix = label === 'Fill' ? 'bg-' : label === 'Color' ? 'text-' : 'border-';
-    input.addEventListener('input', () => {
-      const q = input.value.trim().toLowerCase();
-      if (!q) { dropdown.style.display = 'none'; return; }
-      const matches = ALL_COLOR_CLASSES.filter(c => c.startsWith(prefix) && c.includes(q)).slice(0, 8);
-      dropdown.innerHTML = '';
-      matches.forEach(cls => {
-        const item = document.createElement('div');
-        item.textContent = cls;
-        Object.assign(item.style, { padding: '3px 7px', cursor: 'pointer', fontSize: '10px', color: '#ccc', fontFamily: 'SF Mono, SFMono-Regular, Menlo, monospace' });
-        item.addEventListener('mouseenter', () => { item.style.background = 'rgba(255,255,255,0.06)'; });
-        item.addEventListener('mouseleave', () => { item.style.background = ''; });
-        item.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          applyToAll(cls, allCls);
-          input.value = '';
-          dropdown.style.display = 'none';
-          renderPanel();
-        });
-        dropdown.appendChild(item);
-      });
-      dropdown.style.display = matches.length ? 'block' : 'none';
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && input.value.trim()) {
-        e.preventDefault();
-        applyToAll(input.value.trim(), allCls);
-        input.value = '';
-        dropdown.style.display = 'none';
-        renderPanel();
-      }
-      if (e.key === 'Escape') { dropdown.style.display = 'none'; input.value = ''; }
-    });
-    inputWrap.appendChild(input);
-    inputWrap.appendChild(dropdown);
-    wrap.appendChild(inputWrap);
-
+    popoverTextarea = ta;
+    popoverEl = wrap;
     return wrap;
   }
 
-  function renderColorSwatches(parent, colors, el) {
-    parent.appendChild(makeColorRow('Fill', colors, el));
+  function positionPopover(el) {
+    if (!popoverEl) return;
+    const r = el.getBoundingClientRect();
+    const popH = popoverEl.offsetHeight || 100;
+    const popW = popoverEl.offsetWidth || 260;
+    // Prefer above, anchored to the element's left edge
+    let top = r.top + window.scrollY - popH - 8;
+    if (top < window.scrollY + 8) top = r.bottom + window.scrollY + 8;
+    let left = r.left + window.scrollX;
+    left = Math.max(window.scrollX + 8, Math.min(left, window.scrollX + window.innerWidth - popW - 8));
+    popoverEl.style.left = left + 'px';
+    popoverEl.style.top = top + 'px';
   }
 
-  // --- Selection + highlight ---
-  const TEXT_TAGS = ['P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI','BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL'];
+  function showPopover(entry) {
+    hidePopover();
+    popover = buildPopover();
+    document.body.appendChild(popover);
+    popoverTextarea.value = getElementNote(entry.el) || '';
+    positionPopover(entry.el);
+    popoverTextarea.addEventListener('input', () => {
+      setElementNote(entry.el, popoverTextarea.value, entry.originalClasses);
+    });
+    setTimeout(() => {
+      if (popoverTextarea) {
+        popoverTextarea.focus();
+        const end = popoverTextarea.value.length;
+        try { popoverTextarea.setSelectionRange(end, end); } catch (_) {}
+      }
+    }, 0);
+  }
 
+  function hidePopover() {
+    if (popover) { popover.remove(); popover = null; popoverEl = null; popoverTextarea = null; }
+  }
+
+  function repositionPopover() {
+    if (popoverEl && selected.length) positionPopover(selected[0].el);
+  }
+  window.addEventListener('scroll', repositionPopover, true);
+  window.addEventListener('resize', repositionPopover);
+
+  // --- Selection -----------------------------------------------------------
   function teardownEntry(s) {
     s.el.style.outline = s.origOutline;
     if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
     if (s.onTextInput) { s.el.removeEventListener('input', s.onTextInput); s.onTextInput = null; }
   }
 
-  function selectElement(el, additive) {
-    if (!additive) {
-      selected.forEach(teardownEntry);
-      selected = [];
+  function selectElement(el) {
+    selected.forEach(teardownEntry);
+    selected = [];
+
+    const entry = {
+      el,
+      originalClasses: el.className,
+      origOutline: el.style.outline,
+      madeEditable: false,
+    };
+
+    if (TEXT_TAGS.includes(el.tagName)) {
+      el.contentEditable = 'true';
+      el.style.cursor = 'text';
+      entry.madeEditable = true;
+      entry.originalText = el.innerText;
+      entry.onTextInput = () => {
+        setElementText(el, entry.originalText, entry.originalClasses);
+        evaluateAnnotation(el);
+        queueRepositionAll();
+      };
+      el.addEventListener('input', entry.onTextInput);
     }
-    const idx = selected.findIndex(s => s.el === el);
-    let added = false;
-    if (idx !== -1) {
-      teardownEntry(selected[idx]);
-      selected.splice(idx, 1);
-    } else {
-      const isText = TEXT_TAGS.includes(el.tagName);
-      const entry = { el, originalClasses: el.className, origOutline: el.style.outline, madeEditable: false };
-      if (isText) {
-        el.contentEditable = 'true';
-        el.style.cursor = 'text';
-        entry.madeEditable = true;
-        entry.originalText = el.innerText;
-        // Lazy registration: only register with the annotation system once
-        // the user actually types. Keeps the store clean for plain selections.
-        entry.onTextInput = () => {
-          setElementText(el, entry.originalText, entry.originalClasses);
-          evaluateAnnotation(el);
-          queueRepositionAll();
-        };
-        el.addEventListener('input', entry.onTextInput);
-      }
-      selected.push(entry);
-      el.style.outline = '2px solid #ec4899';
-      added = true;
-    }
-    renderPanel(added);
+
+    el.style.outline = '2px solid ' + PINK;
+    selected.push(entry);
+    showPopover(entry);
   }
 
   function clearSelection() {
     selected.forEach(teardownEntry);
     selected = [];
-    hideRailPanel();
+    hidePopover();
   }
 
-  // --- Public: activate Design mode (if needed) and single-select an element.
-  //     Used by annotation bubbles so clicking one drops you into Design mode
-  //     editing that element — same panel as everywhere else. ---
+  // Public: activate from outside (annotation bubble click)
   function focusElement(el) {
     if (!activeMode) {
       activateModule('style-modifier');
       setActiveButton('style-modifier');
     }
-    selectElement(el, false);
+    selectElement(el);
     el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
-  // --- Hover highlight ---
+  // --- Hover highlight -----------------------------------------------------
   let hoveredEl = null;
 
-  function onMove(e) {
-    if (!activeMode) return;
-    const el = e.target;
-    if (isInspectorUI(el) || el === document.body || el === document.documentElement) {
-      clearHoverHighlight();
-      return;
-    }
-    if (el === hoveredEl) return;
-    clearHoverHighlight();
-    if (selected.find(s => s.el === el)) return;
-    hoveredEl = el;
-    hoveredEl._smHoverOutline = hoveredEl.style.outline;
-    hoveredEl._smHoverBg = hoveredEl.style.backgroundColor;
-    hoveredEl.style.outline = '2px solid rgba(236,72,153,0.5)';
-    hoveredEl.style.backgroundColor = 'rgba(236,72,153,0.04)';
-  }
-
-  function clearHoverHighlight() {
+  function clearHover() {
     if (hoveredEl) {
       hoveredEl.style.outline = hoveredEl._smHoverOutline || '';
       hoveredEl.style.backgroundColor = hoveredEl._smHoverBg || '';
@@ -1373,13 +925,31 @@
     }
   }
 
-  // --- Click handler ---
+  function onMove(e) {
+    if (!activeMode) return;
+    const el = e.target;
+    if (isInspectorUI(el) || el === document.body || el === document.documentElement) {
+      clearHover();
+      return;
+    }
+    if (el === hoveredEl) return;
+    clearHover();
+    if (selected.find(s => s.el === el)) return;
+    hoveredEl = el;
+    hoveredEl._smHoverOutline = hoveredEl.style.outline;
+    hoveredEl._smHoverBg = hoveredEl.style.backgroundColor;
+    hoveredEl.style.outline = '2px solid rgba(236,72,153,0.5)';
+    hoveredEl.style.backgroundColor = 'rgba(236,72,153,0.04)';
+  }
+
+  // --- Click handler -------------------------------------------------------
   function onClick(e) {
     if (!activeMode) return;
     const el = e.target;
     if (isInspectorUI(el)) return;
-    if (el.closest && el.closest('.copy-box')) return;
 
+    // Click on already-selected text element → drop into the inline editor
+    // instead of re-opening the popover (so caret lands on the clicked word).
     const alreadySelected = selected.find(s => s.el === el || s.el.contains(el));
     if (alreadySelected && alreadySelected.madeEditable) {
       e.stopPropagation();
@@ -1388,19 +958,20 @@
 
     e.preventDefault();
     e.stopPropagation();
-    clearHoverHighlight();
-    selectElement(el, e.shiftKey);
+    clearHover();
+    selectElement(el);
   }
 
+  // --- Module spec ---------------------------------------------------------
   var styleModifier = {
     id: 'style-modifier',
-    label: 'Design',
+    label: 'Comment',
     enabledByDefault: true,
 
     button: {
       icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
-      tooltip: 'Design',
-      color: '#ec4899',
+      tooltip: 'Comment',
+      color: PINK,
       order: 5,
     },
 
@@ -1412,22 +983,20 @@
     },
 
     activate() {
-      loadTailwind();
       activeMode = true;
       state.styleModActive = true;
-      showToast('Design — click to style, shift+click multi-select');
+      showToast('Click an element to leave a comment');
     },
 
     deactivate() {
       activeMode = false;
       state.styleModActive = false;
-      clearHoverHighlight();
+      clearHover();
       clearSelection();
     },
 
-    // Design is the home mode — clicking its button or hitting its shortcut
-    // always activates (no-op if already on). Other tools toggle off back to
-    // Design via the rail's fallback path.
+    // Home mode: clicking the button always activates, never toggles off.
+    // Other tools fall back to this module when they deactivate.
     toggle() {
       this.activate();
       return true;
@@ -1440,13 +1009,13 @@
   /**
    * Annotations service.
    *
-   * Used to be a standalone "Annotate" rail tool. Design mode now owns the
-   * note-leaving UX (textarea + on-page bubble), so this file is just the
-   * shared store + bubble layer it depends on. No rail button, no mode
-   * lifecycle — it registers only to install scroll/resize listeners that
-   * keep bubbles anchored to their elements.
+   * The Comment tool (style-modifier) owns the note-leaving UX (popover
+   * textarea + on-page bubble); this file is just the shared store + bubble
+   * layer it depends on. No toolbar button, no mode lifecycle — it registers
+   * only to install scroll/resize listeners that keep bubbles anchored to
+   * their elements.
    *
-   * Public API consumed by Design mode (style-modifier.js):
+   * Public API consumed by the Comment tool (style-modifier.js):
    *   setElementNote(el, text, originalClasses) → create/update/remove an
    *     annotation for `el` based on `text`. The on-page bubble auto-syncs.
    *   getElementNote(el) → string note for an element (or '').
@@ -1709,8 +1278,8 @@
     return a;
   }
 
-  // --- Module shell: registered with the rail registry only so init() runs at
-  //     boot. No `button` — won't appear in the rail UI. ---
+  // --- Module shell: registered with the registry only so init() runs at
+  //     boot. No `button` — won't appear in the toolbar. ---
   var annotations$1 = {
     id: 'annotations',
     enabledByDefault: true,
@@ -1802,8 +1371,8 @@
         e.stopPropagation();
         copyAllChanges();
       });
-      btn.addEventListener('mouseenter', () => { btn.style.background = 'rgba(255,255,255,0.08)'; });
-      btn.addEventListener('mouseleave', () => { btn.style.background = 'transparent'; });
+      btn.addEventListener('mouseenter', () => { btn.style.background = '#333'; });
+      btn.addEventListener('mouseleave', () => { btn.style.background = '#222'; });
     }
   }
 
@@ -1971,7 +1540,7 @@
       function showFullPageHighlight() {
         if (fullPageHighlight) return;
         fullPageHighlight = true;
-        clearHover();
+        clearHover$1();
         document.documentElement.style.outline = CAM_OUTLINE;
         document.documentElement.style.backgroundColor = CAM_BG;
       }
@@ -1999,7 +1568,7 @@
           const dy = Math.abs(e.clientY - camStartY);
           if (dx > 4 || dy > 4) {
             camDidDrag = true;
-            clearHover();
+            clearHover$1();
             const x = Math.min(e.clientX, camStartX);
             const y = Math.min(e.clientY, camStartY);
             Object.assign(selBox.style, {
@@ -2210,14 +1779,12 @@
   };
 
   /**
-   * DOM-Tools
+   * DOM-Tools (minimal)
    * Drop <script src="dom-tools.js"></script> before </body> in any HTML file.
    * Activate by adding ?dom-tools to the page URL.
-   * Toggle: click the floating button or press Cmd+Shift+K (Ctrl+Shift+K on Windows/Linux).
    */
 
 
-  // Only activate when ?dom-tools is present in the URL
   if (new URLSearchParams(window.location.search).has('dom-tools')) {
     initHelpers();
 
@@ -2226,14 +1793,12 @@
     register(styleModifier);
     register(camera);
 
-    renderRail();
+    renderToolbar();
     initSettings();
     boot();
     initCopyAll();
     initKeyboard();
 
-    // Design mode is the home tool. All URL forms (?dom-tools, ?dom-tools=design,
-    // and the legacy ?dom-tools=annotate) launch into it.
     styleModifier.activate();
     setActiveButton('style-modifier');
   }
