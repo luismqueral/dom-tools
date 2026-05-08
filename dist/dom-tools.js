@@ -268,10 +268,18 @@
     return path.join(' > ');
   }
 
+  // Elements dom-tools should leave alone. Two ways in:
+  //   - inspectorUI Set: every internal widget (toolbar, bubble,
+  //     toast…) is added programmatically.
+  //   - data-dt-ignore attribute: pages embedding dom-tools can opt
+  //     specific UI out (e.g. an install/Copy button on the demo page)
+  //     without coordinating with the inspector's runtime state.
+  // Either match anywhere up the ancestor chain wins.
   function isInspectorUI(el) {
     let node = el;
     while (node) {
       if (inspectorUI.has(node)) return true;
+      if (node.nodeType === 1 && node.hasAttribute && node.hasAttribute('data-dt-ignore')) return true;
       node = node.parentElement;
     }
     return false;

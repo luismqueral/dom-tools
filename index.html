@@ -88,9 +88,9 @@
   <img src="header.png" alt="">
   <div class="install">
     <h3>Paste this into Claude to install:</h3>
-    <div class="box">
-      <pre id="install-snippet">Add this script tag to my project before &lt;/body&gt;: &lt;script src="https://design.nyt.net/tools/dom-tools/dom-tools.js"&gt;&lt;/script&gt;</pre>
-      <button onclick="navigator.clipboard.writeText(document.getElementById('install-snippet').textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
+    <div class="box" data-dt-ignore>
+      <pre id="install-snippet">Loading…</pre>
+      <button id="install-copy">Copy</button>
     </div>
   </div>
 </div>
@@ -100,7 +100,7 @@
 <p>A tiny floating toolbar for describing interface changes to LLMs.</p>
 <p>Point at any element, write what you'd change in a popover, edit text inline, then hit copy to send all your changes to your model of choice. No Tailwind dependency.</p>
 <video autoplay muted loop playsinline>
-  <source src="dom-selector.mp4" type="video/mp4">
+  <source src="dom-tools.mp4" type="video/mp4">
 </video>
 
 
@@ -153,6 +153,60 @@
     history.replaceState(null, '', window.location.pathname + window.location.search + sep + 'dom-tools' + window.location.hash);
   }
 </script>
+
+<script>
+  // Build the install snippet by inlining the actual minified bundle.
+  // The clipboard payload is a complete inline <script> tag the
+  // user's LLM can drop straight into their project, so this works
+  // even when the user is off-VPN and can't reach the internal CDN.
+  // The on-page preview shows the head of the script followed by an
+  // ellipsis — the full thing would be unreadable.
+  //
+  // NOTE: the literal close tag below is written as '<\/script>' so
+  // the surrounding HTML parser doesn't terminate this <script> the
+  // moment it sees the bytes '</script' inside the string.
+  (async () => {
+    const pre = document.getElementById('install-snippet');
+    const btn = document.getElementById('install-copy');
+    const PREFIX = 'Add this script tag to my project before <\/body>: <script>';
+    const SUFFIX = '<\/script>';
+    const PREVIEW_HEAD = 80;
+    let fullSnippet = '';
+
+    try {
+      const res = await fetch('dist/dom-tools.min.js', { cache: 'no-cache' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const js = (await res.text()).trim();
+      fullSnippet = PREFIX + js + SUFFIX;
+      pre.textContent = PREFIX + js.slice(0, PREVIEW_HEAD) + '…' + SUFFIX;
+    } catch (err) {
+      pre.textContent = 'Could not load install snippet (' + err.message + ')';
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      btn.style.cursor = 'not-allowed';
+      return;
+    }
+
+    btn.addEventListener('click', async () => {
+      if (!fullSnippet) return;
+      try {
+        await navigator.clipboard.writeText(fullSnippet);
+      } catch (_) {
+        // Legacy clipboard fallback for non-secure contexts.
+        const ta = document.createElement('textarea');
+        ta.value = fullSnippet;
+        ta.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        ta.remove();
+      }
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    });
+  })();
+</script>
+
 <script src="dist/dom-tools.js"></script>
 </body>
 </html>
