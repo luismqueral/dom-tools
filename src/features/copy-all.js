@@ -10,6 +10,10 @@
  *     element's changes (note, text diff, class diff) merged
  *     together so the reader sees a single coherent edit per item
  *     instead of the same selector duplicated three times.
+ *
+ * The same builder also powers right-click "copy element" — passing
+ * a single-element filter renders just that element's section (and
+ * any group note it participates in) in the same format.
  */
 
 import { showToast, getSelector, copyText } from '../core/helpers.js';
@@ -38,8 +42,6 @@ function formatTextDiff(before, after) {
   if (isShortText(before) && isShortText(after)) {
     return `Text: "${before}" → "${after}"`;
   }
-  // Multi-line: indent each line by 2 spaces so it nests under the
-  // section header in Markdown without becoming a code block.
   const indent = (s) => s.split('\n').map(l => '  ' + l).join('\n');
   return `Text:\n  Before:\n${indent(before)}\n  After:\n${indent(after)}`;
 }
@@ -51,17 +53,21 @@ function formatClassDiff(added, removed) {
   return lines.join('\n');
 }
 
-// --- Build per-element + group-note views over getAnnotations() -----
+// --- Core builder --------------------------------------------------------
+//
+// `filterEls`: optional iterable of elements to scope the output to.
+//   - undefined → include everything (used by copy-all)
+//   - non-empty → include only annotations that involve at least one
+//     of those els (used by right-click copy on a specific element)
+function buildSections(filterEls) {
+  const filter = filterEls ? new Set(filterEls) : null;
+  const overlaps = (els) => !filter || els.some(el => filter.has(el));
 
-function buildOutput() {
   const annotations = getAnnotations();
   const selected = getSelected();
 
-  // Per-element accumulator. Single-element notes, text edits, and
-  // class diffs all collapse into one entry per element so the
-  // reader doesn't see the same selector three times.
-  const perEl = new Map(); // el → { selector, note?, textDiff?, classDiff? }
-  const groupNotes = [];   // { selectors, note }
+  const perEl = new Map();   // el → { selector, note?, textDiff?, classDiff? }
+  const groupNotes = [];     // { selectors, note }
 
   function ensureEntry(el) {
     let e = perEl.get(el);
@@ -76,12 +82,14 @@ function buildOutput() {
     if (item.kind === 'note') {
       const note = (item.note || '').trim();
       if (!note) return;
+      if (!overlaps(item.els)) return;
       if (item.els.length > 1) {
         groupNotes.push({ selectors: item.selectors, note });
       } else {
         ensureEntry(item.els[0]).note = note;
       }
     } else if (item.kind === 'text') {
+      if (!overlaps([item.el])) return;
       const el = item.el;
       const before = item.originalText;
       const after = el.innerText;
@@ -95,11 +103,9 @@ function buildOutput() {
     }
   });
 
-  // Live class diffs for elements currently selected by the Comment
-  // tool — picked up so a user can copy mid-edit without first
-  // clicking away. Skip elements already covered by a text annotation
-  // (they already have a classDiff entry).
+  // Live class diffs from the current selection.
   selected.forEach(({ el, originalClasses }) => {
+    if (!overlaps([el])) return;
     if (el.className === originalClasses) return;
     const { added, removed } = classDiff(el.className, originalClasses);
     if (!added.length && !removed.length) return;
@@ -107,7 +113,6 @@ function buildOutput() {
     if (!entry.classDiff) entry.classDiff = { added, removed };
   });
 
-  // --- Render ----------------------------------------------------------
   const sections = [];
 
   groupNotes.forEach(g => {
@@ -122,18 +127,36 @@ function buildOutput() {
     if (entry.note) lines.push(`Note: ${entry.note}`);
     if (entry.textDiff) lines.push(formatTextDiff(entry.textDiff.before, entry.textDiff.after));
     if (entry.classDiff) lines.push(formatClassDiff(entry.classDiff.added, entry.classDiff.removed));
-    if (lines.length === 1) return; // selector with nothing to say — skip
+    if (lines.length === 1) return;
     sections.push(lines.join('\n'));
   });
 
+  return sections;
+}
+
+// --- Public render functions --------------------------------------------
+
+function renderDocument(sections) {
   if (!sections.length) return null;
   return '## DOM Changes\n\n' + sections.join('\n\n');
 }
 
-// --- Public ---------------------------------------------------------------
+// Render the full page changes as a Markdown document.
+export function buildAllChanges() {
+  return renderDocument(buildSections());
+}
+
+// Render just the changes that involve `el` (its own annotations + any
+// group note it belongs to). Returns null when nothing tracked
+// involves `el`.
+export function buildChangesForElement(el) {
+  return renderDocument(buildSections([el]));
+}
+
+// --- Copy-all entry points -----------------------------------------------
 
 export async function copyAllChanges() {
-  const output = buildOutput();
+  const output = buildAllChanges();
   if (!output) {
     showToast('No changes to copy');
     return;
