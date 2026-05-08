@@ -145,23 +145,25 @@
     document.body.appendChild(tooltip);
     inspectorUI.add(tooltip);
 
-    const nudgeStyle = document.createElement('style');
-    nudgeStyle.textContent = `
-    @keyframes inspector-nudge {
-      0% { transform: translateY(0); }
-      30% { transform: translateY(3px); }
-      100% { transform: translateY(0); }
-    }
-    .inspector-nudge { animation: inspector-nudge 0.2s ease-out; }
-  `;
-    document.head.appendChild(nudgeStyle);
   }
 
+  // Bounce animation used to confirm "we just did a thing" on an
+  // element (right-click copy, click-to-select, etc). Implemented via
+  // the Web Animations API rather than a CSS class — adding/removing a
+  // class would (and used to) pollute getSelector() output and the
+  // originalClasses snapshot that copy-all uses to compute class
+  // diffs. Web Animations API doesn't touch className or inline style,
+  // so the user-visible effect is the same and the selectors stay clean.
   function nudge(el) {
-    el.classList.remove('inspector-nudge');
-    void el.offsetWidth;
-    el.classList.add('inspector-nudge');
-    el.addEventListener('animationend', () => el.classList.remove('inspector-nudge'), { once: true });
+    if (!el || typeof el.animate !== 'function') return;
+    el.animate(
+      [
+        { transform: 'translateY(0)' },
+        { transform: 'translateY(3px)', offset: 0.3 },
+        { transform: 'translateY(0)' },
+      ],
+      { duration: 200, easing: 'ease-out' }
+    );
   }
 
   // --- Flash screen ---
@@ -224,16 +226,44 @@
   }
 
   // --- Selector utilities ---
-  function getSelector(el) {
-    if (el.id) return '#' + el.id;
-    let path = [];
-    while (el && el !== document.body) {
-      let seg = el.tagName.toLowerCase();
-      if (el.className && typeof el.className === 'string') {
-        seg += '.' + el.className.trim().split(/\s+/).join('.');
+  // Build a CSS selector that's actually findable on the page. Strategy:
+  //   1. If the element has an id, '#id' wins (and we stop).
+  //   2. Walk up the DOM, building each segment as tag(.class)* and only
+  //      adding :nth-of-type(N) when the parent has more than one same-tag
+  //      child (otherwise the segment is already unique among siblings).
+  //   3. Stop the moment we hit an ancestor with an id — that anchors the
+  //      whole selector and there's no point walking further up.
+  //   4. Skip <html> / <body>; they're implicit in any selector that
+  //      reaches them and only add noise.
+  function describeSegment(el) {
+    let seg = el.tagName.toLowerCase();
+    if (el.classList && el.classList.length) {
+      // Up to two classes — enough for human readability without dragging
+      // along a wall of utility classes (tw-, css module hashes, etc.).
+      seg += '.' + Array.from(el.classList).slice(0, 2).join('.');
+    }
+    const parent = el.parentElement;
+    if (parent) {
+      const sameTag = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+      if (sameTag.length > 1) {
+        seg += `:nth-of-type(${sameTag.indexOf(el) + 1})`;
       }
-      path.unshift(seg);
-      el = el.parentElement;
+    }
+    return seg;
+  }
+
+  function getSelector(el) {
+    if (!el || el.nodeType !== 1) return '';
+    if (el.id) return '#' + el.id;
+    const path = [];
+    let cur = el;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      if (cur.id) {
+        path.unshift('#' + cur.id);
+        break;
+      }
+      path.unshift(describeSegment(cur));
+      cur = cur.parentElement;
     }
     return path.join(' > ');
   }
@@ -1806,79 +1836,135 @@
     },
   };
 
-  // Compute class diffs between original and current
-  function getClassDiff(el, originalClasses) {
-    const origSet = new Set(originalClasses.trim().split(/\s+/).filter(Boolean));
-    const currSet = new Set(el.className.trim().split(/\s+/).filter(Boolean));
+  /**
+   * Copy-all-changes serializer.
+   *
+   * Produces a Markdown summary of every tracked change on the page,
+   * structured so it pastes cleanly into Slack / Linear / a PR comment.
+   * Two top-level shapes:
+   *   - Group note: one note attached to 2+ elements. Lists every
+   *     selector under a "Group of N" header.
+   *   - Per-element block: one heading per element, with all of that
+   *     element's changes (note, text diff, class diff) merged
+   *     together so the reader sees a single coherent edit per item
+   *     instead of the same selector duplicated three times.
+   */
+
+
+  // --- Diff helpers --------------------------------------------------------
+
+  function classDiff(currentClasses, originalClasses) {
+    const origSet = new Set((originalClasses || '').trim().split(/\s+/).filter(Boolean));
+    const currSet = new Set((currentClasses || '').trim().split(/\s+/).filter(Boolean));
     const added = [...currSet].filter(c => !origSet.has(c));
     const removed = [...origSet].filter(c => !currSet.has(c));
     return { added, removed };
   }
 
-  function buildOutput() {
-    const sections = [];
-    const annotatedEls = new Set();
+  // Decide between an inline diff ("a" → "b") and a multi-line block
+  // based on whether either side has a newline or is long enough that
+  // inline becomes unreadable.
+  function isShortText(s) {
+    return !s.includes('\n') && s.length <= 80;
+  }
 
-    // Annotations from the store come in two kinds:
-    //   - 'note': a group of 1+ elements sharing one note
-    //   - 'text': a single-element text edit (silent on-page; only here)
-    // A single element may appear in both (e.g. you grouped it AND edited
-    // its text); we render them as separate sections for clarity.
+  function formatTextDiff(before, after) {
+    if (isShortText(before) && isShortText(after)) {
+      return `Text: "${before}" → "${after}"`;
+    }
+    // Multi-line: indent each line by 2 spaces so it nests under the
+    // section header in Markdown without becoming a code block.
+    const indent = (s) => s.split('\n').map(l => '  ' + l).join('\n');
+    return `Text:\n  Before:\n${indent(before)}\n  After:\n${indent(after)}`;
+  }
+
+  function formatClassDiff(added, removed) {
+    const lines = ['Classes:'];
+    if (added.length) lines.push('  + ' + added.join(' '));
+    if (removed.length) lines.push('  - ' + removed.join(' '));
+    return lines.join('\n');
+  }
+
+  // --- Build per-element + group-note views over getAnnotations() -----
+
+  function buildOutput() {
     const annotations = getAnnotations();
+    const selected = getSelected();
+
+    // Per-element accumulator. Single-element notes, text edits, and
+    // class diffs all collapse into one entry per element so the
+    // reader doesn't see the same selector three times.
+    const perEl = new Map(); // el → { selector, note?, textDiff?, classDiff? }
+    const groupNotes = [];   // { selectors, note }
+
+    function ensureEntry(el) {
+      let e = perEl.get(el);
+      if (!e) {
+        e = { el, selector: getSelector(el) };
+        perEl.set(el, e);
+      }
+      return e;
+    }
+
     annotations.forEach(item => {
       if (item.kind === 'note') {
-        if (!item.note || !item.note.trim()) return;
-        const header = item.selectors.length > 1
-          ? `### Group of ${item.selectors.length}\n${item.selectors.map(s => `  - ${s}`).join('\n')}`
-          : `### ${item.selectors[0]}`;
-        let section = header;
-        section += `\nNote: "${item.note.trim()}"`;
-        sections.push(section);
-        item.els.forEach(el => annotatedEls.add(el));
+        const note = (item.note || '').trim();
+        if (!note) return;
+        if (item.els.length > 1) {
+          groupNotes.push({ selectors: item.selectors, note });
+        } else {
+          ensureEntry(item.els[0]).note = note;
+        }
       } else if (item.kind === 'text') {
         const el = item.el;
-        const hasTextChange = el.innerText !== item.originalText;
-        const { added, removed } = getClassDiff(el, item.originalClasses);
-        const hasClassChanges = added.length > 0 || removed.length > 0;
-        if (!hasTextChange && !hasClassChanges) return;
-
-        let section = `### ${item.selector}`;
-        if (hasTextChange) {
-          const before = item.originalText.replace(/\n/g, '\\n');
-          const after = el.innerText.replace(/\n/g, '\\n');
-          section += `\nText: "${before}" → "${after}"`;
-        }
-        if (hasClassChanges) {
-          section += '\nClasses:';
-          if (added.length) section += `\n  + ${added.join(' ')}`;
-          if (removed.length) section += `\n  - ${removed.join(' ')}`;
-        }
-        sections.push(section);
-        annotatedEls.add(el);
+        const before = item.originalText;
+        const after = el.innerText;
+        const textChanged = after !== before;
+        const { added, removed } = classDiff(el.className, item.originalClasses);
+        const classesChanged = added.length || removed.length;
+        if (!textChanged && !classesChanged) return;
+        const entry = ensureEntry(el);
+        if (textChanged) entry.textDiff = { before, after };
+        if (classesChanged) entry.classDiff = { added, removed };
       }
     });
 
-    // Live class diffs from the current selection — picked up so a user
-    // who's mid-edit can copy without first deselecting.
-    const selected = getSelected();
+    // Live class diffs for elements currently selected by the Comment
+    // tool — picked up so a user can copy mid-edit without first
+    // clicking away. Skip elements already covered by a text annotation
+    // (they already have a classDiff entry).
     selected.forEach(({ el, originalClasses }) => {
-      if (annotatedEls.has(el)) return;
       if (el.className === originalClasses) return;
-
-      const { added, removed } = getClassDiff(el, originalClasses);
+      const { added, removed } = classDiff(el.className, originalClasses);
       if (!added.length && !removed.length) return;
+      const entry = ensureEntry(el);
+      if (!entry.classDiff) entry.classDiff = { added, removed };
+    });
 
-      const selector = getSelector(el);
-      let section = `### ${selector}`;
-      section += '\nClasses:';
-      if (added.length) section += `\n  + ${added.join(' ')}`;
-      if (removed.length) section += `\n  - ${removed.join(' ')}`;
-      sections.push(section);
+    // --- Render ----------------------------------------------------------
+    const sections = [];
+
+    groupNotes.forEach(g => {
+      const lines = [`### Group of ${g.selectors.length}`];
+      g.selectors.forEach(s => lines.push(`- ${s}`));
+      lines.push(`Note: ${g.note}`);
+      sections.push(lines.join('\n'));
+    });
+
+    perEl.forEach(entry => {
+      const lines = [`### ${entry.selector || '(no selector)'}`];
+      if (entry.note) lines.push(`Note: ${entry.note}`);
+      if (entry.textDiff) lines.push(formatTextDiff(entry.textDiff.before, entry.textDiff.after));
+      if (entry.classDiff) lines.push(formatClassDiff(entry.classDiff.added, entry.classDiff.removed));
+      if (lines.length === 1) return; // selector with nothing to say — skip
+      sections.push(lines.join('\n'));
     });
 
     if (!sections.length) return null;
     return '## DOM Changes\n\n' + sections.join('\n\n');
   }
+
+  // --- Public ---------------------------------------------------------------
 
   async function copyAllChanges() {
     const output = buildOutput();

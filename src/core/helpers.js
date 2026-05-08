@@ -61,23 +61,25 @@ export function initHelpers() {
   document.body.appendChild(tooltip);
   inspectorUI.add(tooltip);
 
-  const nudgeStyle = document.createElement('style');
-  nudgeStyle.textContent = `
-    @keyframes inspector-nudge {
-      0% { transform: translateY(0); }
-      30% { transform: translateY(3px); }
-      100% { transform: translateY(0); }
-    }
-    .inspector-nudge { animation: inspector-nudge 0.2s ease-out; }
-  `;
-  document.head.appendChild(nudgeStyle);
 }
 
+// Bounce animation used to confirm "we just did a thing" on an
+// element (right-click copy, click-to-select, etc). Implemented via
+// the Web Animations API rather than a CSS class — adding/removing a
+// class would (and used to) pollute getSelector() output and the
+// originalClasses snapshot that copy-all uses to compute class
+// diffs. Web Animations API doesn't touch className or inline style,
+// so the user-visible effect is the same and the selectors stay clean.
 export function nudge(el) {
-  el.classList.remove('inspector-nudge');
-  void el.offsetWidth;
-  el.classList.add('inspector-nudge');
-  el.addEventListener('animationend', () => el.classList.remove('inspector-nudge'), { once: true });
+  if (!el || typeof el.animate !== 'function') return;
+  el.animate(
+    [
+      { transform: 'translateY(0)' },
+      { transform: 'translateY(3px)', offset: 0.3 },
+      { transform: 'translateY(0)' },
+    ],
+    { duration: 200, easing: 'ease-out' }
+  );
 }
 
 // --- Flash screen ---
@@ -140,16 +142,44 @@ export async function copyText(text) {
 }
 
 // --- Selector utilities ---
-export function getSelector(el) {
-  if (el.id) return '#' + el.id;
-  let path = [];
-  while (el && el !== document.body) {
-    let seg = el.tagName.toLowerCase();
-    if (el.className && typeof el.className === 'string') {
-      seg += '.' + el.className.trim().split(/\s+/).join('.');
+// Build a CSS selector that's actually findable on the page. Strategy:
+//   1. If the element has an id, '#id' wins (and we stop).
+//   2. Walk up the DOM, building each segment as tag(.class)* and only
+//      adding :nth-of-type(N) when the parent has more than one same-tag
+//      child (otherwise the segment is already unique among siblings).
+//   3. Stop the moment we hit an ancestor with an id — that anchors the
+//      whole selector and there's no point walking further up.
+//   4. Skip <html> / <body>; they're implicit in any selector that
+//      reaches them and only add noise.
+function describeSegment(el) {
+  let seg = el.tagName.toLowerCase();
+  if (el.classList && el.classList.length) {
+    // Up to two classes — enough for human readability without dragging
+    // along a wall of utility classes (tw-, css module hashes, etc.).
+    seg += '.' + Array.from(el.classList).slice(0, 2).join('.');
+  }
+  const parent = el.parentElement;
+  if (parent) {
+    const sameTag = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+    if (sameTag.length > 1) {
+      seg += `:nth-of-type(${sameTag.indexOf(el) + 1})`;
     }
-    path.unshift(seg);
-    el = el.parentElement;
+  }
+  return seg;
+}
+
+export function getSelector(el) {
+  if (!el || el.nodeType !== 1) return '';
+  if (el.id) return '#' + el.id;
+  const path = [];
+  let cur = el;
+  while (cur && cur !== document.body && cur !== document.documentElement) {
+    if (cur.id) {
+      path.unshift('#' + cur.id);
+      break;
+    }
+    path.unshift(describeSegment(cur));
+    cur = cur.parentElement;
   }
   return path.join(' > ');
 }
