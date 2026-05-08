@@ -98,6 +98,47 @@ export function flashElement(el) {
   });
 }
 
+// --- Clipboard ---
+// navigator.clipboard.writeText is the modern path but it rejects in
+// several real-world cases: insecure context (http://, file://), pages
+// that block the clipboard via Permissions-Policy, or some browsers
+// when the document isn't focused. Fall back to a hidden textarea +
+// document.execCommand('copy') so right-click on a plain http page
+// still works. Returns true on success.
+export async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (_) { /* fall through to legacy path */ }
+
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    Object.assign(ta.style, {
+      position: 'fixed',
+      top: '0',
+      left: '-9999px',
+      opacity: '0',
+      pointerEvents: 'none',
+    });
+    document.body.appendChild(ta);
+    const prevActive = document.activeElement;
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand && document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (prevActive && typeof prevActive.focus === 'function') {
+      try { prevActive.focus(); } catch (_) {}
+    }
+    return !!ok;
+  } catch (_) {
+    return false;
+  }
+}
+
 // --- Selector utilities ---
 export function getSelector(el) {
   if (el.id) return '#' + el.id;

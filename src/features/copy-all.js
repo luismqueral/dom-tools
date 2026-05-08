@@ -1,4 +1,4 @@
-import { showToast, getSelector } from '../core/helpers.js';
+import { showToast, getSelector, copyText } from '../core/helpers.js';
 import { getAnnotations } from './annotations.js';
 import { getSelected } from './style-modifier.js';
 import { getCopyButton, updateCopyBadge } from '../toolbar.js';
@@ -77,17 +77,14 @@ function buildOutput() {
   return '## DOM Changes\n\n' + sections.join('\n\n');
 }
 
-export function copyAllChanges() {
+export async function copyAllChanges() {
   const output = buildOutput();
   if (!output) {
     showToast('No changes to copy');
     return;
   }
-  navigator.clipboard.writeText(output).then(() => {
-    showToast('All changes copied');
-  }).catch(() => {
-    showToast(output.substring(0, 100) + '...');
-  });
+  const ok = await copyText(output);
+  showToast(ok ? 'All changes copied' : 'Could not copy changes');
 }
 
 export function initCopyAll() {

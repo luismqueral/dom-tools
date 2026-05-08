@@ -26,7 +26,7 @@ import { ensurePlexMono } from '../core/fonts.js';
 import {
   setEditorTarget, closeEditor,
   ensureOrig, applyAnnotationStyle, getOrigBackground, getOrigOutline,
-  findNoteAnnotationByEl,
+  findNoteAnnotationByEl, isActiveNoteEmpty,
   setElementText, evaluateAnnotation, queueRepositionAll,
 } from './annotations.js';
 
@@ -205,27 +205,17 @@ function createTagLabel(el) {
   return lbl;
 }
 
-// Position the label at the element's top-left corner. For elements
-// big enough we tuck it INSIDE the corner (top + 2px); for small
-// inline things (a <span>, an <a>, etc.) we float it OUTSIDE just
-// above the element so it doesn't sit on top of the text.
-//
-// flipped=true → flip to the bottom-left equivalent (cursor avoidance).
+// Position the label just above the element's top-left corner —
+// always OUTSIDE the element bounds so the label never overlaps page
+// content. flipped=true flips to just below the bottom-left (cursor
+// avoidance, sticky once flipped — see avoidLabelsUnderCursor).
 function positionTagLabel(lbl, el, flipped) {
   const r = el.getBoundingClientRect();
   const labelH = lbl.offsetHeight || 14;
-  const useOutside = r.height < labelH * 3;
   const left = r.left + window.scrollX;
-  let top;
-  if (useOutside) {
-    top = flipped
-      ? r.top + window.scrollY + r.height + 2          // outside below
-      : r.top + window.scrollY - labelH - 2;           // outside above
-  } else {
-    top = flipped
-      ? r.top + window.scrollY + r.height - labelH - 2 // inside bottom
-      : r.top + window.scrollY + 2;                    // inside top
-  }
+  const top = flipped
+    ? r.top + window.scrollY + r.height + 2  // outside below
+    : r.top + window.scrollY - labelH - 2;   // outside above
   lbl.style.left = left + 'px';
   lbl.style.top = top + 'px';
 }
@@ -245,15 +235,13 @@ function hideTagLabels() {
 // Compute the set of elements that should currently be labeled —
 // anything the user is actively engaged with: the hovered element,
 // every selected element (group or single), and every element being
-// text-edited. Text-tag elements are intentionally excluded — labels
-// on every paragraph/heading/span feel noisy, and the colored backdrop
-// is enough of a "you're touching this" cue for prose. Labels are
-// reserved for containers (div, section, etc.) where structure matters.
+// text-edited. Text-tag elements are included too (p, h1, span, …)
+// so every kind of element you can touch surfaces its tag.
 function desiredLabelEls() {
   const set = new Set();
-  if (hoveredEl && !isTextElement(hoveredEl)) set.add(hoveredEl);
-  selected.forEach(s => { if (!isTextElement(s.el)) set.add(s.el); });
-  editableEls.forEach(el => { if (!isTextElement(el)) set.add(el); });
+  if (hoveredEl) set.add(hoveredEl);
+  selected.forEach(s => set.add(s.el));
+  editableEls.forEach(el => set.add(el));
   return set;
 }
 
@@ -280,16 +268,23 @@ function repositionAllTagLabels() {
 }
 
 // On every mousemove in Comment mode, check whether the cursor is
-// inside any label's bounding rect and flip its corner if so.
+// inside any label's bounding rect and shove it out of the way if so.
+// Sticky: once a label has flipped, it stays flipped for the lifetime
+// of the entry. Snapping it back as soon as the cursor cleared the
+// flipped position caused a springy ping-pong, since the cursor would
+// then overlap the original (top) position and trigger another flip.
+// A new label (created next time the element gains a label) starts
+// fresh at flipped=false.
 function avoidLabelsUnderCursor(mx, my) {
   tagLabels.forEach((entry, el) => {
+    if (entry.flipped) return;
     const r = entry.lbl.getBoundingClientRect();
     const margin = 6;
     const overlap = mx >= r.left - margin && mx <= r.right + margin &&
                     my >= r.top  - margin && my <= r.bottom + margin;
-    if (overlap !== entry.flipped) {
-      entry.flipped = overlap;
-      positionTagLabel(entry.lbl, el, overlap);
+    if (overlap) {
+      entry.flipped = true;
+      positionTagLabel(entry.lbl, el, true);
     }
   });
 }
@@ -511,7 +506,17 @@ function onClick(e) {
   // <body> / <html> aren't real "elements you'd want to comment on" —
   // they're the canvas. Letting them be selected outlines the whole
   // viewport in theme color and is almost never the user's intent.
-  if (el === document.body || el === document.documentElement) return;
+  // BUT: if the user has an empty note open (clicked an element, no
+  // text typed yet) and clicks blank canvas, treat that as "never
+  // mind" — drop the selection and the empty bubble. Notes with text
+  // stay put on a stray canvas click; the user shouldn't lose their
+  // work that easily.
+  if (el === document.body || el === document.documentElement) {
+    if (isActiveNoteEmpty() && selected.length) {
+      clearSelection();
+    }
+    return;
+  }
 
   // Re-clicking inside an already-editable text element should just
   // move the caret natively. Don't preventDefault, don't re-copy

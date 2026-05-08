@@ -44,6 +44,10 @@ function activateModuleById(id) {
 let lastEsc = 0;
 
 export function initKeyboard() {
+  // Capture-phase so global keys (Escape especially) are seen BEFORE
+  // any typing widget — note bubbles, sticky notes, the terminal —
+  // calls e.stopPropagation() on its own keydown. Without this, Esc+Esc
+  // typed inside a focused textarea would never reach the toggler.
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Alt') {
       e.preventDefault();
@@ -135,7 +139,7 @@ export function initKeyboard() {
         }
       }
     }
-  });
+  }, true);
 
   document.addEventListener('keyup', (e) => {
     if (e.key === 'Alt') {

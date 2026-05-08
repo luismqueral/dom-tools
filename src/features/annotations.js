@@ -60,13 +60,14 @@ export function getOrigBackground(el) { return ORIG_BACKGROUNDS.get(el) || ''; }
 export function applyAnnotationStyle(el) {
   if (isAnnotated(el)) {
     const inHoveredGroup = hoveredAnnotation && hoveredAnnotation.els.includes(el);
-    // Hovering a note's bubble paints a solid selection-color border on
-    // every element in that note's group, so the link between the bubble
-    // and its targets is unmistakable. For elements that are also the
-    // active editor's selection, this matches the outline style-modifier
-    // would set anyway, so the selection look is preserved (and not
-    // clobbered by the otherwise-unconditional outline reset below).
-    if (inHoveredGroup) {
+    const inActiveGroup = activeAnnotation && activeAnnotation.els.includes(el);
+    // Solid border when:
+    //   - the element belongs to the note currently being edited
+    //     (active state — the border tells you "your typing is going to
+    //      these elements"), or
+    //   - the user is hovering this annotation's bubble.
+    // Otherwise the at-rest scrim alone marks the element.
+    if (inHoveredGroup || inActiveGroup) {
       el.style.outline = '2px solid ' + getSelectionColor();
     } else {
       el.style.outline = getOrigOutline(el);
@@ -123,6 +124,14 @@ export function findNoteAnnotationByEl(el) {
 export function getElementNote(el) {
   const a = findNoteAnnotationByEl(el);
   return a ? a.note : '';
+}
+
+// True when the user has the editor open on a note that has no text
+// yet — used by the click router to decide whether a body click
+// should also drop the current selection.
+export function isActiveNoteEmpty() {
+  if (!activeAnnotation) return false;
+  return !activeAnnotation.note || !activeAnnotation.note.trim();
 }
 
 // ---- One-time stylesheet for placeholder color (white-ish on pink) ----
@@ -405,9 +414,12 @@ export function setEditorTarget(els) {
   let ann = noteAnnotations.find(a => a.els.some(el => els.includes(el)));
 
   // Switching editor target — finalize the current one (commit or drop).
+  // Null activeAnnotation BEFORE finalizing so the repaint inside
+  // finalize sees the old els as inactive and drops their border.
   if (activeAnnotation && activeAnnotation !== ann) {
-    finalizeAnnotation(activeAnnotation);
+    const prev = activeAnnotation;
     activeAnnotation = null;
+    finalizeAnnotation(prev);
   }
 
   if (!ann) {

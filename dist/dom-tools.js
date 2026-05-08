@@ -182,6 +182,47 @@
     });
   }
 
+  // --- Clipboard ---
+  // navigator.clipboard.writeText is the modern path but it rejects in
+  // several real-world cases: insecure context (http://, file://), pages
+  // that block the clipboard via Permissions-Policy, or some browsers
+  // when the document isn't focused. Fall back to a hidden textarea +
+  // document.execCommand('copy') so right-click on a plain http page
+  // still works. Returns true on success.
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) { /* fall through to legacy path */ }
+
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      Object.assign(ta.style, {
+        position: 'fixed',
+        top: '0',
+        left: '-9999px',
+        opacity: '0',
+        pointerEvents: 'none',
+      });
+      document.body.appendChild(ta);
+      const prevActive = document.activeElement;
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      const ok = document.execCommand && document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (prevActive && typeof prevActive.focus === 'function') {
+        try { prevActive.focus(); } catch (_) {}
+      }
+      return !!ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // --- Selector utilities ---
   function getSelector(el) {
     if (el.id) return '#' + el.id;
@@ -778,27 +819,17 @@
     return lbl;
   }
 
-  // Position the label at the element's top-left corner. For elements
-  // big enough we tuck it INSIDE the corner (top + 2px); for small
-  // inline things (a <span>, an <a>, etc.) we float it OUTSIDE just
-  // above the element so it doesn't sit on top of the text.
-  //
-  // flipped=true → flip to the bottom-left equivalent (cursor avoidance).
+  // Position the label just above the element's top-left corner —
+  // always OUTSIDE the element bounds so the label never overlaps page
+  // content. flipped=true flips to just below the bottom-left (cursor
+  // avoidance, sticky once flipped — see avoidLabelsUnderCursor).
   function positionTagLabel(lbl, el, flipped) {
     const r = el.getBoundingClientRect();
     const labelH = lbl.offsetHeight || 14;
-    const useOutside = r.height < labelH * 3;
     const left = r.left + window.scrollX;
-    let top;
-    if (useOutside) {
-      top = flipped
-        ? r.top + window.scrollY + r.height + 2          // outside below
-        : r.top + window.scrollY - labelH - 2;           // outside above
-    } else {
-      top = flipped
-        ? r.top + window.scrollY + r.height - labelH - 2 // inside bottom
-        : r.top + window.scrollY + 2;                    // inside top
-    }
+    const top = flipped
+      ? r.top + window.scrollY + r.height + 2  // outside below
+      : r.top + window.scrollY - labelH - 2;   // outside above
     lbl.style.left = left + 'px';
     lbl.style.top = top + 'px';
   }
@@ -818,15 +849,13 @@
   // Compute the set of elements that should currently be labeled —
   // anything the user is actively engaged with: the hovered element,
   // every selected element (group or single), and every element being
-  // text-edited. Text-tag elements are intentionally excluded — labels
-  // on every paragraph/heading/span feel noisy, and the colored backdrop
-  // is enough of a "you're touching this" cue for prose. Labels are
-  // reserved for containers (div, section, etc.) where structure matters.
+  // text-edited. Text-tag elements are included too (p, h1, span, …)
+  // so every kind of element you can touch surfaces its tag.
   function desiredLabelEls() {
     const set = new Set();
-    if (hoveredEl$1 && !isTextElement$1(hoveredEl$1)) set.add(hoveredEl$1);
-    selected.forEach(s => { if (!isTextElement$1(s.el)) set.add(s.el); });
-    editableEls$1.forEach(el => { if (!isTextElement$1(el)) set.add(el); });
+    if (hoveredEl$1) set.add(hoveredEl$1);
+    selected.forEach(s => set.add(s.el));
+    editableEls$1.forEach(el => set.add(el));
     return set;
   }
 
@@ -853,16 +882,23 @@
   }
 
   // On every mousemove in Comment mode, check whether the cursor is
-  // inside any label's bounding rect and flip its corner if so.
+  // inside any label's bounding rect and shove it out of the way if so.
+  // Sticky: once a label has flipped, it stays flipped for the lifetime
+  // of the entry. Snapping it back as soon as the cursor cleared the
+  // flipped position caused a springy ping-pong, since the cursor would
+  // then overlap the original (top) position and trigger another flip.
+  // A new label (created next time the element gains a label) starts
+  // fresh at flipped=false.
   function avoidLabelsUnderCursor(mx, my) {
     tagLabels.forEach((entry, el) => {
+      if (entry.flipped) return;
       const r = entry.lbl.getBoundingClientRect();
       const margin = 6;
       const overlap = mx >= r.left - margin && mx <= r.right + margin &&
                       my >= r.top  - margin && my <= r.bottom + margin;
-      if (overlap !== entry.flipped) {
-        entry.flipped = overlap;
-        positionTagLabel(entry.lbl, el, overlap);
+      if (overlap) {
+        entry.flipped = true;
+        positionTagLabel(entry.lbl, el, true);
       }
     });
   }
@@ -1083,7 +1119,17 @@
     // <body> / <html> aren't real "elements you'd want to comment on" —
     // they're the canvas. Letting them be selected outlines the whole
     // viewport in theme color and is almost never the user's intent.
-    if (el === document.body || el === document.documentElement) return;
+    // BUT: if the user has an empty note open (clicked an element, no
+    // text typed yet) and clicks blank canvas, treat that as "never
+    // mind" — drop the selection and the empty bubble. Notes with text
+    // stay put on a stray canvas click; the user shouldn't lose their
+    // work that easily.
+    if (el === document.body || el === document.documentElement) {
+      if (isActiveNoteEmpty() && selected.length) {
+        clearSelection();
+      }
+      return;
+    }
 
     // Re-clicking inside an already-editable text element should just
     // move the caret natively. Don't preventDefault, don't re-copy
@@ -1251,13 +1297,14 @@
   function applyAnnotationStyle(el) {
     if (isAnnotated(el)) {
       const inHoveredGroup = hoveredAnnotation && hoveredAnnotation.els.includes(el);
-      // Hovering a note's bubble paints a solid selection-color border on
-      // every element in that note's group, so the link between the bubble
-      // and its targets is unmistakable. For elements that are also the
-      // active editor's selection, this matches the outline style-modifier
-      // would set anyway, so the selection look is preserved (and not
-      // clobbered by the otherwise-unconditional outline reset below).
-      if (inHoveredGroup) {
+      const inActiveGroup = activeAnnotation && activeAnnotation.els.includes(el);
+      // Solid border when:
+      //   - the element belongs to the note currently being edited
+      //     (active state — the border tells you "your typing is going to
+      //      these elements"), or
+      //   - the user is hovering this annotation's bubble.
+      // Otherwise the at-rest scrim alone marks the element.
+      if (inHoveredGroup || inActiveGroup) {
         el.style.outline = '2px solid ' + getSelectionColor();
       } else {
         el.style.outline = getOrigOutline(el);
@@ -1309,6 +1356,14 @@
 
   function findNoteAnnotationByEl(el) {
     return noteAnnotations.find(a => a.els.includes(el)) || null;
+  }
+
+  // True when the user has the editor open on a note that has no text
+  // yet — used by the click router to decide whether a body click
+  // should also drop the current selection.
+  function isActiveNoteEmpty() {
+    if (!activeAnnotation) return false;
+    return !activeAnnotation.note || !activeAnnotation.note.trim();
   }
 
   // ---- One-time stylesheet for placeholder color (white-ish on pink) ----
@@ -1591,9 +1646,12 @@
     let ann = noteAnnotations.find(a => a.els.some(el => els.includes(el)));
 
     // Switching editor target — finalize the current one (commit or drop).
+    // Null activeAnnotation BEFORE finalizing so the repaint inside
+    // finalize sees the old els as inactive and drops their border.
     if (activeAnnotation && activeAnnotation !== ann) {
-      finalizeAnnotation(activeAnnotation);
+      const prev = activeAnnotation;
       activeAnnotation = null;
+      finalizeAnnotation(prev);
     }
 
     if (!ann) {
@@ -1822,17 +1880,14 @@
     return '## DOM Changes\n\n' + sections.join('\n\n');
   }
 
-  function copyAllChanges() {
+  async function copyAllChanges() {
     const output = buildOutput();
     if (!output) {
       showToast('No changes to copy');
       return;
     }
-    navigator.clipboard.writeText(output).then(() => {
-      showToast('All changes copied');
-    }).catch(() => {
-      showToast(output.substring(0, 100) + '...');
-    });
+    const ok = await copyText(output);
+    showToast(ok ? 'All changes copied' : 'Could not copy changes');
   }
 
   function initCopyAll() {
@@ -1942,6 +1997,10 @@
   let lastEsc = 0;
 
   function initKeyboard() {
+    // Capture-phase so global keys (Escape especially) are seen BEFORE
+    // any typing widget — note bubbles, sticky notes, the terminal —
+    // calls e.stopPropagation() on its own keydown. Without this, Esc+Esc
+    // typed inside a focused textarea would never reach the toggler.
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Alt') {
         e.preventDefault();
@@ -2033,7 +2092,7 @@
           }
         }
       }
-    });
+    }, true);
 
     document.addEventListener('keyup', (e) => {
       if (e.key === 'Alt') {
@@ -2862,9 +2921,11 @@
 
 
   // Toolbar button keeps its own identity color so the icon is visually
-  // distinct from the Comment cursor in the rail. The on-page outlines
-  // (hover dashed + editable solid) follow the user-chosen selection
-  // color so every "you're working on this" cue across tools matches.
+  // distinct from the Comment cursor in the rail. Text mode is
+  // intentionally chrome-free while you're typing — no border, no scrim,
+  // no comment bubble. Hover before you click still shows a soft wash so
+  // you can see what you're about to edit, but the moment you commit to
+  // editing the surface goes back to looking like plain page text.
   const ORANGE = COLORS.edit;
   const TEXT_TAGS = [
     'P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI',
@@ -2964,8 +3025,10 @@
     el.setAttribute('data-enable-grammarly', 'false');
     el.setAttribute('data-lt-tmp-id', '');
     el.style.cursor = 'text';
-    el.style.outline = '2px solid ' + getSelectionColor();
-    el.style.backgroundColor = withAlpha(getSelectionColor(), 0.15);
+    // While the user is typing the element should look untouched — no
+    // border, no scrim, no all-text wash. Just a caret on plain text.
+    el.style.outline = '';
+    el.style.backgroundColor = getOrigBackground(el);
 
     const originalText = el.innerText;
     const originalClasses = el.className;
@@ -3003,11 +3066,9 @@
     clearAllHighlights();
     clearHover();
 
-    // Open the comment bubble alongside the editable text so the user
-    // can describe the change as well as type the new copy. Bubble
-    // first (its focus call queues), text editable + caret next; the
-    // setTimeout below runs LAST and lands focus on the page text.
-    setEditorTarget([el]);
+    // Text mode is purely about typing — no comment bubble, no border.
+    // The diff (originalText vs current innerText) still rolls into
+    // copy-all output via setElementText in the input handler.
     makeEditable(el);
 
     const x = e.clientX, y = e.clientY;
@@ -3036,10 +3097,8 @@
       document.addEventListener('mousemove', onMove, true);
 
       onColorChange((color) => {
-        editableEls.forEach(el => {
-          el.style.outline = '2px solid ' + color;
-          el.style.backgroundColor = withAlpha(color, 0.15);
-        });
+        // Editable elements aren't tinted anymore, so nothing to repaint
+        // there. Just refresh the all-text wash and the hover wash.
         if (highlightActive) {
           highlightedEls.forEach(el => {
             if (!editableEls.has(el)) el.style.backgroundColor = withAlpha(color, 0.08);
@@ -3064,7 +3123,6 @@
       clearAllHighlights();
       clearHover();
       Array.from(editableEls).forEach(unmakeEditable);
-      closeEditor();
     },
 
     toggle() {
@@ -4160,7 +4218,7 @@
    */
 
 
-  function onContextMenu(e) {
+  async function onContextMenu(e) {
     // Draw tool owns right-click while in pen mode (it erases).
     if (state.annotateMode && state.annotateSub === 'pen') return;
 
@@ -4175,12 +4233,13 @@
     if (el === document.body || el === document.documentElement) return;
 
     const selector = getSelector(el);
-    navigator.clipboard.writeText(selector).then(() => {
+    const ok = await copyText(selector);
+    if (ok) {
       nudge(el);
       showToast(`Copied: ${selector.length > 60 ? selector.slice(0, 57) + '…' : selector}`);
-    }).catch(() => {
+    } else {
       showToast('Could not copy selector');
-    });
+    }
   }
 
   var copySelector = {

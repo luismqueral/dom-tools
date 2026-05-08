@@ -12,9 +12,9 @@
  */
 
 import { state } from '../core/state.js';
-import { showToast, isInspectorUI, getSelector, nudge } from '../core/helpers.js';
+import { showToast, isInspectorUI, getSelector, nudge, copyText } from '../core/helpers.js';
 
-function onContextMenu(e) {
+async function onContextMenu(e) {
   // Draw tool owns right-click while in pen mode (it erases).
   if (state.annotateMode && state.annotateSub === 'pen') return;
 
@@ -29,12 +29,13 @@ function onContextMenu(e) {
   if (el === document.body || el === document.documentElement) return;
 
   const selector = getSelector(el);
-  navigator.clipboard.writeText(selector).then(() => {
+  const ok = await copyText(selector);
+  if (ok) {
     nudge(el);
     showToast(`Copied: ${selector.length > 60 ? selector.slice(0, 57) + '…' : selector}`);
-  }).catch(() => {
+  } else {
     showToast('Could not copy selector');
-  });
+  }
 }
 
 export default {

@@ -18,14 +18,15 @@ import { showToast, isInspectorUI } from '../core/helpers.js';
 import { getSelectionColor, withAlpha, onColorChange } from '../core/theme.js';
 import {
   setElementText, evaluateAnnotation, queueRepositionAll,
-  ensureOrig, applyAnnotationStyle,
-  setEditorTarget, closeEditor,
+  ensureOrig, applyAnnotationStyle, getOrigBackground,
 } from './annotations.js';
 
 // Toolbar button keeps its own identity color so the icon is visually
-// distinct from the Comment cursor in the rail. The on-page outlines
-// (hover dashed + editable solid) follow the user-chosen selection
-// color so every "you're working on this" cue across tools matches.
+// distinct from the Comment cursor in the rail. Text mode is
+// intentionally chrome-free while you're typing — no border, no scrim,
+// no comment bubble. Hover before you click still shows a soft wash so
+// you can see what you're about to edit, but the moment you commit to
+// editing the surface goes back to looking like plain page text.
 const ORANGE = COLORS.edit;
 const TEXT_TAGS = [
   'P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI',
@@ -125,8 +126,10 @@ function makeEditable(el) {
   el.setAttribute('data-enable-grammarly', 'false');
   el.setAttribute('data-lt-tmp-id', '');
   el.style.cursor = 'text';
-  el.style.outline = '2px solid ' + getSelectionColor();
-  el.style.backgroundColor = withAlpha(getSelectionColor(), 0.15);
+  // While the user is typing the element should look untouched — no
+  // border, no scrim, no all-text wash. Just a caret on plain text.
+  el.style.outline = '';
+  el.style.backgroundColor = getOrigBackground(el);
 
   const originalText = el.innerText;
   const originalClasses = el.className;
@@ -164,11 +167,9 @@ function onClick(e) {
   clearAllHighlights();
   clearHover();
 
-  // Open the comment bubble alongside the editable text so the user
-  // can describe the change as well as type the new copy. Bubble
-  // first (its focus call queues), text editable + caret next; the
-  // setTimeout below runs LAST and lands focus on the page text.
-  setEditorTarget([el]);
+  // Text mode is purely about typing — no comment bubble, no border.
+  // The diff (originalText vs current innerText) still rolls into
+  // copy-all output via setElementText in the input handler.
   makeEditable(el);
 
   const x = e.clientX, y = e.clientY;
@@ -197,10 +198,8 @@ export default {
     document.addEventListener('mousemove', onMove, true);
 
     onColorChange((color) => {
-      editableEls.forEach(el => {
-        el.style.outline = '2px solid ' + color;
-        el.style.backgroundColor = withAlpha(color, 0.15);
-      });
+      // Editable elements aren't tinted anymore, so nothing to repaint
+      // there. Just refresh the all-text wash and the hover wash.
       if (highlightActive) {
         highlightedEls.forEach(el => {
           if (!editableEls.has(el)) el.style.backgroundColor = withAlpha(color, 0.08);
@@ -225,7 +224,6 @@ export default {
     clearAllHighlights();
     clearHover();
     Array.from(editableEls).forEach(unmakeEditable);
-    closeEditor();
   },
 
   toggle() {
