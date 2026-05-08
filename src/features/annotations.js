@@ -40,6 +40,14 @@ const ORIG_BACKGROUNDS = new WeakMap();
 // At-rest tint for elements that have a saved note or text edit. Derived
 // from the live selection color so theme swaps propagate.
 function getScrim() { return withAlpha(getSelectionColor(), 0.15); }
+// Faded scrim used on OTHER annotated elements while a bubble is being
+// hovered — lighter so the hovered note's own elements visually pop.
+function getFadedScrim() { return withAlpha(getSelectionColor(), 0.04); }
+
+// While a bubble is hovered, this points at its annotation. Other
+// annotated elements switch to the faded scrim so the connection
+// between the hovered note and its own elements stands out.
+let hoveredAnnotation = null;
 
 export function ensureOrig(el) {
   if (!ORIG_OUTLINES.has(el)) ORIG_OUTLINES.set(el, el.style.outline || '');
@@ -51,12 +59,42 @@ export function getOrigBackground(el) { return ORIG_BACKGROUNDS.get(el) || ''; }
 
 export function applyAnnotationStyle(el) {
   if (isAnnotated(el)) {
-    el.style.outline = getOrigOutline(el);
-    el.style.backgroundColor = getScrim();
+    const inHoveredGroup = hoveredAnnotation && hoveredAnnotation.els.includes(el);
+    // Hovering a note's bubble paints a solid selection-color border on
+    // every element in that note's group, so the link between the bubble
+    // and its targets is unmistakable. For elements that are also the
+    // active editor's selection, this matches the outline style-modifier
+    // would set anyway, so the selection look is preserved (and not
+    // clobbered by the otherwise-unconditional outline reset below).
+    if (inHoveredGroup) {
+      el.style.outline = '2px solid ' + getSelectionColor();
+    } else {
+      el.style.outline = getOrigOutline(el);
+    }
+    // If we're in "bubble hover" mode and this element isn't part of
+    // the hovered annotation, dim it. Otherwise, normal scrim.
+    if (hoveredAnnotation && !inHoveredGroup) {
+      el.style.backgroundColor = getFadedScrim();
+    } else {
+      el.style.backgroundColor = getScrim();
+    }
   } else {
     el.style.outline = getOrigOutline(el);
     el.style.backgroundColor = getOrigBackground(el);
   }
+}
+
+// Repaint every annotated element so the hover state takes effect (or
+// is removed). Cheap because we only touch els we already track.
+function repaintAllAnnotated() {
+  noteAnnotations.forEach(a => a.els.forEach(el => applyAnnotationStyle(el)));
+  textEdits.forEach((_, el) => applyAnnotationStyle(el));
+}
+
+function setHoveredAnnotation(annotation) {
+  if (hoveredAnnotation === annotation) return;
+  hoveredAnnotation = annotation;
+  repaintAllAnnotated();
 }
 
 // ---- Stores ----
@@ -258,6 +296,12 @@ function createBubble(annotation) {
     document.removeEventListener('mouseup', onUp, true);
   };
 
+  // Hovering the bubble dims every OTHER annotated element so the
+  // visual line between this note and ITS attached element(s) stands
+  // out. Restored on mouseleave.
+  bubble.addEventListener('mouseenter', () => setHoveredAnnotation(annotation));
+  bubble.addEventListener('mouseleave', () => setHoveredAnnotation(null));
+
   document.body.appendChild(bubble);
   inspectorUI.add(bubble);
   return bubble;
@@ -334,6 +378,7 @@ function syncBubble(annotation, editing) {
 }
 
 function removeNoteAnnotation(annotation) {
+  if (hoveredAnnotation === annotation) hoveredAnnotation = null;
   removeBubble(annotation);
   const idx = noteAnnotations.indexOf(annotation);
   if (idx !== -1) noteAnnotations.splice(idx, 1);

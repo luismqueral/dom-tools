@@ -39,6 +39,12 @@ const EXPERIMENT_DEFS = [
       default: 'dom-reorder',
     },
   },
+  {
+    id: 'duplicate',
+    label: 'Duplicate element',
+    description: 'Hold Shift and click-drag any element to duplicate it.',
+    default: false,
+  },
 ];
 
 export function isExperimentEnabled(id) {

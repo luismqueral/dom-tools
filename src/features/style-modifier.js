@@ -368,16 +368,9 @@ export function focusGroup(els) {
 // restores the element exactly (covers pages that rely on their own
 // inline transforms).
 let hoveredEl = null;
-const HOVER_TRANSFORMS = new WeakMap();
 
 function clearHover() {
   if (!hoveredEl) return;
-  const orig = HOVER_TRANSFORMS.get(hoveredEl);
-  if (orig) {
-    hoveredEl.style.transform = orig.transform;
-    hoveredEl.style.transition = orig.transition;
-    HOVER_TRANSFORMS.delete(hoveredEl);
-  }
   applyOutline(hoveredEl);
   hoveredEl = null;
   refreshTagLabels();
@@ -406,23 +399,12 @@ function onMove(e) {
   const color = getSelectionColor();
   el.style.outline = getOrigOutline(el);
 
-  HOVER_TRANSFORMS.set(el, {
-    transform: el.style.transform || '',
-    transition: el.style.transition || '',
-  });
-  el.style.transition = 'transform 0.12s ease-out';
-
   if (isTextElement(el)) {
-    // Text: lighter wash + a stronger scale so the words feel like
-    // they're stepping toward you. transform: scale doesn't reflow,
-    // so neighbors don't shift.
+    // Text: light wash on hover.
     el.style.backgroundColor = withAlpha(color, 0.10);
-    el.style.transform = 'scale(1.04)';
   } else {
-    // Container: deeper wash (it's a region, not a single line of
-    // copy) + a near-imperceptible lift.
+    // Container: deeper wash since it's a region, not a single line.
     el.style.backgroundColor = withAlpha(color, 0.22);
-    el.style.transform = 'scale(1.008)';
   }
   refreshTagLabels();
 }

@@ -165,7 +165,7 @@
   }
 
   // --- Flash screen ---
-  function flashElement(el) {
+  function flashElement$1(el) {
     const rect = el.getBoundingClientRect();
     const flash = document.createElement('div');
     Object.assign(flash.style, {
@@ -940,16 +940,9 @@
   // restores the element exactly (covers pages that rely on their own
   // inline transforms).
   let hoveredEl$1 = null;
-  const HOVER_TRANSFORMS = new WeakMap();
 
   function clearHover$1() {
     if (!hoveredEl$1) return;
-    const orig = HOVER_TRANSFORMS.get(hoveredEl$1);
-    if (orig) {
-      hoveredEl$1.style.transform = orig.transform;
-      hoveredEl$1.style.transition = orig.transition;
-      HOVER_TRANSFORMS.delete(hoveredEl$1);
-    }
     applyOutline(hoveredEl$1);
     hoveredEl$1 = null;
     refreshTagLabels();
@@ -978,23 +971,12 @@
     const color = getSelectionColor();
     el.style.outline = getOrigOutline(el);
 
-    HOVER_TRANSFORMS.set(el, {
-      transform: el.style.transform || '',
-      transition: el.style.transition || '',
-    });
-    el.style.transition = 'transform 0.12s ease-out';
-
     if (isTextElement$1(el)) {
-      // Text: lighter wash + a stronger scale so the words feel like
-      // they're stepping toward you. transform: scale doesn't reflow,
-      // so neighbors don't shift.
+      // Text: light wash on hover.
       el.style.backgroundColor = withAlpha(color, 0.10);
-      el.style.transform = 'scale(1.04)';
     } else {
-      // Container: deeper wash (it's a region, not a single line of
-      // copy) + a near-imperceptible lift.
+      // Container: deeper wash since it's a region, not a single line.
       el.style.backgroundColor = withAlpha(color, 0.22);
-      el.style.transform = 'scale(1.008)';
     }
     refreshTagLabels();
   }
@@ -1249,6 +1231,14 @@
   // At-rest tint for elements that have a saved note or text edit. Derived
   // from the live selection color so theme swaps propagate.
   function getScrim() { return withAlpha(getSelectionColor(), 0.15); }
+  // Faded scrim used on OTHER annotated elements while a bubble is being
+  // hovered — lighter so the hovered note's own elements visually pop.
+  function getFadedScrim() { return withAlpha(getSelectionColor(), 0.04); }
+
+  // While a bubble is hovered, this points at its annotation. Other
+  // annotated elements switch to the faded scrim so the connection
+  // between the hovered note and its own elements stands out.
+  let hoveredAnnotation = null;
 
   function ensureOrig(el) {
     if (!ORIG_OUTLINES.has(el)) ORIG_OUTLINES.set(el, el.style.outline || '');
@@ -1260,12 +1250,42 @@
 
   function applyAnnotationStyle(el) {
     if (isAnnotated(el)) {
-      el.style.outline = getOrigOutline(el);
-      el.style.backgroundColor = getScrim();
+      const inHoveredGroup = hoveredAnnotation && hoveredAnnotation.els.includes(el);
+      // Hovering a note's bubble paints a solid selection-color border on
+      // every element in that note's group, so the link between the bubble
+      // and its targets is unmistakable. For elements that are also the
+      // active editor's selection, this matches the outline style-modifier
+      // would set anyway, so the selection look is preserved (and not
+      // clobbered by the otherwise-unconditional outline reset below).
+      if (inHoveredGroup) {
+        el.style.outline = '2px solid ' + getSelectionColor();
+      } else {
+        el.style.outline = getOrigOutline(el);
+      }
+      // If we're in "bubble hover" mode and this element isn't part of
+      // the hovered annotation, dim it. Otherwise, normal scrim.
+      if (hoveredAnnotation && !inHoveredGroup) {
+        el.style.backgroundColor = getFadedScrim();
+      } else {
+        el.style.backgroundColor = getScrim();
+      }
     } else {
       el.style.outline = getOrigOutline(el);
       el.style.backgroundColor = getOrigBackground(el);
     }
+  }
+
+  // Repaint every annotated element so the hover state takes effect (or
+  // is removed). Cheap because we only touch els we already track.
+  function repaintAllAnnotated() {
+    noteAnnotations.forEach(a => a.els.forEach(el => applyAnnotationStyle(el)));
+    textEdits.forEach((_, el) => applyAnnotationStyle(el));
+  }
+
+  function setHoveredAnnotation(annotation) {
+    if (hoveredAnnotation === annotation) return;
+    hoveredAnnotation = annotation;
+    repaintAllAnnotated();
   }
 
   // ---- Stores ----
@@ -1462,6 +1482,12 @@
       document.removeEventListener('mouseup', onUp, true);
     };
 
+    // Hovering the bubble dims every OTHER annotated element so the
+    // visual line between this note and ITS attached element(s) stands
+    // out. Restored on mouseleave.
+    bubble.addEventListener('mouseenter', () => setHoveredAnnotation(annotation));
+    bubble.addEventListener('mouseleave', () => setHoveredAnnotation(null));
+
     document.body.appendChild(bubble);
     inspectorUI.add(bubble);
     return bubble;
@@ -1538,6 +1564,7 @@
   }
 
   function removeNoteAnnotation(annotation) {
+    if (hoveredAnnotation === annotation) hoveredAnnotation = null;
     removeBubble(annotation);
     const idx = noteAnnotations.indexOf(annotation);
     if (idx !== -1) noteAnnotations.splice(idx, 1);
@@ -2051,6 +2078,12 @@
         default: 'dom-reorder',
       },
     },
+    {
+      id: 'duplicate',
+      label: 'Duplicate element',
+      description: 'Hold Shift and click-drag any element to duplicate it.',
+      default: false,
+    },
   ];
 
   function isExperimentEnabled(id) {
@@ -2436,7 +2469,7 @@
 
   async function saveCapture(canvas, el, filename) {
     playShutter();
-    flashElement(el || document.documentElement);
+    flashElement$1(el || document.documentElement);
     try {
       const blobPromise = new Promise(r => canvas.toBlob(r, 'image/png'));
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })]);
@@ -3370,14 +3403,14 @@
    */
 
 
-  let active = false;     // module enabled (registered)
+  let active$1 = false;     // module enabled (registered)
   let cmdHeld = false;
-  let dragging = false;
+  let dragging$1 = false;
   let dragEl = null;
-  let ghostEl = null;
-  let indicator = null;
-  let dropTarget = null;  // { parent, before } for DOM-reorder mode
-  let startX = 0, startY = 0;
+  let ghostEl$1 = null;
+  let indicator$1 = null;
+  let dropTarget$1 = null;  // { parent, before } for DOM-reorder mode
+  let startX$1 = 0, startY$1 = 0;
   let startOffsetDx = 0, startOffsetDy = 0;
 
   // Page-wide cursor override via an `!important` stylesheet rule. We
@@ -3385,7 +3418,7 @@
   // Comment tool injects a `cursor: pointer !important` rule on
   // `html.dt-comment-active body *`, which beats inline styles. A class
   // on <html> + a matching !important rule wins on specificity.
-  function ensureCursorStyles() {
+  function ensureCursorStyles$1() {
     if (document.getElementById('dt-move-cursor-styles')) return;
     const style = document.createElement('style');
     style.id = 'dt-move-cursor-styles';
@@ -3424,28 +3457,28 @@
 
   // Bright dashed outline + soft tint so the user knows what they're
   // about to grab when Cmd is held and the cursor is over an element.
-  let hoverPreview = null;
-  function setHoverPreview(el) {
-    if (hoverPreview === el) return;
-    clearHoverPreview();
+  let hoverPreview$1 = null;
+  function setHoverPreview$1(el) {
+    if (hoverPreview$1 === el) return;
+    clearHoverPreview$1();
     if (!el) return;
-    hoverPreview = el;
-    hoverPreview._dt_move_origOutline = el.style.outline || '';
-    hoverPreview._dt_move_origOutlineOffset = el.style.outlineOffset || '';
+    hoverPreview$1 = el;
+    hoverPreview$1._dt_move_origOutline = el.style.outline || '';
+    hoverPreview$1._dt_move_origOutlineOffset = el.style.outlineOffset || '';
     el.style.outline = '2px dashed ' + getSelectionColor();
     el.style.outlineOffset = '2px';
   }
-  function clearHoverPreview() {
-    if (!hoverPreview) return;
-    hoverPreview.style.outline = hoverPreview._dt_move_origOutline || '';
-    hoverPreview.style.outlineOffset = hoverPreview._dt_move_origOutlineOffset || '';
-    delete hoverPreview._dt_move_origOutline;
-    delete hoverPreview._dt_move_origOutlineOffset;
-    hoverPreview = null;
+  function clearHoverPreview$1() {
+    if (!hoverPreview$1) return;
+    hoverPreview$1.style.outline = hoverPreview$1._dt_move_origOutline || '';
+    hoverPreview$1.style.outlineOffset = hoverPreview$1._dt_move_origOutlineOffset || '';
+    delete hoverPreview$1._dt_move_origOutline;
+    delete hoverPreview$1._dt_move_origOutlineOffset;
+    hoverPreview$1 = null;
   }
 
 
-  function createGhost(el) {
+  function createGhost$1(el) {
     const r = el.getBoundingClientRect();
     const clone = el.cloneNode(true);
     // Strip ids on the clone so we don't duplicate id="x" in the DOM
@@ -3469,14 +3502,14 @@
     return clone;
   }
 
-  function destroyGhost() {
-    if (!ghostEl) return;
-    inspectorUI.delete(ghostEl);
-    ghostEl.remove();
-    ghostEl = null;
+  function destroyGhost$1() {
+    if (!ghostEl$1) return;
+    inspectorUI.delete(ghostEl$1);
+    ghostEl$1.remove();
+    ghostEl$1 = null;
   }
 
-  function createIndicator() {
+  function createIndicator$1() {
     const el = document.createElement('div');
     Object.assign(el.style, {
       position: 'absolute',
@@ -3492,22 +3525,22 @@
     return el;
   }
 
-  function destroyIndicator() {
-    if (!indicator) return;
-    inspectorUI.delete(indicator);
-    indicator.remove();
-    indicator = null;
+  function destroyIndicator$1() {
+    if (!indicator$1) return;
+    inspectorUI.delete(indicator$1);
+    indicator$1.remove();
+    indicator$1 = null;
   }
 
   // Find the candidate sibling under the cursor and decide whether to
   // insert the dragged element BEFORE that sibling or after it (i.e.,
   // before its nextSibling). Also figures out flex-row-ish layouts so
   // the indicator is horizontal vs. vertical.
-  function pickDropTarget(clientX, clientY) {
+  function pickDropTarget$1(clientX, clientY) {
     // Briefly hide the ghost so elementFromPoint hits real elements.
-    if (ghostEl) ghostEl.style.display = 'none';
+    if (ghostEl$1) ghostEl$1.style.display = 'none';
     const under = document.elementFromPoint(clientX, clientY);
-    if (ghostEl) ghostEl.style.display = '';
+    if (ghostEl$1) ghostEl$1.style.display = '';
 
     if (!under || isInspectorUI(under)) return null;
     // Don't allow dropping into the dragged element's own subtree.
@@ -3552,10 +3585,10 @@
     return { parent, before, refRect: r, horizontal };
   }
 
-  function showIndicator(target) {
-    if (!indicator) indicator = createIndicator();
+  function showIndicator$1(target) {
+    if (!indicator$1) indicator$1 = createIndicator$1();
     if (!target) {
-      indicator.style.display = 'none';
+      indicator$1.style.display = 'none';
       return;
     }
     const r = target.refRect;
@@ -3568,36 +3601,36 @@
             ? r.right
             : (before ? before.getBoundingClientRect().left : r.right))
         : r.left;
-      indicator.style.left = (x + window.scrollX - 1) + 'px';
-      indicator.style.top = (r.top + window.scrollY) + 'px';
-      indicator.style.width = '2px';
-      indicator.style.height = r.height + 'px';
+      indicator$1.style.left = (x + window.scrollX - 1) + 'px';
+      indicator$1.style.top = (r.top + window.scrollY) + 'px';
+      indicator$1.style.width = '2px';
+      indicator$1.style.height = r.height + 'px';
     } else {
       const y = before
         ? before.getBoundingClientRect().top
         : (r.bottom);
-      indicator.style.left = (r.left + window.scrollX) + 'px';
-      indicator.style.top = (y + window.scrollY - 1) + 'px';
-      indicator.style.width = r.width + 'px';
-      indicator.style.height = '2px';
+      indicator$1.style.left = (r.left + window.scrollX) + 'px';
+      indicator$1.style.top = (y + window.scrollY - 1) + 'px';
+      indicator$1.style.width = r.width + 'px';
+      indicator$1.style.height = '2px';
     }
-    indicator.style.display = 'block';
+    indicator$1.style.display = 'block';
   }
 
-  function startDrag(e) {
+  function startDrag$1(e) {
     const el = e.target;
     if (!isGrabbable(el)) return;
 
-    dragging = true;
+    dragging$1 = true;
     dragEl = el;
-    startX = e.clientX;
-    startY = e.clientY;
+    startX$1 = e.clientX;
+    startY$1 = e.clientY;
 
     const saved = offsets.get(el);
     startOffsetDx = saved ? saved.dx : 0;
     startOffsetDy = saved ? saved.dy : 0;
 
-    ghostEl = createGhost(el);
+    ghostEl$1 = createGhost$1(el);
     setGrabState('grabbing');
     // Dim the original so the ghost reads as "the moved one".
     el._dt_move_savedOpacity = el.style.opacity || '';
@@ -3607,34 +3640,34 @@
     e.stopPropagation();
   }
 
-  function updateDrag(e) {
-    if (!dragging || !ghostEl) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
+  function updateDrag$1(e) {
+    if (!dragging$1 || !ghostEl$1) return;
+    const dx = e.clientX - startX$1;
+    const dy = e.clientY - startY$1;
 
     // Keep the ghost following the cursor.
     dragEl.getBoundingClientRect();
     // We snapshotted ghost's left/top at drag start; just translate.
-    ghostEl.style.transform = `translate(${dx}px, ${dy}px)`;
+    ghostEl$1.style.transform = `translate(${dx}px, ${dy}px)`;
 
     if (getMode() === 'dom-reorder') {
-      dropTarget = pickDropTarget(e.clientX, e.clientY);
-      showIndicator(dropTarget);
+      dropTarget$1 = pickDropTarget$1(e.clientX, e.clientY);
+      showIndicator$1(dropTarget$1);
     }
   }
 
-  function commitDrag(e) {
-    if (!dragging) return;
-    dragging = false;
+  function commitDrag$1(e) {
+    if (!dragging$1) return;
+    dragging$1 = false;
 
     const mode = getMode();
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
+    const dx = e.clientX - startX$1;
+    const dy = e.clientY - startY$1;
 
     if (mode === 'dom-reorder') {
-      if (dropTarget && dropTarget.parent && dropTarget.parent !== dragEl) {
+      if (dropTarget$1 && dropTarget$1.parent && dropTarget$1.parent !== dragEl) {
         try {
-          dropTarget.parent.insertBefore(dragEl, dropTarget.before);
+          dropTarget$1.parent.insertBefore(dragEl, dropTarget$1.before);
           showToast('Element moved');
         } catch (_) {}
       }
@@ -3663,7 +3696,363 @@
       showToast('Element repositioned');
     }
 
+    finishDrag$1();
+  }
+
+  function cancelDrag$1() {
+    if (!dragging$1) return;
+    dragging$1 = false;
+    finishDrag$1();
+  }
+
+  function finishDrag$1() {
+    if (dragEl) {
+      dragEl.style.opacity = dragEl._dt_move_savedOpacity || '';
+      delete dragEl._dt_move_savedOpacity;
+    }
+    destroyGhost$1();
+    destroyIndicator$1();
+    dropTarget$1 = null;
+    dragEl = null;
+    setGrabState(cmdHeld ? 'grab' : null);
+  }
+
+  function onKeyDown$1(e) {
+    if (!active$1) return;
+    if (e.key === 'Meta' || e.key === 'Control') {
+      cmdHeld = true;
+      if (!dragging$1) setGrabState('grab');
+    } else if (e.key === 'Escape' && dragging$1) {
+      cancelDrag$1();
+    }
+  }
+
+  function onKeyUp$1(e) {
+    if (!active$1) return;
+    if (e.key === 'Meta' || e.key === 'Control') {
+      cmdHeld = false;
+      if (dragging$1) {
+        cancelDrag$1();
+      } else {
+        setGrabState(null);
+        clearHoverPreview$1();
+      }
+    }
+  }
+
+  function onMouseMove$1(e) {
+    if (!active$1) return;
+    if (dragging$1) {
+      updateDrag$1(e);
+      return;
+    }
+    if (!cmdHeld) return;
+    const el = e.target;
+    if (isGrabbable(el)) {
+      setHoverPreview$1(el);
+      setGrabState('grab');
+    } else {
+      clearHoverPreview$1();
+    }
+  }
+
+  function onMouseDown$1(e) {
+    if (!active$1 || !cmdHeld) return;
+    // Only respond to primary button.
+    if (e.button !== 0) return;
+    if (!isGrabbable(e.target)) return;
+    clearHoverPreview$1();
+    startDrag$1(e);
+  }
+
+  function onMouseUp$1(e) {
+    if (!active$1) return;
+    if (dragging$1) commitDrag$1(e);
+  }
+
+  function onWindowBlur$1() {
+    cmdHeld = false;
+    if (dragging$1) cancelDrag$1();
+    else { setGrabState(null); clearHoverPreview$1(); }
+  }
+
+  var move = {
+    id: 'move',
+    label: 'Move',
+    experiment: true,
+    enabledByDefault: true,
+
+    init() {
+      active$1 = true;
+      ensureCursorStyles$1();
+      document.addEventListener('keydown', onKeyDown$1, true);
+      document.addEventListener('keyup', onKeyUp$1, true);
+      document.addEventListener('mousemove', onMouseMove$1, true);
+      document.addEventListener('mousedown', onMouseDown$1, true);
+      document.addEventListener('mouseup', onMouseUp$1, true);
+      window.addEventListener('blur', onWindowBlur$1);
+    },
+
+    enable() { active$1 = true; },
+    disable() {
+      active$1 = false;
+      cancelDrag$1();
+      clearHoverPreview$1();
+      setGrabState(null);
+    },
+  };
+
+  /**
+   * Duplicate element experiment.
+   *
+   * Hold Shift and click-drag any element to spawn a clone that follows
+   * the cursor. On mouseup the clone gets dropped into the DOM:
+   *   - DOM reorder mode (if Move is also enabled): clone is inserted at
+   *     the nearest sibling boundary under the cursor, just like Move.
+   *   - Otherwise: clone is appended to the original's parent at the end.
+   *
+   * Keep it independent of Move so you can run either or both. Shift is
+   * the modifier so it doesn't collide with Cmd (Move) or right-click
+   * (copy selector).
+   */
+
+
+  let active = false;
+  let shiftHeld = false;
+  let dragging = false;
+  let sourceEl = null;     // the original element being duplicated
+  let cloneEl = null;      // the live DOM clone we're dropping
+  let ghostEl = null;      // the floating preview that follows the cursor
+  let indicator = null;
+  let dropTarget = null;
+  let startX = 0, startY = 0;
+
+  function ensureCursorStyles() {
+    if (document.getElementById('dt-dup-cursor-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'dt-dup-cursor-styles';
+    style.textContent = `
+    html.dt-dup-active, html.dt-dup-active body, html.dt-dup-active body * {
+      cursor: copy !important;
+    }
+    html.dt-dup-dragging, html.dt-dup-dragging body, html.dt-dup-dragging body * {
+      cursor: copy !important;
+    }
+  `;
+    document.head.appendChild(style);
+  }
+
+  function setDupState(state) {
+    const html = document.documentElement;
+    html.classList.remove('dt-dup-active', 'dt-dup-dragging');
+    if (state === 'active') html.classList.add('dt-dup-active');
+    else if (state === 'dragging') html.classList.add('dt-dup-dragging');
+  }
+
+  function isDuplicable(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el === document.body || el === document.documentElement) return false;
+    if (isInspectorUI(el)) return false;
+    return true;
+  }
+
+  let hoverPreview = null;
+  function setHoverPreview(el) {
+    if (hoverPreview === el) return;
+    clearHoverPreview();
+    if (!el) return;
+    hoverPreview = el;
+    hoverPreview._dt_dup_origOutline = el.style.outline || '';
+    hoverPreview._dt_dup_origOutlineOffset = el.style.outlineOffset || '';
+    el.style.outline = '2px dashed ' + getSelectionColor();
+    el.style.outlineOffset = '2px';
+  }
+  function clearHoverPreview() {
+    if (!hoverPreview) return;
+    hoverPreview.style.outline = hoverPreview._dt_dup_origOutline || '';
+    hoverPreview.style.outlineOffset = hoverPreview._dt_dup_origOutlineOffset || '';
+    delete hoverPreview._dt_dup_origOutline;
+    delete hoverPreview._dt_dup_origOutlineOffset;
+    hoverPreview = null;
+  }
+
+  function createGhost(el) {
+    const r = el.getBoundingClientRect();
+    const clone = el.cloneNode(true);
+    clone.removeAttribute('id');
+    Object.assign(clone.style, {
+      position: 'fixed',
+      left: r.left + 'px',
+      top: r.top + 'px',
+      width: r.width + 'px',
+      height: r.height + 'px',
+      margin: '0',
+      pointerEvents: 'none',
+      opacity: '0.7',
+      zIndex: String(Z.toolbar + 5),
+      boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+      outline: '2px solid ' + getSelectionColor(),
+      transition: 'none',
+    });
+    document.body.appendChild(clone);
+    inspectorUI.add(clone);
+    return clone;
+  }
+
+  function destroyGhost() {
+    if (!ghostEl) return;
+    inspectorUI.delete(ghostEl);
+    ghostEl.remove();
+    ghostEl = null;
+  }
+
+  function createIndicator() {
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+      position: 'absolute',
+      background: getSelectionColor(),
+      boxShadow: '0 0 0 2px ' + withAlpha(getSelectionColor(), 0.3),
+      borderRadius: '2px',
+      zIndex: String(Z.toolbar + 4),
+      pointerEvents: 'none',
+      display: 'none',
+    });
+    document.body.appendChild(el);
+    inspectorUI.add(el);
+    return el;
+  }
+
+  function destroyIndicator() {
+    if (!indicator) return;
+    inspectorUI.delete(indicator);
+    indicator.remove();
+    indicator = null;
+  }
+
+  // Pick a sibling-of-source landing spot under the cursor. Mirrors the
+  // approach used in move.js but operates relative to `sourceEl` so the
+  // clone naturally appears near the original by default.
+  function pickDropTarget(clientX, clientY) {
+    if (ghostEl) ghostEl.style.display = 'none';
+    const under = document.elementFromPoint(clientX, clientY);
+    if (ghostEl) ghostEl.style.display = '';
+
+    if (!under || isInspectorUI(under)) return null;
+    if (under === sourceEl || (sourceEl && sourceEl.contains(under))) {
+      // Hovering over the original — drop right after it.
+      return { parent: sourceEl.parentElement, before: sourceEl.nextSibling, refRect: sourceEl.getBoundingClientRect(), horizontal: false };
+    }
+
+    let candidate = under;
+    while (candidate && candidate.parentElement) {
+      if (candidate.parentElement === sourceEl.parentElement) break;
+      candidate = candidate.parentElement;
+    }
+    if (!candidate || candidate.parentElement !== sourceEl.parentElement) {
+      candidate = under;
+      while (candidate && candidate.parentElement) {
+        if (!candidate.parentElement.contains(sourceEl)) break;
+        candidate = candidate.parentElement;
+      }
+      if (!candidate || !candidate.parentElement) return null;
+    }
+
+    const parent = candidate.parentElement;
+    const r = candidate.getBoundingClientRect();
+    const parentStyle = getComputedStyle(parent);
+    const horizontal = parentStyle.display.includes('flex')
+      && (parentStyle.flexDirection === 'row' || parentStyle.flexDirection === 'row-reverse');
+
+    let before;
+    if (horizontal) {
+      const mid = r.left + r.width / 2;
+      before = clientX < mid ? candidate : candidate.nextSibling;
+    } else {
+      const mid = r.top + r.height / 2;
+      before = clientY < mid ? candidate : candidate.nextSibling;
+    }
+
+    return { parent, before, refRect: r, horizontal };
+  }
+
+  function showIndicator(target) {
+    if (!indicator) indicator = createIndicator();
+    if (!target) {
+      indicator.style.display = 'none';
+      return;
+    }
+    const r = target.refRect;
+    const before = target.before;
+    if (target.horizontal) {
+      const x = before ? before.getBoundingClientRect().left : r.right;
+      indicator.style.left = (x + window.scrollX - 1) + 'px';
+      indicator.style.top = (r.top + window.scrollY) + 'px';
+      indicator.style.width = '2px';
+      indicator.style.height = r.height + 'px';
+    } else {
+      const y = before ? before.getBoundingClientRect().top : r.bottom;
+      indicator.style.left = (r.left + window.scrollX) + 'px';
+      indicator.style.top = (y + window.scrollY - 1) + 'px';
+      indicator.style.width = r.width + 'px';
+      indicator.style.height = '2px';
+    }
+    indicator.style.display = 'block';
+  }
+
+  function startDrag(e) {
+    const el = e.target;
+    if (!isDuplicable(el)) return;
+    dragging = true;
+    sourceEl = el;
+    startX = e.clientX;
+    startY = e.clientY;
+    ghostEl = createGhost(el);
+    setDupState('dragging');
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function updateDrag(e) {
+    if (!dragging || !ghostEl) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    ghostEl.style.transform = `translate(${dx}px, ${dy}px)`;
+    dropTarget = pickDropTarget(e.clientX, e.clientY);
+    showIndicator(dropTarget);
+  }
+
+  function commitDrag() {
+    if (!dragging) return;
+    dragging = false;
+
+    if (sourceEl) {
+      cloneEl = sourceEl.cloneNode(true);
+      // Strip ids on the clone so we don't end up with two same-id els.
+      if (cloneEl.id) cloneEl.removeAttribute('id');
+      cloneEl.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+
+      let placed = false;
+      if (dropTarget && dropTarget.parent) {
+        try {
+          dropTarget.parent.insertBefore(cloneEl, dropTarget.before);
+          placed = true;
+        } catch (_) {}
+      }
+      if (!placed) {
+        // Fallback: drop the clone right after the original.
+        sourceEl.parentNode.insertBefore(cloneEl, sourceEl.nextSibling);
+      }
+      // Brief flash on the new clone so the user sees where it landed.
+      flashElement(cloneEl);
+      showToast('Element duplicated');
+    }
     finishDrag();
+  }
+
+  function flashElement(el) {
+    const orig = el.style.outline || '';
+    el.style.outline = '2px solid ' + getSelectionColor();
+    setTimeout(() => { el.style.outline = orig; }, 600);
   }
 
   function cancelDrag() {
@@ -3673,22 +4062,18 @@
   }
 
   function finishDrag() {
-    if (dragEl) {
-      dragEl.style.opacity = dragEl._dt_move_savedOpacity || '';
-      delete dragEl._dt_move_savedOpacity;
-    }
     destroyGhost();
     destroyIndicator();
     dropTarget = null;
-    dragEl = null;
-    setGrabState(cmdHeld ? 'grab' : null);
+    sourceEl = null;
+    setDupState(shiftHeld ? 'active' : null);
   }
 
   function onKeyDown(e) {
     if (!active) return;
-    if (e.key === 'Meta' || e.key === 'Control') {
-      cmdHeld = true;
-      if (!dragging) setGrabState('grab');
+    if (e.key === 'Shift') {
+      shiftHeld = true;
+      if (!dragging) setDupState('active');
     } else if (e.key === 'Escape' && dragging) {
       cancelDrag();
     }
@@ -3696,56 +4081,48 @@
 
   function onKeyUp(e) {
     if (!active) return;
-    if (e.key === 'Meta' || e.key === 'Control') {
-      cmdHeld = false;
-      if (dragging) {
-        cancelDrag();
-      } else {
-        setGrabState(null);
-        clearHoverPreview();
-      }
+    if (e.key === 'Shift') {
+      shiftHeld = false;
+      if (dragging) cancelDrag();
+      else { setDupState(null); clearHoverPreview(); }
     }
   }
 
   function onMouseMove(e) {
     if (!active) return;
-    if (dragging) {
-      updateDrag(e);
-      return;
-    }
-    if (!cmdHeld) return;
+    if (dragging) { updateDrag(e); return; }
+    if (!shiftHeld) return;
     const el = e.target;
-    if (isGrabbable(el)) {
+    if (isDuplicable(el)) {
       setHoverPreview(el);
-      setGrabState('grab');
+      setDupState('active');
     } else {
       clearHoverPreview();
     }
   }
 
   function onMouseDown(e) {
-    if (!active || !cmdHeld) return;
-    // Only respond to primary button.
+    if (!active || !shiftHeld) return;
     if (e.button !== 0) return;
-    if (!isGrabbable(e.target)) return;
+    if (!isDuplicable(e.target)) return;
     clearHoverPreview();
     startDrag(e);
   }
 
   function onMouseUp(e) {
     if (!active) return;
-    if (dragging) commitDrag(e);
+    if (dragging) commitDrag();
   }
 
   function onWindowBlur() {
-    cmdHeld = false;
+    shiftHeld = false;
     if (dragging) cancelDrag();
-    else { setGrabState(null); clearHoverPreview(); }
+    else { setDupState(null); clearHoverPreview(); }
   }
 
-  var move = {
-    id: 'move',
-    label: 'Move',
+  var duplicate = {
+    id: 'duplicate',
+    label: 'Duplicate',
     experiment: true,
     enabledByDefault: true,
 
@@ -3765,7 +4142,7 @@
       active = false;
       cancelDrag();
       clearHoverPreview();
-      setGrabState(null);
+      setDupState(null);
     },
   };
 
@@ -3833,6 +4210,7 @@
     register(copySelector);
     if (isExperimentEnabled('terminal')) register(terminal);
     if (isExperimentEnabled('move')) register(move);
+    if (isExperimentEnabled('duplicate')) register(duplicate);
 
     renderToolbar();
     initSettings();
