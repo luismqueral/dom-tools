@@ -1,5 +1,6 @@
 export const state = {
   active: true,
+  enabled: true,     // global DOM-Tools on/off (toggled via double-Esc)
   hovered: null,
   selected: [],      // {el, desc, badge}[]
   altHeld: false,

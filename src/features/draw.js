@@ -1,9 +1,24 @@
 import { state, inspectorUI } from '../core/state.js';
 import { COLORS, PEN_WIDTH, Z } from '../core/constants.js';
 import { showToast } from '../core/helpers.js';
+import { getSelectionColor, onColorChange } from '../core/theme.js';
 
 let drawCanvas = null;
 let isDrawing = false;
+
+// Centralized so resize / color-change / new-stroke paths all converge
+// on the same pen settings. strokeStyle pulls from the live theme so
+// strokes drawn after a color swap pick up the new color immediately
+// (already-rendered strokes stay as they were — repainting the canvas
+// would require keeping a vector log we don't have).
+function applyPenStyle() {
+  if (!drawCanvas) return;
+  const ctx = drawCanvas.getContext('2d');
+  ctx.strokeStyle = getSelectionColor();
+  ctx.lineWidth = PEN_WIDTH;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+}
 
 function resizeDrawCanvas() {
   const dpr = window.devicePixelRatio || 1;
@@ -17,10 +32,7 @@ function resizeDrawCanvas() {
   const ctx = drawCanvas.getContext('2d');
   ctx.scale(dpr, dpr);
   if (oldData) ctx.putImageData(oldData, 0, 0);
-  ctx.strokeStyle = COLORS.pen;
-  ctx.lineWidth = PEN_WIDTH;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  applyPenStyle();
 }
 
 export default {
@@ -46,6 +58,9 @@ export default {
     inspectorUI.add(drawCanvas);
     resizeDrawCanvas();
     window.addEventListener('resize', resizeDrawCanvas);
+    // Theme swap → re-arm the context so the next stroke uses the new
+    // color. (Existing strokes stay as-is; we don't keep a vector log.)
+    onColorChange(applyPenStyle);
 
     // Eraser cursor (follows mouse during right-click erase)
     const ERASER_SIZE = 20;
@@ -114,7 +129,9 @@ export default {
     state.annotateMode = true;
     state.annotateSub = 'pen';
     drawCanvas.style.pointerEvents = 'auto';
-    document.body.style.cursor = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\'%3E%3Cpath stroke=\'%23000\' stroke-width=\'1.5\' fill=\'%23fff\' d=\'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\'/%3E%3C/svg%3E") 2 18, crosshair';
+    const penCursor = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\'%3E%3Cpath stroke=\'%23000\' stroke-width=\'1.5\' fill=\'%23fff\' d=\'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\'/%3E%3C/svg%3E") 2 18, crosshair';
+    document.body.style.cursor = penCursor;
+    drawCanvas.style.cursor = penCursor;
     showToast('Draw mode');
   },
 
@@ -123,7 +140,11 @@ export default {
       state.annotateMode = false;
     }
     isDrawing = false;
-    if (drawCanvas) drawCanvas.style.pointerEvents = 'none';
+    if (drawCanvas) {
+      drawCanvas.style.pointerEvents = 'none';
+      drawCanvas.style.cursor = '';
+    }
+    document.body.style.cursor = '';
   },
 
   clear() {

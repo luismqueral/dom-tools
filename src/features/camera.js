@@ -261,6 +261,8 @@ export default {
     // Clear full-page highlight if shift was held
     document.documentElement.style.outline = '';
     document.documentElement.style.backgroundColor = '';
+    // Restore body cursor (set to crosshair in activate).
+    document.body.style.cursor = '';
   },
 
   captureFullPage,

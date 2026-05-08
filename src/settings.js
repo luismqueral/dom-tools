@@ -11,11 +11,11 @@ import { Z, COLORS } from './core/constants.js';
 import { addTooltip, nudge } from './core/helpers.js';
 import { getModules, isEnabled, setEnabled, activateModule } from './core/registry.js';
 import { showButton, hideButton, setActiveButton, onToolActivate, toolbar as tbEl } from './toolbar.js';
+import { COLOR_OPTIONS, getSelectionColor, setSelectionColor, onColorChange } from './core/theme.js';
 
 let visible = false;
 let _settingsBtn = null;
 let _popover = null;
-const SETTINGS_COLOR = '#0066ff';
 
 const EXP_KEY = 'dom-tools-experiments';
 let experiments = {};
@@ -23,6 +23,22 @@ try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (
 
 const EXPERIMENT_DEFS = [
   { id: 'dock', label: 'Edge snap', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
+  { id: 'terminal', label: 'Terminal', description: 'Mock terminal overlay for experimentation.', default: false },
+  {
+    id: 'move',
+    label: 'Move elements',
+    description: 'Hold Cmd to grab and rearrange elements.',
+    default: false,
+    options: {
+      id: 'moveType',
+      label: 'Type',
+      choices: [
+        { value: 'dom-reorder', label: 'DOM reorder' },
+        { value: 'free-position', label: 'Free position' },
+      ],
+      default: 'dom-reorder',
+    },
+  },
 ];
 
 export function isExperimentEnabled(id) {
@@ -31,20 +47,84 @@ export function isExperimentEnabled(id) {
   return def ? def.default : false;
 }
 
+export function getExperimentOption(id, optionId) {
+  const def = EXPERIMENT_DEFS.find(e => e.id === id);
+  if (!def || !def.options || def.options.id !== optionId) return null;
+  const key = `${id}.${optionId}`;
+  if (key in experiments) return experiments[key];
+  return def.options.default;
+}
+
 function setExperiment(id, on) {
   experiments[id] = on;
   localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
 }
 
+function setExperimentOption(id, optionId, value) {
+  experiments[`${id}.${optionId}`] = value;
+  localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
+}
+
+function sectionTitle(text, opts = {}) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  Object.assign(div.style, {
+    color: '#fff', fontSize: '11px', fontWeight: '600',
+    textTransform: 'uppercase', letterSpacing: '1px',
+    marginTop: opts.first ? '0' : '24px',
+    marginBottom: '12px',
+    paddingTop: opts.first ? '0' : '18px',
+    borderTop: opts.first ? 'none' : '1px solid rgba(255,255,255,0.08)',
+    color: '#888',
+  });
+  return div;
+}
+
+function buildColorSwatches() {
+  const wrap = document.createElement('div');
+  Object.assign(wrap.style, {
+    display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 0',
+  });
+  const swatchEls = [];
+  function refresh() {
+    const active = getSelectionColor();
+    swatchEls.forEach(({ el, value }) => {
+      el.style.boxShadow = value === active
+        ? '0 0 0 2px #181818, 0 0 0 4px ' + value
+        : 'none';
+    });
+  }
+  COLOR_OPTIONS.forEach(opt => {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.title = opt.label;
+    sw.setAttribute('aria-label', opt.label);
+    Object.assign(sw.style, {
+      width: '22px', height: '22px', borderRadius: '50%',
+      background: opt.value, border: 'none', padding: '0',
+      cursor: 'pointer', flexShrink: '0', outline: 'none',
+      transition: 'box-shadow 0.12s',
+    });
+    sw.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setSelectionColor(opt.value);
+      refresh();
+    });
+    swatchEls.push({ el: sw, value: opt.value });
+    wrap.appendChild(sw);
+  });
+  refresh();
+  return wrap;
+}
+
 function buildSettingsPanel() {
   const container = document.createElement('div');
 
-  const title = document.createElement('div');
-  title.textContent = 'Features';
-  Object.assign(title.style, {
-    color: '#fff', fontSize: '13px', fontWeight: '600', marginBottom: '12px',
-    letterSpacing: '0.3px'
-  });
+  const colorTitle = sectionTitle('Selection color', { first: true });
+  container.appendChild(colorTitle);
+  container.appendChild(buildColorSwatches());
+
+  const title = sectionTitle('Features');
   container.appendChild(title);
 
   const modules = getModules();
@@ -52,8 +132,8 @@ function buildSettingsPanel() {
     if (!mod.button) return;
     const row = document.createElement('label');
     Object.assign(row.style, {
-      display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0',
-      color: '#ddd', fontSize: '12px', cursor: 'pointer'
+      display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0',
+      color: '#ddd', fontSize: '13px', cursor: 'pointer'
     });
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -70,75 +150,172 @@ function buildSettingsPanel() {
     container.appendChild(row);
   });
 
-  const expTitle = document.createElement('div');
-  expTitle.textContent = 'Experiments';
-  Object.assign(expTitle.style, {
-    color: '#fff', fontSize: '13px', fontWeight: '600', marginTop: '14px', marginBottom: '8px',
-    paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)', letterSpacing: '0.3px'
-  });
+  const expTitle = sectionTitle('Experiments');
   container.appendChild(expTitle);
 
   EXPERIMENT_DEFS.forEach(exp => {
+    const wrap = document.createElement('div');
+    wrap.style.marginBottom = '10px';
     const row = document.createElement('label');
     Object.assign(row.style, {
-      display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '4px 0',
-      color: '#ddd', fontSize: '12px', cursor: 'pointer'
+      display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
+      color: '#ddd', fontSize: '13px', cursor: 'pointer'
     });
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.checked = isExperimentEnabled(exp.id);
-    checkbox.style.accentColor = '#ec4899';
-    checkbox.style.marginTop = '2px';
-    checkbox.addEventListener('change', () => { setExperiment(exp.id, checkbox.checked); });
+    checkbox.style.accentColor = getSelectionColor();
+    checkbox.style.marginTop = '3px';
     const labelWrap = document.createElement('div');
     const labelText = document.createElement('span');
     labelText.textContent = exp.label;
-    Object.assign(labelText.style, { display: 'block' });
+    Object.assign(labelText.style, { display: 'block', fontWeight: '500' });
     const desc = document.createElement('span');
     desc.textContent = exp.description;
-    Object.assign(desc.style, { display: 'block', fontSize: '10px', color: '#888', marginTop: '2px' });
+    Object.assign(desc.style, { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' });
     labelWrap.appendChild(labelText);
     labelWrap.appendChild(desc);
     row.appendChild(checkbox);
     row.appendChild(labelWrap);
-    container.appendChild(row);
+    wrap.appendChild(row);
+
+    let optionsBlock = null;
+    if (exp.options) {
+      optionsBlock = buildExperimentOptions(exp);
+      optionsBlock.style.display = isExperimentEnabled(exp.id) ? 'block' : 'none';
+      wrap.appendChild(optionsBlock);
+    }
+
+    checkbox.addEventListener('change', () => {
+      setExperiment(exp.id, checkbox.checked);
+      if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
+    });
+
+    container.appendChild(wrap);
   });
 
   return container;
 }
 
-function positionPopover() {
-  if (!_popover || !_settingsBtn) return;
-  const r = _settingsBtn.getBoundingClientRect();
-  const popW = _popover.offsetWidth || 220;
-  const popH = _popover.offsetHeight || 200;
-  // Place popover above the gear button. If no room, place below.
-  let top = r.top - popH - 8;
-  if (top < 8) top = r.bottom + 8;
-  let left = r.left + (r.width / 2) - (popW / 2);
-  left = Math.max(8, Math.min(left, window.innerWidth - popW - 8));
-  _popover.style.left = left + 'px';
-  _popover.style.top = top + 'px';
+// Inline radio group rendered just under an experiment when it has
+// nested options. Only the "move" experiment uses this so far; the
+// renderer is generic for future ones.
+function buildExperimentOptions(exp) {
+  const block = document.createElement('div');
+  Object.assign(block.style, {
+    marginLeft: '24px', marginTop: '4px', marginBottom: '6px',
+    paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.08)',
+  });
+  const optLabel = document.createElement('div');
+  optLabel.textContent = exp.options.label;
+  Object.assign(optLabel.style, {
+    color: '#aaa', fontSize: '10px', marginBottom: '4px',
+    textTransform: 'uppercase', letterSpacing: '0.4px',
+  });
+  block.appendChild(optLabel);
+
+  const groupName = `dt-exp-${exp.id}-${exp.options.id}`;
+  exp.options.choices.forEach(choice => {
+    const row = document.createElement('label');
+    Object.assign(row.style, {
+      display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0',
+      color: '#ddd', fontSize: '11px', cursor: 'pointer',
+    });
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = groupName;
+    radio.value = choice.value;
+    radio.checked = getExperimentOption(exp.id, exp.options.id) === choice.value;
+    radio.style.accentColor = getSelectionColor();
+    radio.addEventListener('change', () => {
+      if (radio.checked) setExperimentOption(exp.id, exp.options.id, choice.value);
+    });
+    const text = document.createElement('span');
+    text.textContent = choice.label;
+    row.appendChild(radio);
+    row.appendChild(text);
+    block.appendChild(row);
+  });
+  return block;
+}
+
+function onPopoverKeyDown(e) {
+  if (e.key === 'Escape') closeSettings();
 }
 
 function showPopover() {
+  // Full-screen overlay: a dimmed/blurred backdrop covering the whole
+  // viewport, with a centered card holding the settings UI. Clicking
+  // the backdrop or pressing Esc closes the panel.
   _popover = document.createElement('div');
+  _popover.setAttribute('data-dt-settings', '');
   Object.assign(_popover.style, {
-    position: 'fixed', zIndex: String(Z.toolbar + 1),
-    width: '220px', padding: '14px',
-    background: 'rgba(24,24,24,0.96)', borderRadius: '10px',
-    border: '1px solid rgba(255,255,255,0.08)',
-    boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
-    backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-    fontFamily: 'system-ui, sans-serif', fontSize: '11px', color: '#eee',
-    boxSizing: 'border-box'
+    position: 'fixed', inset: '0',
+    zIndex: String(Z.toolbar + 1),
+    background: 'rgba(0,0,0,0.55)',
+    backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
+    boxSizing: 'border-box', padding: '40px',
   });
-  _popover.appendChild(buildSettingsPanel());
+
+  const card = document.createElement('div');
+  Object.assign(card.style, {
+    width: 'min(560px, 100%)',
+    maxHeight: '100%',
+    background: 'rgba(24,24,24,0.96)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '12px',
+    boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+    padding: '28px 32px',
+    boxSizing: 'border-box',
+    overflow: 'auto',
+    position: 'relative',
+  });
+
+  const header = document.createElement('div');
+  Object.assign(header.style, {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: '18px',
+  });
+  const title = document.createElement('div');
+  title.textContent = 'Settings';
+  Object.assign(title.style, {
+    fontSize: '18px', fontWeight: '600', color: '#fff', letterSpacing: '0.3px',
+  });
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.innerHTML = '&times;';
+  closeBtn.setAttribute('aria-label', 'Close settings');
+  Object.assign(closeBtn.style, {
+    width: '32px', height: '32px', background: 'transparent',
+    border: 'none', color: '#aaa', fontSize: '24px', lineHeight: '1',
+    cursor: 'pointer', borderRadius: '6px', padding: '0',
+  });
+  closeBtn.addEventListener('mouseenter', () => {
+    closeBtn.style.background = 'rgba(255,255,255,0.08)';
+    closeBtn.style.color = '#fff';
+  });
+  closeBtn.addEventListener('mouseleave', () => {
+    closeBtn.style.background = 'transparent';
+    closeBtn.style.color = '#aaa';
+  });
+  closeBtn.addEventListener('click', () => closeSettings());
+
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+  card.appendChild(header);
+  card.appendChild(buildSettingsPanel());
+
+  _popover.appendChild(card);
+
+  _popover.addEventListener('click', (e) => {
+    if (e.target === _popover) closeSettings();
+  });
+
   document.body.appendChild(_popover);
   inspectorUI.add(_popover);
-  positionPopover();
-  window.addEventListener('resize', positionPopover);
-  window.addEventListener('scroll', positionPopover, true);
+  document.addEventListener('keydown', onPopoverKeyDown, true);
 }
 
 function hidePopover() {
@@ -146,8 +323,7 @@ function hidePopover() {
     inspectorUI.delete(_popover);
     _popover.remove();
     _popover = null;
-    window.removeEventListener('resize', positionPopover);
-    window.removeEventListener('scroll', positionPopover, true);
+    document.removeEventListener('keydown', onPopoverKeyDown, true);
   }
 }
 
@@ -157,7 +333,7 @@ export function toggleSettings() {
     activateModule(null);
     setActiveButton(null);
     showPopover();
-    if (_settingsBtn) _settingsBtn.style.background = SETTINGS_COLOR;
+    if (_settingsBtn) _settingsBtn.style.background = getSelectionColor();
   } else {
     hidePopover();
     if (_settingsBtn) _settingsBtn.style.background = '#222';
@@ -193,4 +369,10 @@ export function initSettings() {
 
   tbEl.appendChild(_settingsBtn);
   inspectorUI.add(_settingsBtn);
+
+  // Live theme: keep the gear's "active" background in sync if the
+  // user changes color while the popover is open.
+  onColorChange((color) => {
+    if (visible && _settingsBtn) _settingsBtn.style.background = color;
+  });
 }

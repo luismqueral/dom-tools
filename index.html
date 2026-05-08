@@ -15,6 +15,7 @@
   @font-face { font-family: 'nyt-franklin'; src: url(fonts/franklin-normal-500.woff2) format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
   @font-face { font-family: 'nyt-franklin'; src: url(fonts/_franklin_600.woff2) format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
   @font-face { font-family: 'nyt-franklin'; src: url(fonts/_franklin_700.woff2) format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+  @font-face { font-family: 'Pixelfraktur'; src: url(fonts/pixelfraktur.woff2) format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
   @keyframes gradient-shift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
 
   * { box-sizing: border-box; }
@@ -34,7 +35,7 @@
     background-size: 300% 300%;
     animation: gradient-shift 8s ease infinite;
   }
-  .hero h1 { font-size: 48px; font-weight: 700; margin: 0 0 8px; }
+  .hero h1 { font-family: 'Lucida Blackletter', 'Pixelfraktur', ui-monospace, monospace; font-size: 72px; font-weight: 400; letter-spacing: 1px; margin: 0 0 8px; }
   .hero img { display: inline-block; width: 300px; height: auto; margin-top: 16px; image-rendering: pixelated; }
   .install { margin-top: 24px; text-align: left; max-width: 520px; margin-left: auto; margin-right: auto; }
   .install h3 { font-size: 15px; color: #4b5563; margin: 0 0 10px; font-weight: 600; }
@@ -83,7 +84,7 @@
 <body>
 
 <div class="hero">
-  <h1>DOM-Tools (minimal)</h1>
+  <h1>toolbar.js</h1>
   <img src="header.png" alt="">
   <div class="install">
     <h3>Paste this into Claude to install:</h3>

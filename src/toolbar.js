@@ -11,6 +11,7 @@ import { inspectorUI } from './core/state.js';
 import { Z } from './core/constants.js';
 import { addTooltip, nudge } from './core/helpers.js';
 import { getModules, isEnabled, activateModule } from './core/registry.js';
+import { getSelectionColor, withAlpha, onColorChange } from './core/theme.js';
 
 function isDockEnabled() {
   try { const e = JSON.parse(localStorage.getItem('dom-tools-experiments') || '{}'); return e.dock !== false; } catch (e) { return true; }
@@ -24,6 +25,7 @@ const btnStyle = {
 };
 
 const toolbar = document.createElement('div');
+toolbar.setAttribute('data-dt-toolbar', '');
 Object.assign(toolbar.style, {
   position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
   display: 'flex', gap: '6px', alignItems: 'center',
@@ -93,7 +95,7 @@ tbHandle.addEventListener('mousedown', (e) => {
 
 const snapIndicator = document.createElement('div');
 Object.assign(snapIndicator.style, {
-  position: 'fixed', background: 'rgba(236,72,153,0.1)', border: '2px dashed rgba(236,72,153,0.4)',
+  position: 'fixed', background: 'var(--dt-color-mist)', border: '2px dashed var(--dt-color-soft)',
   borderRadius: '8px', zIndex: String(Z.toolbar - 1), display: 'none', pointerEvents: 'none',
   transition: 'all 0.15s ease'
 });
@@ -162,8 +164,17 @@ export function createButton(mod) {
     const module = getModules().find(m => m.id === mod.id);
     if (module && module.toggle) {
       const stayed = module.toggle();
-      if (stayed) setActiveButton(mod.id);
-      else activateHome();
+      if (stayed) {
+        // Activating this tool — make sure no other tool is also live.
+        // Tools have independent mode flags that their handlers check,
+        // and without this they'd both fire on every click.
+        getModules().forEach(m => {
+          if (m.id !== mod.id && m.deactivate) m.deactivate();
+        });
+        setActiveButton(mod.id);
+      } else {
+        activateHome();
+      }
     } else {
       activateModule(mod.id);
       setActiveButton(mod.id);
@@ -175,8 +186,9 @@ export function createButton(mod) {
 }
 
 function activateHome() {
-  const home = getModules().find(m => m.id === 'style-modifier');
-  if (home && home.activate) home.activate();
+  // activateModule deactivates all other tools and activates the home —
+  // this is what guarantees only one tool's handlers run at a time.
+  activateModule('style-modifier');
   setActiveButton('style-modifier');
 }
 
@@ -223,7 +235,7 @@ function createCopyButton() {
   copyBadge = document.createElement('div');
   Object.assign(copyBadge.style, {
     position: 'absolute', top: '-2px', right: '-2px', minWidth: '14px', height: '14px',
-    background: '#ec4899', color: '#fff', borderRadius: '7px', fontSize: '9px',
+    background: 'var(--dt-color)', color: '#fff', borderRadius: '7px', fontSize: '9px',
     fontWeight: '700', display: 'none', alignItems: 'center', justifyContent: 'center',
     padding: '0 3px', lineHeight: '1'
   });

@@ -50,10 +50,12 @@
 
   const state = {
     active: true,
+    enabled: true,     // global DOM-Tools on/off (toggled via double-Esc)
     hovered: null,
     selected: [],      // {el, desc, badge}[]
     altHeld: false,
     slotType: null,    // 'before' | 'after' | 'left' | 'right' | 'inside'
+    editMode: false,
     cameraMode: false,
     annotateMode: false,
     annotateSub: 'sticky', // 'pen' | 'sticky'
@@ -66,10 +68,9 @@
   // Colors
   const COLORS = {
     selector: '#0066ff',
+    edit: '#e67e00',
     camera: '#cc3300',
-    annotate: '#7c3aed',
-    pen: '#dc2626',
-  };
+    annotate: '#7c3aed'};
   const SEL_OUTLINE = '2px solid ' + COLORS.selector;
   const SEL_BG = 'rgba(0, 102, 255, 0.12)';
   const CAM_OUTLINE = '2px solid ' + COLORS.camera;
@@ -205,7 +206,7 @@
     return false;
   }
 
-  function clearHover$1() {
+  function clearHover$2() {
     if (state.hovered) {
       const idx = state.selected.findIndex(s => s.el === state.hovered);
       if (idx !== -1) {
@@ -217,6 +218,74 @@
       }
       state.hovered = null;
     }
+  }
+
+  /**
+   * Selection color — single source of truth for the brand color that
+   * drives selection borders, hover highlights, the persistent bubble
+   * background, and the at-rest annotation scrim. Persisted to
+   * localStorage so the user's choice survives reloads.
+   *
+   * Tools subscribe via onColorChange to repaint live UI when the color
+   * is swapped from settings.
+   */
+
+  const KEY = 'dom-tools-selection-color';
+  const DEFAULT = '#3b82f6'; // blue
+
+  const COLOR_OPTIONS = [
+    { id: 'blue',   value: '#3b82f6', label: 'Blue' },
+    { id: 'pink',   value: '#ec4899', label: 'Pink' },
+    { id: 'purple', value: '#a855f7', label: 'Purple' },
+    { id: 'green',  value: '#10b981', label: 'Green' },
+    { id: 'orange', value: '#f97316', label: 'Orange' },
+  ];
+
+  let current = DEFAULT;
+  try {
+    const stored = localStorage.getItem(KEY);
+    if (stored && COLOR_OPTIONS.some(o => o.value === stored)) current = stored;
+  } catch (e) {}
+
+  const subscribers = new Set();
+
+  function getSelectionColor() { return current; }
+
+  // Hex → rgba helper. Tolerant of leading "#" and 3- or 6-digit hex.
+  function withAlpha(hex, alpha) {
+    let h = (hex || '').replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    const r = parseInt(h.substring(0, 2), 16) || 0;
+    const g = parseInt(h.substring(2, 4), 16) || 0;
+    const b = parseInt(h.substring(4, 6), 16) || 0;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  // CSS custom properties on :root so any injected stylesheet can pull
+  // the live theme color without subscribing imperatively. Also keeps
+  // the alpha variants (soft / scrim / faint) in sync, so things like
+  // ::selection or the snap indicator can reference them directly.
+  function syncCssVars(hex) {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.style.setProperty('--dt-color', hex);
+    root.style.setProperty('--dt-color-soft',  withAlpha(hex, 0.4));
+    root.style.setProperty('--dt-color-scrim', withAlpha(hex, 0.22));
+    root.style.setProperty('--dt-color-faint', withAlpha(hex, 0.15));
+    root.style.setProperty('--dt-color-mist',  withAlpha(hex, 0.10));
+  }
+  syncCssVars(current);
+
+  function setSelectionColor(hex) {
+    current = hex;
+    try { localStorage.setItem(KEY, hex); } catch (e) {}
+    syncCssVars(hex);
+    subscribers.forEach(fn => { try { fn(hex); } catch (_) {} });
+  }
+
+  function onColorChange(fn) {
+    subscribers.add(fn);
+    return () => subscribers.delete(fn);
   }
 
   /**
@@ -241,6 +310,7 @@
   };
 
   const toolbar = document.createElement('div');
+  toolbar.setAttribute('data-dt-toolbar', '');
   Object.assign(toolbar.style, {
     position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
     display: 'flex', gap: '6px', alignItems: 'center',
@@ -310,7 +380,7 @@
 
   const snapIndicator = document.createElement('div');
   Object.assign(snapIndicator.style, {
-    position: 'fixed', background: 'rgba(236,72,153,0.1)', border: '2px dashed rgba(236,72,153,0.4)',
+    position: 'fixed', background: 'var(--dt-color-mist)', border: '2px dashed var(--dt-color-soft)',
     borderRadius: '8px', zIndex: String(Z.toolbar - 1), display: 'none', pointerEvents: 'none',
     transition: 'all 0.15s ease'
   });
@@ -379,8 +449,17 @@
       const module = getModules().find(m => m.id === mod.id);
       if (module && module.toggle) {
         const stayed = module.toggle();
-        if (stayed) setActiveButton(mod.id);
-        else activateHome$1();
+        if (stayed) {
+          // Activating this tool — make sure no other tool is also live.
+          // Tools have independent mode flags that their handlers check,
+          // and without this they'd both fire on every click.
+          getModules().forEach(m => {
+            if (m.id !== mod.id && m.deactivate) m.deactivate();
+          });
+          setActiveButton(mod.id);
+        } else {
+          activateHome$1();
+        }
       } else {
         activateModule(mod.id);
         setActiveButton(mod.id);
@@ -392,8 +471,9 @@
   }
 
   function activateHome$1() {
-    const home = getModules().find(m => m.id === 'style-modifier');
-    if (home && home.activate) home.activate();
+    // activateModule deactivates all other tools and activates the home —
+    // this is what guarantees only one tool's handlers run at a time.
+    activateModule('style-modifier');
     setActiveButton('style-modifier');
   }
 
@@ -440,7 +520,7 @@
     copyBadge = document.createElement('div');
     Object.assign(copyBadge.style, {
       position: 'absolute', top: '-2px', right: '-2px', minWidth: '14px', height: '14px',
-      background: '#ec4899', color: '#fff', borderRadius: '7px', fontSize: '9px',
+      background: 'var(--dt-color)', color: '#fff', borderRadius: '7px', fontSize: '9px',
       fontWeight: '700', display: 'none', alignItems: 'center', justifyContent: 'center',
       padding: '0 3px', lineHeight: '1'
     });
@@ -476,527 +556,656 @@
     setActiveButton('style-modifier');
   }
 
-  const HOME_MOD_ID = 'style-modifier';
-
-  function activateHome(modules) {
-    const home = modules.find(m => m.id === HOME_MOD_ID);
-    if (home && home.activate) home.activate();
-    setActiveButton(HOME_MOD_ID);
-  }
-
-  let lastEsc = 0;
-
-  function initKeyboard() {
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Alt') {
-        e.preventDefault();
-        state.altHeld = true;
-        return;
-      }
-
-      const modules = getModules();
-      for (const mod of modules) {
-        if (!isEnabled(mod.id) || !mod.shortcuts) continue;
-        for (const sc of mod.shortcuts) {
-          if (sc.when && !sc.when()) continue;
-          const keyMatch = e.key.toLowerCase() === sc.key.toLowerCase();
-          const metaMatch = sc.meta ? (e.ctrlKey || e.metaKey) : !(e.ctrlKey || e.metaKey);
-          const shiftMatch = sc.shift ? e.shiftKey : !e.shiftKey;
-          if (keyMatch && metaMatch && shiftMatch) {
-            e.preventDefault();
-            if (sc.action === 'toggle' && mod.toggle) {
-              const stayed = mod.toggle();
-              if (stayed) setActiveButton(mod.id);
-              else activateHome(modules);
-            } else if (sc.action && mod[sc.action]) {
-              mod[sc.action]();
-            }
-            return;
-          }
-        }
-      }
-
-      if (e.key === 'Escape') {
-        if (state.annotateMode) {
-          e.preventDefault();
-          modules.filter(m => m.id === 'draw').forEach(m => m.deactivate?.());
-          state.annotateMode = false;
-          activateHome(modules);
-          return;
-        }
-        if (state.cameraMode) {
-          e.preventDefault();
-          const cameraMod = modules.find(m => m.id === 'camera');
-          if (cameraMod) cameraMod.deactivate();
-          activateHome(modules);
-          return;
-        }
-        // Double-tap Escape: re-focus the home tool (Design). Always activates;
-        // there's no "off" state for the home mode.
-        const now = Date.now();
-        if (now - lastEsc < 400) {
-          activateHome(modules);
-          lastEsc = 0;
-        } else {
-          lastEsc = now;
-        }
-      }
-    });
-
-    document.addEventListener('keyup', (e) => {
-      if (e.key === 'Alt') {
-        state.altHeld = false;
-        state.slotType = null;
-      }
-    });
-  }
-
   /**
-   * Settings popover, anchored above the toolbar's settings button.
+   * Pixelfraktur — small woff2 inlined as base64 so the bundle ships
+   * with the font and works regardless of where dom-tools is hosted
+   * (no relative path / CDN concerns). Used for the multi-select tag
+   * labels in Comment mode.
    *
-   * Self-contained for the minimal build — doesn't depend on a side panel.
-   * Click the gear → small dark popover floats just above the gear with the
-   * feature toggles. Click the gear again or activate any tool → closes.
+   * Source: ~/projects/studio-queral/public/fonts/pixelfraktur.woff2
    */
 
 
-  let visible = false;
-  let _settingsBtn = null;
-  let _popover = null;
-  const SETTINGS_COLOR = '#0066ff';
-
-  const EXP_KEY = 'dom-tools-experiments';
-  let experiments = {};
-  try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (e) {}
-
-  const EXPERIMENT_DEFS = [
-    { id: 'dock', label: 'Edge snap', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
-  ];
-
-  function isExperimentEnabled(id) {
-    const def = EXPERIMENT_DEFS.find(e => e.id === id);
-    if (id in experiments) return experiments[id];
-    return def ? def.default : false;
-  }
-
-  function setExperiment(id, on) {
-    experiments[id] = on;
-    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
-  }
-
-  function buildSettingsPanel() {
-    const container = document.createElement('div');
-
-    const title = document.createElement('div');
-    title.textContent = 'Features';
-    Object.assign(title.style, {
-      color: '#fff', fontSize: '13px', fontWeight: '600', marginBottom: '12px',
-      letterSpacing: '0.3px'
-    });
-    container.appendChild(title);
-
-    const modules = getModules();
-    modules.forEach(mod => {
-      if (!mod.button) return;
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0',
-        color: '#ddd', fontSize: '12px', cursor: 'pointer'
-      });
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = isEnabled(mod.id);
-      checkbox.style.accentColor = mod.button.color || COLORS.selector;
-      checkbox.addEventListener('change', () => {
-        setEnabled(mod.id, checkbox.checked);
-        if (checkbox.checked) showButton(mod.id); else hideButton(mod.id);
-      });
-      const label = document.createElement('span');
-      label.textContent = mod.label || mod.id;
-      row.appendChild(checkbox);
-      row.appendChild(label);
-      container.appendChild(row);
-    });
-
-    const expTitle = document.createElement('div');
-    expTitle.textContent = 'Experiments';
-    Object.assign(expTitle.style, {
-      color: '#fff', fontSize: '13px', fontWeight: '600', marginTop: '14px', marginBottom: '8px',
-      paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)', letterSpacing: '0.3px'
-    });
-    container.appendChild(expTitle);
-
-    EXPERIMENT_DEFS.forEach(exp => {
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '4px 0',
-        color: '#ddd', fontSize: '12px', cursor: 'pointer'
-      });
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = isExperimentEnabled(exp.id);
-      checkbox.style.accentColor = '#ec4899';
-      checkbox.style.marginTop = '2px';
-      checkbox.addEventListener('change', () => { setExperiment(exp.id, checkbox.checked); });
-      const labelWrap = document.createElement('div');
-      const labelText = document.createElement('span');
-      labelText.textContent = exp.label;
-      Object.assign(labelText.style, { display: 'block' });
-      const desc = document.createElement('span');
-      desc.textContent = exp.description;
-      Object.assign(desc.style, { display: 'block', fontSize: '10px', color: '#888', marginTop: '2px' });
-      labelWrap.appendChild(labelText);
-      labelWrap.appendChild(desc);
-      row.appendChild(checkbox);
-      row.appendChild(labelWrap);
-      container.appendChild(row);
-    });
-
-    return container;
-  }
-
-  function positionPopover$1() {
-    if (!_popover || !_settingsBtn) return;
-    const r = _settingsBtn.getBoundingClientRect();
-    const popW = _popover.offsetWidth || 220;
-    const popH = _popover.offsetHeight || 200;
-    // Place popover above the gear button. If no room, place below.
-    let top = r.top - popH - 8;
-    if (top < 8) top = r.bottom + 8;
-    let left = r.left + (r.width / 2) - (popW / 2);
-    left = Math.max(8, Math.min(left, window.innerWidth - popW - 8));
-    _popover.style.left = left + 'px';
-    _popover.style.top = top + 'px';
-  }
-
-  function showPopover$1() {
-    _popover = document.createElement('div');
-    Object.assign(_popover.style, {
-      position: 'fixed', zIndex: String(Z.toolbar + 1),
-      width: '220px', padding: '14px',
-      background: 'rgba(24,24,24,0.96)', borderRadius: '10px',
-      border: '1px solid rgba(255,255,255,0.08)',
-      boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
-      backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-      fontFamily: 'system-ui, sans-serif', fontSize: '11px', color: '#eee',
-      boxSizing: 'border-box'
-    });
-    _popover.appendChild(buildSettingsPanel());
-    document.body.appendChild(_popover);
-    inspectorUI.add(_popover);
-    positionPopover$1();
-    window.addEventListener('resize', positionPopover$1);
-    window.addEventListener('scroll', positionPopover$1, true);
-  }
-
-  function hidePopover$1() {
-    if (_popover) {
-      inspectorUI.delete(_popover);
-      _popover.remove();
-      _popover = null;
-      window.removeEventListener('resize', positionPopover$1);
-      window.removeEventListener('scroll', positionPopover$1, true);
-    }
-  }
-
-  function toggleSettings() {
-    visible = !visible;
-    if (visible) {
-      activateModule(null);
-      setActiveButton(null);
-      showPopover$1();
-      if (_settingsBtn) _settingsBtn.style.background = SETTINGS_COLOR;
-    } else {
-      hidePopover$1();
-      if (_settingsBtn) _settingsBtn.style.background = '#222';
-      activateModule('style-modifier');
-      setActiveButton('style-modifier');
-    }
-  }
-
-  function closeSettings() {
-    if (visible) {
-      visible = false;
-      hidePopover$1();
-      if (_settingsBtn) _settingsBtn.style.background = '#222';
-    }
-  }
-
-  function initSettings() {
-    onToolActivate(closeSettings);
-
-    const btnStyle = {
-      width: '40px', height: '40px', background: '#222', color: '#fff',
-      borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
-      flexShrink: '0'
-    };
-    _settingsBtn = document.createElement('div');
-    _settingsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.44.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 110-7.2 3.6 3.6 0 010 7.2z"/></svg>';
-    Object.assign(_settingsBtn.style, btnStyle);
-    _settingsBtn.addEventListener('mouseenter', () => { if (!visible) _settingsBtn.style.background = '#333'; });
-    _settingsBtn.addEventListener('mouseleave', () => { if (!visible) _settingsBtn.style.background = '#222'; });
-    _settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); nudge(_settingsBtn); toggleSettings(); });
-    addTooltip(_settingsBtn, 'Settings');
-
-    toolbar.appendChild(_settingsBtn);
-    inspectorUI.add(_settingsBtn);
+  // IBM Plex Mono via Google Fonts. We load it from the CDN (one
+  // stylesheet + one woff2 ~30KB) instead of inlining as base64 because
+  // the file is too big to bake into the bundle without bloat. Falls
+  // back to the system mono stack while loading.
+  function ensurePlexMono() {
+    if (document.getElementById('dt-plex-mono')) return;
+    const pre1 = document.createElement('link');
+    pre1.rel = 'preconnect';
+    pre1.href = 'https://fonts.googleapis.com';
+    const pre2 = document.createElement('link');
+    pre2.rel = 'preconnect';
+    pre2.href = 'https://fonts.gstatic.com';
+    pre2.crossOrigin = 'anonymous';
+    const link = document.createElement('link');
+    link.id = 'dt-plex-mono';
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&display=swap';
+    document.head.append(pre1, pre2, link);
   }
 
   /**
    * Comment tool — minimal click-to-leave-feedback mode.
    *
-   * Click any element on the page → it gets a pink outline and a small dark
-   * popover floats near it with a textarea. Type your note; it's saved live to
-   * the annotation store and shows up as a persistent on-page bubble (handled by
-   * annotations.js). Esc or blur closes the popover. Text-tagged elements are
-   * also editable inline; edits are tracked and surfaced through copy-all.
+   * Click an element to select it; the pink note bubble that appears IS
+   * the editor — type directly into it. Shift+click another element to
+   * add it to the current selection — typing then attaches the same note
+   * to every selected element as a group annotation. Each selected
+   * element gets its own pink-bordered outline while the group is
+   * active; once you select something else, those previously-selected
+   * (still annotated) elements drop back to a translucent pink scrim
+   * instead of a hard border.
    *
-   * Replaces the old Tailwind-driven Design mode for the minimal build.
+   * Comment mode is read-only as far as page text is concerned — inline
+   * text editing is the Edit Text tool's job, not ours.
    */
 
 
-  const TEXT_TAGS = ['P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI','BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL'];
-  const PINK = '#ec4899';
+  // Tags treated as "text" for hover purposes — they get a soft highlight
+  // instead of the dashed border + scale that block-level elements get.
+  const TEXT_TAGS$1 = [
+    'P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI',
+    'BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL','TD','TH'
+  ];
+  function isTextElement$1(el) {
+    return el && el.nodeType === 1 && TEXT_TAGS$1.includes(el.tagName);
+  }
 
-  let activeMode = false;
+  let activeMode$1 = false;
   let selected = [];
 
   function getSelected() { return selected; }
 
-  // --- Floating popover (the input itself) ---------------------------------
-  let popover = null;
-  let popoverTextarea = null;
-  let popoverEl = null;
-
-  function buildPopover() {
-    const wrap = document.createElement('div');
-    Object.assign(wrap.style, {
-      position: 'absolute',
-      width: '260px',
-      padding: '8px',
-      background: 'rgba(24,24,24,0.96)',
-      border: '1px solid rgba(255,255,255,0.1)',
-      borderRadius: '8px',
-      boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
-      backdropFilter: 'blur(14px)',
-      WebkitBackdropFilter: 'blur(14px)',
-      zIndex: String(Z.toolbar),
-      fontFamily: 'system-ui, sans-serif',
-      boxSizing: 'border-box',
-    });
-
-    const ta = document.createElement('textarea');
-    ta.placeholder = 'Describe the change…';
-    Object.assign(ta.style, {
-      width: '100%', minHeight: '60px', padding: '7px',
-      border: '1px solid rgba(255,255,255,0.12)',
-      background: 'rgba(255,255,255,0.05)',
-      color: '#fff', fontSize: '12px', lineHeight: '1.4',
-      fontFamily: 'system-ui, sans-serif', resize: 'vertical',
-      outline: 'none', boxSizing: 'border-box', borderRadius: '4px'
-    });
-    wrap.appendChild(ta);
-
-    // Stop click/mousedown from bubbling so the doc-level handlers below
-    // (which clear selection on outside-click) don't fire on our own UI.
-    ['mousedown','click','mouseup'].forEach(t => {
-      wrap.addEventListener(t, (e) => e.stopPropagation());
-    });
-    ta.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Escape') { hidePopover(); }
-    });
-    ta.addEventListener('blur', () => {
-      setTimeout(() => {
-        if (popoverTextarea && document.activeElement !== popoverTextarea) hidePopover();
-      }, 120);
-    });
-
-    popoverTextarea = ta;
-    popoverEl = wrap;
-    return wrap;
+  // --- One-time stylesheet: kills native text selection page-wide while
+  //     Comment mode is active so click-drag doesn't grab text instead of
+  //     dropping a comment. The bubble (and any element made
+  //     contentEditable for inline text editing) re-enables selection so
+  //     typing/editing still works. ---
+  function ensureSelectionStyles() {
+    if (document.getElementById('dt-comment-styles')) return;
+    // Text-tag selector kept in lockstep with TEXT_TAGS so hover cursor
+    // and hover background-only treatment apply to the same set.
+    const textSelector = TEXT_TAGS$1
+      .map(t => `html.dt-comment-active ${t.toLowerCase()}`)
+      .join(', ');
+    // Anything matching this lives in our own UI and should NOT pick up
+    // the page-wide Comment-mode cursor / user-select overrides.
+    // :where() has zero specificity, so wrapping it inside the :not()
+    // keeps the page rule's specificity manageable.
+    const inspectorUiSelector = ':where(' + [
+      '[data-dt-toolbar]', '[data-dt-toolbar] *',
+      '[data-dt-bubble]', '[data-dt-bubble] *',
+      '[data-dt-tag-label]',
+      '[data-dt-settings]', '[data-dt-settings] *',
+    ].join(', ') + ')';
+    const style = document.createElement('style');
+    style.id = 'dt-comment-styles';
+    style.textContent = `
+    html.dt-comment-active body,
+    html.dt-comment-active body *:not(${inspectorUiSelector}) {
+      user-select: none !important;
+      -webkit-user-select: none !important;
+      cursor: default !important;
+    }
+    html.dt-comment-active [contenteditable="true"],
+    html.dt-comment-active [contenteditable="true"] *,
+    html.dt-comment-active [data-dt-allow-select],
+    html.dt-comment-active [data-dt-allow-select] * {
+      user-select: text !important;
+      -webkit-user-select: text !important;
+    }
+    ${textSelector} {
+      cursor: text !important;
+    }
+    html.dt-comment-active [contenteditable="true"],
+    html.dt-comment-active [contenteditable="true"] *,
+    html.dt-comment-active [data-dt-bubble] textarea {
+      cursor: text !important;
+    }
+    html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
+      cursor: grab !important;
+    }
+    /* Native text-selection highlight follows the theme color across
+       any surface dom-tools is responsible for: the bubble's
+       textarea, contentEditable elements we promoted, and (when
+       Comment mode is live) the page itself for visual consistency. */
+    [data-dt-bubble] textarea::selection,
+    [data-dt-bubble] textarea::-moz-selection,
+    [contenteditable="true"]::selection,
+    [contenteditable="true"] *::selection,
+    html.dt-comment-active ::selection {
+      background: var(--dt-color-scrim);
+      color: inherit;
+    }
+  `;
+    document.head.appendChild(style);
   }
 
-  function positionPopover(el) {
-    if (!popoverEl) return;
-    const r = el.getBoundingClientRect();
-    const popH = popoverEl.offsetHeight || 100;
-    const popW = popoverEl.offsetWidth || 260;
-    // Prefer above, anchored to the element's left edge
-    let top = r.top + window.scrollY - popH - 8;
-    if (top < window.scrollY + 8) top = r.bottom + window.scrollY + 8;
-    let left = r.left + window.scrollX;
-    left = Math.max(window.scrollX + 8, Math.min(left, window.scrollX + window.innerWidth - popW - 8));
-    popoverEl.style.left = left + 'px';
-    popoverEl.style.top = top + 'px';
+  // --- Visual state --------------------------------------------------------
+  // Border for currently selected elements; otherwise the shared annotations
+  // module decides whether to apply the at-rest pink scrim (annotated) or
+  // restore the original outline+background (clean).
+  function applyOutline(el) {
+    if (selected.some(s => s.el === el)) {
+      el.style.outline = '2px solid ' + getSelectionColor();
+      // Selection wins over scrim — drop the annotation tint while active.
+      el.style.backgroundColor = getOrigBackground(el);
+    } else {
+      applyAnnotationStyle(el);
+    }
   }
-
-  function showPopover(entry) {
-    hidePopover();
-    popover = buildPopover();
-    document.body.appendChild(popover);
-    popoverTextarea.value = getElementNote(entry.el) || '';
-    positionPopover(entry.el);
-    popoverTextarea.addEventListener('input', () => {
-      setElementNote(entry.el, popoverTextarea.value, entry.originalClasses);
-    });
-    setTimeout(() => {
-      if (popoverTextarea) {
-        popoverTextarea.focus();
-        const end = popoverTextarea.value.length;
-        try { popoverTextarea.setSelectionRange(end, end); } catch (_) {}
-      }
-    }, 0);
-  }
-
-  function hidePopover() {
-    if (popover) { popover.remove(); popover = null; popoverEl = null; popoverTextarea = null; }
-  }
-
-  function repositionPopover() {
-    if (popoverEl && selected.length) positionPopover(selected[0].el);
-  }
-  window.addEventListener('scroll', repositionPopover, true);
-  window.addEventListener('resize', repositionPopover);
 
   // --- Selection -----------------------------------------------------------
-  function teardownEntry(s) {
-    s.el.style.outline = s.origOutline;
-    if (s.madeEditable) { s.el.contentEditable = 'false'; s.el.style.cursor = ''; }
-    if (s.onTextInput) { s.el.removeEventListener('input', s.onTextInput); s.onTextInput = null; }
+  // Selection is purely visual + annotation-bound. We never mutate the
+  // element's editability here — that lives in the Edit Text tool. Keeping
+  // originalClasses lets copy-all surface live class diffs even before
+  // the user deselects.
+  function buildEntry(el) {
+    ensureOrig(el);
+    return { el, originalClasses: el.className };
   }
 
-  function selectElement(el) {
-    selected.forEach(teardownEntry);
+  function teardownEntry(_s) {
+    // Nothing to tear down — Comment mode never flips contentEditable.
+  }
+
+  function deselectAll() {
+    const old = selected;
     selected = [];
+    old.forEach(teardownEntry);
+    old.forEach(s => applyOutline(s.el));
+  }
 
-    const entry = {
-      el,
-      originalClasses: el.className,
-      origOutline: el.style.outline,
-      madeEditable: false,
-    };
+  // Push the current selection through to the annotations editor. Called
+  // after every selection mutation so the active editor's els (and any
+  // transient/persistent annotation behind it) always match what's
+  // visually selected.
+  function syncEditor() {
+    if (selected.length) {
+      setEditorTarget(selected.map(s => s.el));
+    } else {
+      closeEditor();
+    }
+    refreshTagLabels();
+  }
 
-    if (TEXT_TAGS.includes(el.tagName)) {
-      el.contentEditable = 'true';
-      el.style.cursor = 'text';
-      entry.madeEditable = true;
-      entry.originalText = el.innerText;
-      entry.onTextInput = () => {
-        setElementText(el, entry.originalText, entry.originalClasses);
-        evaluateAnnotation(el);
-        queueRepositionAll();
-      };
-      el.addEventListener('input', entry.onTextInput);
+  // --- Tag labels ---------------------------------------------------------
+  // A small "div.card" / "h1.hero" pill is shown for every element the
+  // user is currently engaged with — hovered, selected, or being
+  // text-edited. Two fonts in rotation:
+  //   - Headings (h1–h6) get Pixelfraktur — a touch of "old-book-style"
+  //     identity so heading hover/select reads like a real heading.
+  //   - Everything else gets IBM Plex Mono — clean monospace for tags,
+  //     ids, classes.
+  // Labels are absolute-positioned siblings of <body> and live in
+  // inspectorUI so our own click/hover handlers ignore them.
+
+  const tagLabels = new Map(); // el → { lbl, flipped }
+
+  function elementLabelText(el) {
+    const tag = el.tagName.toLowerCase();
+    if (el.id) return `${tag}#${el.id}`;
+    if (el.classList && el.classList.length) return `${tag}.${el.classList[0]}`;
+    return tag;
+  }
+
+  function createTagLabel(el) {
+    const lbl = document.createElement('div');
+    lbl.setAttribute('data-dt-tag-label', '');
+    Object.assign(lbl.style, {
+      position: 'absolute',
+      background: getSelectionColor(),
+      color: '#fff',
+      fontFamily: '"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace',
+      fontSize: '9px',
+      fontWeight: '500',
+      padding: '1px 4px',
+      borderRadius: '2px',
+      pointerEvents: 'none',
+      zIndex: String(Z.badge - 2),
+      whiteSpace: 'nowrap',
+      transition: 'top 0.12s ease, opacity 0.12s ease',
+      opacity: '1',
+      letterSpacing: '0.2px',
+      boxShadow: '0 1px 2px rgba(0,0,0,0.18)',
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
+    });
+    document.body.appendChild(lbl);
+    inspectorUI.add(lbl);
+    return lbl;
+  }
+
+  // Position the label at the element's top-left corner. For elements
+  // big enough we tuck it INSIDE the corner (top + 2px); for small
+  // inline things (a <span>, an <a>, etc.) we float it OUTSIDE just
+  // above the element so it doesn't sit on top of the text.
+  //
+  // flipped=true → flip to the bottom-left equivalent (cursor avoidance).
+  function positionTagLabel(lbl, el, flipped) {
+    const r = el.getBoundingClientRect();
+    const labelH = lbl.offsetHeight || 14;
+    const useOutside = r.height < labelH * 3;
+    const left = r.left + window.scrollX;
+    let top;
+    if (useOutside) {
+      top = flipped
+        ? r.top + window.scrollY + r.height + 2          // outside below
+        : r.top + window.scrollY - labelH - 2;           // outside above
+    } else {
+      top = flipped
+        ? r.top + window.scrollY + r.height - labelH - 2 // inside bottom
+        : r.top + window.scrollY + 2;                    // inside top
+    }
+    lbl.style.left = left + 'px';
+    lbl.style.top = top + 'px';
+  }
+
+  function removeTagLabel(el) {
+    const entry = tagLabels.get(el);
+    if (!entry) return;
+    inspectorUI.delete(entry.lbl);
+    entry.lbl.remove();
+    tagLabels.delete(el);
+  }
+
+  function hideTagLabels() {
+    Array.from(tagLabels.keys()).forEach(removeTagLabel);
+  }
+
+  // Compute the set of elements that should currently be labeled —
+  // anything the user is actively engaged with: the hovered element,
+  // every selected element (group or single), and every element being
+  // text-edited. Text-tag elements are intentionally excluded — labels
+  // on every paragraph/heading/span feel noisy, and the colored backdrop
+  // is enough of a "you're touching this" cue for prose. Labels are
+  // reserved for containers (div, section, etc.) where structure matters.
+  function desiredLabelEls() {
+    const set = new Set();
+    if (hoveredEl$1 && !isTextElement$1(hoveredEl$1)) set.add(hoveredEl$1);
+    selected.forEach(s => { if (!isTextElement$1(s.el)) set.add(s.el); });
+    editableEls$1.forEach(el => { if (!isTextElement$1(el)) set.add(el); });
+    return set;
+  }
+
+  function refreshTagLabels() {
+    const want = desiredLabelEls();
+    Array.from(tagLabels.keys()).forEach(el => {
+      if (!want.has(el)) removeTagLabel(el);
+    });
+    const color = getSelectionColor();
+    want.forEach(el => {
+      let entry = tagLabels.get(el);
+      if (!entry) {
+        entry = { lbl: createTagLabel(), flipped: false };
+        tagLabels.set(el, entry);
+      }
+      entry.lbl.textContent = elementLabelText(el);
+      entry.lbl.style.background = color;
+      positionTagLabel(entry.lbl, el, entry.flipped);
+    });
+  }
+
+  function repositionAllTagLabels() {
+    tagLabels.forEach((entry, el) => positionTagLabel(entry.lbl, el, entry.flipped));
+  }
+
+  // On every mousemove in Comment mode, check whether the cursor is
+  // inside any label's bounding rect and flip its corner if so.
+  function avoidLabelsUnderCursor(mx, my) {
+    tagLabels.forEach((entry, el) => {
+      const r = entry.lbl.getBoundingClientRect();
+      const margin = 6;
+      const overlap = mx >= r.left - margin && mx <= r.right + margin &&
+                      my >= r.top  - margin && my <= r.bottom + margin;
+      if (overlap !== entry.flipped) {
+        entry.flipped = overlap;
+        positionTagLabel(entry.lbl, el, overlap);
+      }
+    });
+  }
+
+  // Plain click → reset selection to just `el` (or expand to its whole
+  // group if it's part of one). Shift+click → toggle `el` in/out of the
+  // existing selection (group-annotation mode).
+  function selectElement(el, additive) {
+    if (additive) {
+      const idx = selected.findIndex(s => s.el === el);
+      if (idx !== -1) {
+        // Toggle off — drop the el from the selection AND from the saved
+        // group (when there's still a selection to commit against).
+        const removed = selected[idx];
+        selected.splice(idx, 1);
+        applyOutline(removed.el);
+        syncEditor();
+        return;
+      }
+      // Toggle on — extend the group.
+      selected.push(buildEntry(el));
+      applyOutline(el);
+      syncEditor();
+      return;
     }
 
-    el.style.outline = '2px solid ' + PINK;
-    selected.push(entry);
-    showPopover(entry);
+    // Plain click on an element that already belongs to a group annotation
+    // re-opens the WHOLE group, not just this one. Otherwise typing would
+    // immediately replace the group's annotation with a single-element
+    // one and silently strip the note from the other members.
+    const ann = findNoteAnnotationByEl(el);
+    if (ann) {
+      deselectAll();
+      ann.els.forEach(groupEl => {
+        selected.push(buildEntry(groupEl));
+        applyOutline(groupEl);
+      });
+      syncEditor();
+      return;
+    }
+
+    deselectAll();
+    selected.push(buildEntry(el));
+    applyOutline(el);
+    syncEditor();
   }
 
   function clearSelection() {
-    selected.forEach(teardownEntry);
-    selected = [];
-    hidePopover();
+    deselectAll();
+    closeEditor();
   }
 
-  // Public: activate from outside (annotation bubble click)
-  function focusElement(el) {
-    if (!activeMode) {
+  // Public: re-select a previously-saved group from outside (annotation
+  // bubble click). Delegates to selectElement which auto-expands to the
+  // whole group when the clicked element is a member.
+  function focusGroup(els) {
+    if (!els || !els.length) return;
+    if (!activeMode$1) {
       activateModule('style-modifier');
       setActiveButton('style-modifier');
     }
-    selectElement(el);
-    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    selectElement(els[0], false);
+    els[0].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   // --- Hover highlight -----------------------------------------------------
-  let hoveredEl = null;
+  // Two flavors:
+  //   - block-ish (containers, images, etc): a soft tinted background +
+  //     a barely-there scale-up so the element feels "lifted" before
+  //     clicking.
+  //   - text (P, H1–H6, SPAN, LI, …): a much lighter background tint
+  //     (text is meant to be read, not painted over) + a more visible
+  //     scale-up so it pops a touch when hovered.
+  // We snapshot transform/transition before modifying so unhover
+  // restores the element exactly (covers pages that rely on their own
+  // inline transforms).
+  let hoveredEl$1 = null;
+  const HOVER_TRANSFORMS = new WeakMap();
 
-  function clearHover() {
-    if (hoveredEl) {
-      hoveredEl.style.outline = hoveredEl._smHoverOutline || '';
-      hoveredEl.style.backgroundColor = hoveredEl._smHoverBg || '';
-      delete hoveredEl._smHoverOutline;
-      delete hoveredEl._smHoverBg;
-      hoveredEl = null;
+  function clearHover$1() {
+    if (!hoveredEl$1) return;
+    const orig = HOVER_TRANSFORMS.get(hoveredEl$1);
+    if (orig) {
+      hoveredEl$1.style.transform = orig.transform;
+      hoveredEl$1.style.transition = orig.transition;
+      HOVER_TRANSFORMS.delete(hoveredEl$1);
     }
+    applyOutline(hoveredEl$1);
+    hoveredEl$1 = null;
+    refreshTagLabels();
   }
 
-  function onMove(e) {
-    if (!activeMode) return;
+  function onMove$1(e) {
+    if (!activeMode$1) return;
+    // Tag labels react to the cursor regardless of which element is
+    // currently the hover target — even hovering inside a non-selected
+    // child of a labeled selection should still hide the corner pill.
+    avoidLabelsUnderCursor(e.clientX, e.clientY);
     const el = e.target;
     if (isInspectorUI(el) || el === document.body || el === document.documentElement) {
-      clearHover();
+      clearHover$1();
       return;
     }
-    if (el === hoveredEl) return;
-    clearHover();
+    if (el === hoveredEl$1) return;
+    clearHover$1();
+    // Don't hover-paint elements that are already in a "live" state —
+    // selected for commenting, or being text-edited.
     if (selected.find(s => s.el === el)) return;
-    hoveredEl = el;
-    hoveredEl._smHoverOutline = hoveredEl.style.outline;
-    hoveredEl._smHoverBg = hoveredEl.style.backgroundColor;
-    hoveredEl.style.outline = '2px solid rgba(236,72,153,0.5)';
-    hoveredEl.style.backgroundColor = 'rgba(236,72,153,0.04)';
+    if (editableEls$1.has(el)) return;
+    hoveredEl$1 = el;
+    ensureOrig(el);
+
+    const color = getSelectionColor();
+    el.style.outline = getOrigOutline(el);
+
+    HOVER_TRANSFORMS.set(el, {
+      transform: el.style.transform || '',
+      transition: el.style.transition || '',
+    });
+    el.style.transition = 'transform 0.12s ease-out';
+
+    if (isTextElement$1(el)) {
+      // Text: lighter wash + a stronger scale so the words feel like
+      // they're stepping toward you. transform: scale doesn't reflow,
+      // so neighbors don't shift.
+      el.style.backgroundColor = withAlpha(color, 0.10);
+      el.style.transform = 'scale(1.04)';
+    } else {
+      // Container: deeper wash (it's a region, not a single line of
+      // copy) + a near-imperceptible lift.
+      el.style.backgroundColor = withAlpha(color, 0.22);
+      el.style.transform = 'scale(1.008)';
+    }
+    refreshTagLabels();
   }
 
-  // --- Click handler -------------------------------------------------------
-  function onClick(e) {
-    if (!activeMode) return;
+  // --- Inline text editing (experiment) -----------------------------------
+  // Comment mode used to be read-only; the dedicated Edit Text tool was
+  // the only way to retype copy. Now we also allow inline editing on
+  // text-tag elements directly from Comment mode — clicking a paragraph
+  // places a caret AND opens the comment bubble, so the user can either
+  // type new text or click into the bubble to leave a note. Text edits
+  // roll into the same annotation tracker, so copy-all picks them up
+  // regardless of which tool produced them.
+  const editableEls$1 = new Set();
+  const inputHandlers$1 = new WeakMap();
+
+  function placeCaretFromPoint$1(clientX, clientY) {
+    let range = null;
+    if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(clientX, clientY);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    } else if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(clientX, clientY);
+    }
+    if (range) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+
+  function makeTextEditable(el) {
+    if (editableEls$1.has(el)) return;
+    editableEls$1.add(el);
+    ensureOrig(el);
+    el.contentEditable = 'true';
+    // Spellcheck draws a red wavy underline under "misspelled" words —
+    // for design-tool text edits that's almost always noise. Off.
+    el.spellcheck = false;
+    // Opt out of editor-injecting browser extensions (Grammarly,
+    // LanguageTool, etc.). They add their own colored outlines / icons
+    // into any contentEditable they find, which fights our chrome.
+    el.setAttribute('data-gramm', 'false');
+    el.setAttribute('data-gramm_editor', 'false');
+    el.setAttribute('data-enable-grammarly', 'false');
+    el.setAttribute('data-lt-tmp-id', '');
+    el.style.outline = '2px solid ' + getSelectionColor();
+    el.style.backgroundColor = withAlpha(getSelectionColor(), 0.15);
+    const originalText = el.innerText;
+    const originalClasses = el.className;
+    const handler = () => {
+      setElementText(el, originalText, originalClasses);
+      evaluateAnnotation(el);
+      queueRepositionAll();
+    };
+    el.addEventListener('input', handler);
+    inputHandlers$1.set(el, handler);
+    refreshTagLabels();
+  }
+
+  function revertTextEditable(el) {
+    if (!editableEls$1.has(el)) return;
+    el.contentEditable = 'false';
+    const h = inputHandlers$1.get(el);
+    if (h) {
+      el.removeEventListener('input', h);
+      inputHandlers$1.delete(el);
+    }
+    editableEls$1.delete(el);
+    // Drop our outline; let the shared annotation tracker decide the
+    // resting state (scrim if a text edit was made, otherwise pristine).
+    applyAnnotationStyle(el);
+    refreshTagLabels();
+  }
+
+  function revertAllEditable() {
+    Array.from(editableEls$1).forEach(revertTextEditable);
+  }
+
+  // Intent-aware click router.
+  //
+  // The cursor over the click target tells us what the user wanted:
+  //   - I-beam over a text-tag element → "edit this text". Drop the
+  //     comment bubble + selection group, flip the element editable,
+  //     place the caret. No bubble appears — typing IS the action.
+  //   - Pointer over a container → "comment on this layout". Run the
+  //     normal selection/group flow, the pink bubble shows up, type a
+  //     note about it.
+  //
+  // Two carve-outs:
+  //   - Shift+click is always group-select intent (works on text and
+  //     container alike) — useful when the user actually wants to
+  //     comment on a paragraph rather than retype it.
+  //   - Clicking a text-tag element that's already part of a saved
+  //     comment re-opens the comment instead of trampling it with a
+  //     fresh text-edit session.
+  function onClick$1(e) {
+    if (!activeMode$1) return;
     const el = e.target;
     if (isInspectorUI(el)) return;
+    // <body> / <html> aren't real "elements you'd want to comment on" —
+    // they're the canvas. Letting them be selected outlines the whole
+    // viewport in theme color and is almost never the user's intent.
+    if (el === document.body || el === document.documentElement) return;
 
-    // Click on already-selected text element → drop into the inline editor
-    // instead of re-opening the popover (so caret lands on the clicked word).
-    const alreadySelected = selected.find(s => s.el === el || s.el.contains(el));
-    if (alreadySelected && alreadySelected.madeEditable) {
-      e.stopPropagation();
-      return;
-    }
+    // Re-clicking inside an already-editable text element should just
+    // move the caret natively. Don't preventDefault, don't re-copy
+    // markup (would spam the clipboard), don't re-trigger selection.
+    if (editableEls$1.has(el)) return;
 
     e.preventDefault();
     e.stopPropagation();
-    clearHover();
-    selectElement(el);
+    clearHover$1();
+    nudge(el);
+
+    // Text-edit intent. The user is doing two related things at once
+    // here: rewriting the words on the page AND (potentially) leaving a
+    // note about why. Both UIs come up — a caret in the element so they
+    // can type, and the comment bubble so they can describe the change.
+    // The text element keeps focus by default; clicking the bubble
+    // shifts focus to the textarea.
+    if (isTextElement$1(el) && !e.shiftKey) {
+      // If the user already has a saved comment on this text, treat the
+      // click as "open my note" instead of "retype the words".
+      if (findNoteAnnotationByEl(el)) {
+        revertAllEditable();
+        selectElement(el, false);
+        return;
+      }
+      revertAllEditable();
+      const x = e.clientX, y = e.clientY;
+      // Bubble first (queues its own focus on the textarea), then make
+      // the element editable; our setTimeout below runs LAST and steals
+      // focus back to the page text. Net result: caret on text, bubble
+      // visible alongside.
+      selectElement(el, false);
+      makeTextEditable(el);
+      setTimeout(() => {
+        el.focus();
+        placeCaretFromPoint$1(x, y);
+      }, 0);
+      return;
+    }
+
+    // Container/comment intent (and shift+click). Switching back to
+    // commenting flushes any open text-edit so the visual state is
+    // unambiguous about what the user is currently doing.
+    revertAllEditable();
+    selectElement(el, e.shiftKey);
   }
 
   // --- Module spec ---------------------------------------------------------
-  var styleModifier = {
+  const moduleSpec = {
     id: 'style-modifier',
     label: 'Comment',
     enabledByDefault: true,
 
     button: {
       icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
-      tooltip: 'Comment',
-      color: PINK,
+      tooltip: 'Comment (shift+click for group)',
+      get color() { return getSelectionColor(); },
       order: 5,
     },
 
     shortcuts: [],
 
     init() {
-      document.addEventListener('click', onClick, true);
-      document.addEventListener('mousemove', onMove, true);
+      ensureSelectionStyles();
+      ensurePlexMono();
+      document.addEventListener('click', onClick$1, true);
+      document.addEventListener('mousemove', onMove$1, true);
+      window.addEventListener('scroll', repositionAllTagLabels, true);
+      window.addEventListener('resize', repositionAllTagLabels);
+
+      // Live theme updates: re-paint selected outlines, editable-text
+      // backgrounds, tag-label backgrounds, and the toolbar button
+      // (when active) so a color swap from settings takes effect
+      // everywhere.
+      onColorChange((color) => {
+        selected.forEach(s => applyOutline(s.el));
+        editableEls$1.forEach(el => {
+          el.style.outline = '2px solid ' + color;
+          el.style.backgroundColor = withAlpha(color, 0.15);
+        });
+        tagLabels.forEach((entry) => { entry.lbl.style.background = color; });
+        if (activeMode$1) setActiveButton('style-modifier');
+      });
     },
 
     activate() {
-      activeMode = true;
+      activeMode$1 = true;
       state.styleModActive = true;
-      showToast('Click an element to leave a comment');
+      document.body.style.cursor = '';
+      document.documentElement.classList.add('dt-comment-active');
+      showToast('Click to comment, shift+click to group');
     },
 
     deactivate() {
-      activeMode = false;
+      activeMode$1 = false;
       state.styleModActive = false;
-      clearHover();
+      document.body.style.cursor = '';
+      document.documentElement.classList.remove('dt-comment-active');
+      clearHover$1();
       clearSelection();
+      revertAllEditable();
+      hideTagLabels();
     },
 
-    // Home mode: clicking the button always activates, never toggles off.
-    // Other tools fall back to this module when they deactivate.
     toggle() {
       this.activate();
       return true;
@@ -1009,97 +1218,268 @@
   /**
    * Annotations service.
    *
-   * The Comment tool (style-modifier) owns the note-leaving UX (popover
-   * textarea + on-page bubble); this file is just the shared store + bubble
-   * layer it depends on. No toolbar button, no mode lifecycle — it registers
-   * only to install scroll/resize listeners that keep bubbles anchored to
-   * their elements.
+   * Two kinds of tracked changes:
+   *   1. Note annotations — a single note attached to one or many elements
+   *      (a "group"). One note, one bubble. The bubble IS the editor: a
+   *      pink rounded box containing a transparent <textarea>. When the
+   *      Comment tool selects an element of the group, the textarea
+   *      becomes editable and focused; when the selection moves
+   *      elsewhere, the textarea goes read-only and the bubble looks
+   *      identical to the saved-note state.
+   *   2. Text edits — per-element original-text snapshots, no on-page UI;
+   *      diffs surface in the copy-all output.
    *
-   * Public API consumed by the Comment tool (style-modifier.js):
-   *   setElementNote(el, text, originalClasses) → create/update/remove an
-   *     annotation for `el` based on `text`. The on-page bubble auto-syncs.
-   *   getElementNote(el) → string note for an element (or '').
-   *   queueRepositionAll() → request a rAF-batched bubble reposition (call
-   *     after class changes that may affect element bounds).
-   *   getAnnotations() → annotation list (used by copy-all to build output).
+   * Public API for tools (Comment / Edit Text):
+   *   setEditorTarget(els)         → make these els the live editor target
+   *   closeEditor()                → finalize current editor, drop transient
+   *   getElementNote(el)           → '' if untracked, else the group's note
+   *   findNoteAnnotationByEl(el)   → the group annotation containing el (or null)
+   *   setElementText(el, originalText, originalClasses)
+   *   evaluateAnnotation(el)
+   *   ensureOrig / applyAnnotationStyle
+   *   queueRepositionAll()
+   *   getAnnotations()             → unified list for copy-all
    */
 
 
-  // --- Annotation store ---
-  // Each annotation tracks up to three kinds of change for one element:
-  //   - note (free-form prose, shown as on-page bubble)
-  //   - originalClasses (compared to el.className → class diff)
-  //   - originalText (compared to el.innerText → text diff, shown as a small
-  //     emerald pencil marker; visually distinct from the amber note bubble)
-  const annotations = []; // { id, el, selector, note, originalClasses, originalText, bubbleEl, textMarkerEl }
+  // ---- Style state shared across tools ----
+  const ORIG_OUTLINES = new WeakMap();
+  const ORIG_BACKGROUNDS = new WeakMap();
+
+  // At-rest tint for elements that have a saved note or text edit. Derived
+  // from the live selection color so theme swaps propagate.
+  function getScrim() { return withAlpha(getSelectionColor(), 0.15); }
+
+  function ensureOrig(el) {
+    if (!ORIG_OUTLINES.has(el)) ORIG_OUTLINES.set(el, el.style.outline || '');
+    if (!ORIG_BACKGROUNDS.has(el)) ORIG_BACKGROUNDS.set(el, el.style.backgroundColor || '');
+  }
+
+  function getOrigOutline(el) { return ORIG_OUTLINES.get(el) || ''; }
+  function getOrigBackground(el) { return ORIG_BACKGROUNDS.get(el) || ''; }
+
+  function applyAnnotationStyle(el) {
+    if (isAnnotated(el)) {
+      el.style.outline = getOrigOutline(el);
+      el.style.backgroundColor = getScrim();
+    } else {
+      el.style.outline = getOrigOutline(el);
+      el.style.backgroundColor = getOrigBackground(el);
+    }
+  }
+
+  // ---- Stores ----
+  // Note annotations: 1+ elements share one note + one bubble.
+  // `transient` annotations exist only while their bubble is the editor;
+  // they vanish on closeEditor() if no note text was typed.
+  const noteAnnotations = []; // { id, els, selectors, note, primaryEl, bubbleEl, customPosition, transient }
+  const textEdits = new Map(); // el → { originalText, originalClasses }
+
   let nextId = 1;
+  let activeAnnotation = null; // the bubble currently in edit mode
 
-  function getAnnotations() { return annotations; }
-  function findAnnotationByEl(el) { return annotations.find(a => a.el === el) || null; }
-  function getElementNote(el) {
-    const a = findAnnotationByEl(el);
-    return a ? a.note : '';
+  function isAnnotated(el) {
+    return findNoteAnnotationByEl(el) !== null || hasTextDiff(el);
   }
 
-  function hasTextDiff(annotation) {
-    return annotation.originalText != null
-      && annotation.el.innerText !== annotation.originalText;
+  function hasTextDiff(el) {
+    const e = textEdits.get(el);
+    return e != null && el.innerText !== e.originalText;
   }
 
-  function hasClassDiff(annotation) {
-    return annotation.el.className !== annotation.originalClasses;
+  function findNoteAnnotationByEl(el) {
+    return noteAnnotations.find(a => a.els.includes(el)) || null;
   }
 
-  function hasNote(annotation) {
-    return !!(annotation.note && annotation.note.trim().length);
+  // ---- One-time stylesheet for placeholder color (white-ish on pink) ----
+  function ensureBubbleStyles() {
+    if (document.getElementById('dt-bubble-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'dt-bubble-styles';
+    s.textContent = `
+    [data-dt-bubble] textarea::placeholder { color: rgba(255, 255, 255, 0.65); }
+    [data-dt-bubble] textarea::-webkit-input-placeholder { color: rgba(255, 255, 255, 0.65); }
+  `;
+    document.head.appendChild(s);
   }
 
-  function isAnnotationEmpty(annotation) {
-    return !hasNote(annotation)
-      && !hasClassDiff(annotation)
-      && !hasTextDiff(annotation);
-  }
-
-  // --- Persistent on-page note bubble ---
-  // Anchored via getBoundingClientRect so it can extend outside the element's
-  // bounds (avoids clipping by overflow:hidden ancestors). Repositions on
-  // scroll/resize via rAF-batched listener installed on registry init().
+  // ---- Bubble (the unified editor + display) ----
+  // Pink rounded card containing a borderless transparent textarea. In
+  // edit mode (readOnly=false, focused) the user types; in read mode
+  // (readOnly=true) it reads as the saved note. Same DOM, same chrome —
+  // the only visible difference is the blinking caret.
   function createBubble(annotation) {
+    ensureBubbleStyles();
+
     const bubble = document.createElement('div');
+    bubble.setAttribute('data-dt-bubble', '');
+    bubble.setAttribute('data-dt-allow-select', '');
     Object.assign(bubble.style, {
       position: 'absolute',
-      background: '#ec4899',
+      background: getSelectionColor(),
       border: 'none',
       borderRadius: '6px',
       padding: '6px 9px',
-      fontSize: '11px', lineHeight: '1.4',
-      fontFamily: 'system-ui, sans-serif', color: '#fff',
-      maxWidth: '220px', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-      cursor: 'pointer', zIndex: String(Z.badge - 1),
       boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+      zIndex: String(Z.badge - 1),
+      fontFamily: 'system-ui, sans-serif',
+      color: '#fff',
+      minWidth: '180px',
+      maxWidth: '280px',
       pointerEvents: 'auto',
-      transition: 'transform 0.1s'
+      transition: 'transform 0.1s',
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
+      boxSizing: 'border-box',
+      display: 'flex',
+      gap: '8px',
+      alignItems: 'flex-start',
     });
-    bubble.addEventListener('mouseenter', () => { bubble.style.transform = 'scale(1.03)'; });
-    bubble.addEventListener('mouseleave', () => { bubble.style.transform = 'scale(1)'; });
-    bubble.addEventListener('click', (e) => {
+
+    // Drag handle: a tiny grid of "grabby" dots on the left edge so the
+    // bubble is movable even before any text is typed (where the textarea
+    // would otherwise eat almost the entire mousedown target).
+    const handle = document.createElement('div');
+    handle.setAttribute('aria-label', 'Drag to move');
+    handle.title = 'Drag to move';
+    handle.innerHTML = '<svg width="6" height="16" viewBox="0 0 6 16" xmlns="http://www.w3.org/2000/svg" fill="rgba(255,255,255,0.7)" aria-hidden="true">'
+      + '<circle cx="1.5" cy="3" r="1"/><circle cx="4.5" cy="3" r="1"/>'
+      + '<circle cx="1.5" cy="8" r="1"/><circle cx="4.5" cy="8" r="1"/>'
+      + '<circle cx="1.5" cy="13" r="1"/><circle cx="4.5" cy="13" r="1"/>'
+      + '</svg>';
+    Object.assign(handle.style, {
+      flex: '0 0 auto',
+      width: '8px',
+      minHeight: '20px',
+      cursor: 'grab',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
+    });
+
+    const ta = document.createElement('textarea');
+    ta.setAttribute('data-dt-allow-select', '');
+    ta.readOnly = true;
+    Object.assign(ta.style, {
+      flex: '1 1 auto',
+      minWidth: '0',
+      minHeight: '20px',
+      padding: '0',
+      margin: '0',
+      border: 'none',
+      background: 'transparent',
+      color: '#fff',
+      fontSize: '11px',
+      lineHeight: '1.4',
+      fontFamily: 'system-ui, sans-serif',
+      resize: 'none',
+      outline: 'none',
+      boxSizing: 'border-box',
+      display: 'block',
+      overflow: 'hidden',
+      cursor: 'grab',
+    });
+
+    function autoGrow() {
+      ta.style.height = 'auto';
+      ta.style.height = Math.max(ta.scrollHeight, 20) + 'px';
+      if (annotation.bubbleEl) {
+        positionBubble(annotation.bubbleEl, annotation.primaryEl, annotation.customPosition);
+      }
+    }
+
+    ta.addEventListener('input', () => {
+      annotation.note = ta.value;
+      if (annotation.transient && ta.value.trim()) annotation.transient = false;
+      autoGrow();
+      updateBadgeCount();
+    });
+    ta.addEventListener('keydown', (e) => {
       e.stopPropagation();
-      e.preventDefault();
-      focusElement(annotation.el);
+      if (e.key === 'Escape') ta.blur();
     });
+
+    bubble.appendChild(handle);
+    bubble.appendChild(ta);
+    bubble._textarea = ta;
+    bubble._handle = handle;
+    bubble._autoGrow = autoGrow;
+
+    // Drag-vs-click.
+    //   - mousedown on the textarea while we're the editor → let the
+    //     textarea focus normally (caret placement); no drag
+    //   - mousedown on the textarea while we're read-only → drag, and on
+    //     mouseup with no movement, focusGroup() flips us into the editor
+    //   - mousedown anywhere else (handle, padding) → drag, ditto
+    let dragging = false, didDrag = false, sx = 0, sy = 0;
+    let startDx = 0, startDy = 0;
+
+    bubble.addEventListener('mousedown', (e) => {
+      const inTextarea = (e.target === ta);
+      const isEditing = (activeAnnotation === annotation);
+      if (inTextarea && isEditing) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      didDrag = false;
+      bubble._dragging = true;
+      sx = e.clientX; sy = e.clientY;
+      startDx = annotation.customPosition ? annotation.customPosition.dx : 0;
+      startDy = annotation.customPosition ? annotation.customPosition.dy : 0;
+      handle.style.cursor = 'grabbing';
+    });
+
+    function onMove(e) {
+      if (!dragging) return;
+      const dx = e.clientX - sx;
+      const dy = e.clientY - sy;
+      if (!didDrag && Math.abs(dx) + Math.abs(dy) > 3) didDrag = true;
+      if (didDrag) {
+        annotation.customPosition = { dx: startDx + dx, dy: startDy + dy };
+        positionBubble(bubble, annotation.primaryEl, annotation.customPosition);
+      }
+    }
+
+    function onUp() {
+      if (!dragging) return;
+      dragging = false;
+      bubble._dragging = false;
+      handle.style.cursor = 'grab';
+      if (didDrag) return;
+      if (activeAnnotation === annotation) return; // already editing, no-op
+      // Defer past the synthetic click so Comment's capture click handler
+      // still sees the bubble as inspector UI.
+      requestAnimationFrame(() => focusGroup(annotation.els));
+    }
+
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('mouseup', onUp, true);
+    bubble._cleanupDrag = () => {
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('mouseup', onUp, true);
+    };
+
     document.body.appendChild(bubble);
     inspectorUI.add(bubble);
     return bubble;
   }
 
-  // Always anchored to the element's top-left: bubble's bottom-left sits at
-  // the element's top-left corner with a small 6px gap. No flipping to below
-  // the element regardless of viewport — predictable, consistent placement.
-  function positionBubble(bubble, el) {
+  // Default placement: primary element's top-left, bubble sitting just
+  // above. customPosition (set by drag) is added on top of that so the
+  // bubble follows its element through scrolls but keeps any user-chosen
+  // offset.
+  function positionBubble(bubble, el, custom) {
+    if (!el) return;
     const r = el.getBoundingClientRect();
     const bubbleH = bubble.offsetHeight || 32;
-    bubble.style.left = (r.left + window.scrollX) + 'px';
-    bubble.style.top = (r.top + window.scrollY - bubbleH - 6) + 'px';
+    let left = r.left + window.scrollX;
+    let top = r.top + window.scrollY - bubbleH - 6;
+    if (custom) { left += custom.dx; top += custom.dy; }
+    bubble.style.left = left + 'px';
+    bubble.style.top = top + 'px';
   }
 
   let _repositionQueued = false;
@@ -1108,179 +1488,230 @@
     _repositionQueued = true;
     requestAnimationFrame(() => {
       _repositionQueued = false;
-      annotations.forEach(a => {
-        if (a.bubbleEl) positionBubble(a.bubbleEl, a.el);
-        if (a.textMarkerEl) positionTextMarker(a.textMarkerEl, a.el);
+      noteAnnotations.forEach(a => {
+        if (a.bubbleEl) positionBubble(a.bubbleEl, a.primaryEl, a.customPosition);
       });
+      noteAnnotations.forEach(a => a.els.forEach(el => applyAnnotationStyle(el)));
+      textEdits.forEach((_, el) => applyAnnotationStyle(el));
     });
   }
 
   function removeBubble(annotation) {
     if (!annotation.bubbleEl) return;
+    if (annotation.bubbleEl._cleanupDrag) annotation.bubbleEl._cleanupDrag();
     inspectorUI.delete(annotation.bubbleEl);
     annotation.bubbleEl.remove();
     annotation.bubbleEl = null;
   }
 
-  function syncBubble(annotation) {
-    if (hasNote(annotation)) {
-      if (!annotation.bubbleEl) annotation.bubbleEl = createBubble(annotation);
-      annotation.bubbleEl.textContent = annotation.note;
-      positionBubble(annotation.bubbleEl, annotation.el);
-    } else {
+  // Show/refresh the bubble. `editing` decides whether the textarea is
+  // readonly. The bubble is hidden when there's no note AND the
+  // annotation isn't the active editor (keeps stale empties off-screen).
+  function syncBubble(annotation, editing) {
+    const hasNote = annotation.note && annotation.note.trim().length > 0;
+    if (!hasNote && !editing) {
       removeBubble(annotation);
+      return;
+    }
+    if (!annotation.bubbleEl) annotation.bubbleEl = createBubble(annotation);
+
+    const ta = annotation.bubbleEl._textarea;
+    ta.readOnly = !editing;
+    ta.style.cursor = editing ? 'text' : 'grab';
+    ta.placeholder = editing
+      ? (annotation.els.length > 1
+        ? `Group note for ${annotation.els.length} elements…`
+        : 'Describe the change…')
+      : '';
+    if (ta.value !== annotation.note) ta.value = annotation.note;
+    annotation.bubbleEl._autoGrow();
+    positionBubble(annotation.bubbleEl, annotation.primaryEl, annotation.customPosition);
+
+    if (editing) {
+      setTimeout(() => {
+        if (!annotation.bubbleEl) return;
+        ta.focus();
+        const end = ta.value.length;
+        try { ta.setSelectionRange(end, end); } catch (_) {}
+      }, 0);
     }
   }
 
-  // --- Text-edit marker (emerald pencil, top-right of element) ---
-  function createTextMarker(annotation) {
-    const marker = document.createElement('div');
-    marker.textContent = '\u270E'; // ✎
-    Object.assign(marker.style, {
-      position: 'absolute',
-      width: '20px', height: '20px',
-      background: '#10b981',
-      color: '#fff',
-      borderRadius: '4px',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: '12px', fontWeight: '700',
-      fontFamily: 'system-ui, sans-serif',
-      cursor: 'pointer', zIndex: String(Z.badge - 1),
-      boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
-      pointerEvents: 'auto',
-      transition: 'transform 0.1s'
-    });
-    marker.title = 'Text edited (click to view)';
-    marker.addEventListener('mouseenter', () => { marker.style.transform = 'scale(1.15)'; });
-    marker.addEventListener('mouseleave', () => { marker.style.transform = 'scale(1)'; });
-    marker.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      focusElement(annotation.el);
-    });
-    document.body.appendChild(marker);
-    inspectorUI.add(marker);
-    return marker;
-  }
-
-  function positionTextMarker(marker, el) {
-    const r = el.getBoundingClientRect();
-    // Top-right, slightly outside the element to not overlap content. Falls
-    // back inside the right edge if the element is up against the viewport.
-    const x = Math.min(r.right + 4, window.innerWidth - 24) + window.scrollX;
-    marker.style.left = (x - 20) + 'px';
-    marker.style.top = (r.top + window.scrollY + 4) + 'px';
-  }
-
-  function removeTextMarker(annotation) {
-    if (!annotation.textMarkerEl) return;
-    inspectorUI.delete(annotation.textMarkerEl);
-    annotation.textMarkerEl.remove();
-    annotation.textMarkerEl = null;
-  }
-
-  function syncTextMarker(annotation) {
-    if (hasTextDiff(annotation)) {
-      if (!annotation.textMarkerEl) annotation.textMarkerEl = createTextMarker(annotation);
-      positionTextMarker(annotation.textMarkerEl, annotation.el);
-    } else {
-      removeTextMarker(annotation);
-    }
-  }
-
-  function removeAnnotation(annotation) {
+  function removeNoteAnnotation(annotation) {
     removeBubble(annotation);
-    removeTextMarker(annotation);
-    // Restore class state. Text is intentionally NOT restored — clearing the
-    // tracking entry shouldn't undo what the user typed. (If they want a
-    // text revert, they'd type the original back manually.)
-    annotation.el.className = annotation.originalClasses;
-    const idx = annotations.indexOf(annotation);
-    if (idx !== -1) annotations.splice(idx, 1);
+    const idx = noteAnnotations.indexOf(annotation);
+    if (idx !== -1) noteAnnotations.splice(idx, 1);
+    annotation.els.forEach(el => applyAnnotationStyle(el));
     updateBadgeCount();
   }
 
+  // ---- Editor lifecycle (the Comment tool drives this) ----
+  //
+  // setEditorTarget(els) is called whenever the Comment tool's selection
+  // changes (or it opens for the first time). It promotes any matching
+  // existing annotation to be the active editor, or spins up a transient
+  // one if no annotation involves any of `els`.  Other annotations
+  // touching any of these elements are merged into the editor — group
+  // boundaries reflect what's currently selected.
+
+  function setEditorTarget(els) {
+    if (!els || !els.length) {
+      closeEditor();
+      return;
+    }
+
+    // Find an existing annotation involving any selected el.
+    let ann = noteAnnotations.find(a => a.els.some(el => els.includes(el)));
+
+    // Switching editor target — finalize the current one (commit or drop).
+    if (activeAnnotation && activeAnnotation !== ann) {
+      finalizeAnnotation(activeAnnotation);
+      activeAnnotation = null;
+    }
+
+    if (!ann) {
+      // Transient: a placeholder editor so the user can start typing.
+      // If they don't, closeEditor will throw it away.
+      ann = {
+        id: nextId++,
+        els: [],
+        selectors: [],
+        note: '',
+        primaryEl: null,
+        bubbleEl: null,
+        customPosition: null,
+        transient: true,
+      };
+      noteAnnotations.push(ann);
+    }
+
+    // Update group composition to match the current selection.
+    ann.els = els.slice();
+    ann.selectors = els.map(getSelector);
+    ann.primaryEl = els[0];
+
+    // Consolidate: any OTHER annotation that overlaps with this group is
+    // absorbed (its note text wins if our editor is empty).
+    for (let i = noteAnnotations.length - 1; i >= 0; i--) {
+      const other = noteAnnotations[i];
+      if (other === ann) continue;
+      if (!other.els.some(el => els.includes(el))) continue;
+      if ((!ann.note || !ann.note.trim()) && other.note) {
+        ann.note = other.note;
+      }
+      if (!ann.customPosition && other.customPosition && other.primaryEl === ann.primaryEl) {
+        ann.customPosition = other.customPosition;
+      }
+      removeNoteAnnotation(other);
+    }
+
+    activeAnnotation = ann;
+    syncBubble(ann, true);
+    els.forEach(el => applyAnnotationStyle(el));
+    updateBadgeCount();
+  }
+
+  function finalizeAnnotation(ann) {
+    if (ann.transient && (!ann.note || !ann.note.trim())) {
+      removeNoteAnnotation(ann);
+      return;
+    }
+    ann.transient = false;
+    syncBubble(ann, false);
+    ann.els.forEach(el => applyAnnotationStyle(el));
+  }
+
+  function closeEditor() {
+    if (!activeAnnotation) return;
+    const a = activeAnnotation;
+    activeAnnotation = null;
+    finalizeAnnotation(a);
+    updateBadgeCount();
+  }
+
+  // Drop everything tracked by this module — bubbles, notes, text edits.
+  // Element styles return to their pristine pre-tool look. The text the
+  // user typed inline is intentionally NOT reverted; clearing the
+  // trackers shouldn't undo their content.
+  function clearAnnotations() {
+    activeAnnotation = null;
+    for (let i = noteAnnotations.length - 1; i >= 0; i--) {
+      removeNoteAnnotation(noteAnnotations[i]);
+    }
+    const trackedEls = Array.from(textEdits.keys());
+    textEdits.clear();
+    trackedEls.forEach(el => applyAnnotationStyle(el));
+    updateBadgeCount();
+  }
+
+  // ---- Text edits ----
+  function setElementText(el, originalText, originalClasses) {
+    if (!textEdits.has(el)) {
+      textEdits.set(el, { originalText, originalClasses });
+    }
+    applyAnnotationStyle(el);
+    updateBadgeCount();
+  }
+
+  function evaluateAnnotation(el) {
+    const e = textEdits.get(el);
+    if (e && el.innerText === e.originalText && el.className === e.originalClasses) {
+      textEdits.delete(el);
+    }
+    applyAnnotationStyle(el);
+    updateBadgeCount();
+  }
+
+  // ---- Badge ----
   function updateBadgeCount() {
-    const count = annotations.filter(a =>
-      hasNote(a) || hasClassDiff(a) || hasTextDiff(a)
-    ).length;
+    // Each non-transient note + each text edit counts as one change.
+    let count = 0;
+    noteAnnotations.forEach(a => {
+      if (!a.transient && a.note && a.note.trim()) count++;
+    });
+    textEdits.forEach((e, el) => {
+      if (el.innerText !== e.originalText || el.className !== e.originalClasses) count++;
+    });
     updateCopyBadge(count);
   }
 
-  // Build a fresh annotation object. Caller is responsible for pushing it onto
-  // the store and calling evaluateAnnotation afterward.
-  function newAnnotation(el, opts) {
-    return {
-      id: nextId++,
-      el,
-      selector: getSelector(el),
-      note: opts.note != null ? opts.note : '',
-      originalClasses: opts.originalClasses != null ? opts.originalClasses : el.className,
-      originalText: opts.originalText != null ? opts.originalText : null,
-      bubbleEl: null,
-      textMarkerEl: null,
-    };
+  // ---- Unified list for copy-all ----
+  function getAnnotations() {
+    const items = [];
+    noteAnnotations.forEach(a => {
+      if (a.transient || !a.note || !a.note.trim()) return;
+      items.push({
+        kind: 'note',
+        els: a.els,
+        selectors: a.selectors,
+        note: a.note,
+      });
+    });
+    textEdits.forEach((e, el) => {
+      if (el.innerText === e.originalText && el.className === e.originalClasses) return;
+      items.push({
+        kind: 'text',
+        el,
+        selector: getSelector(el),
+        originalText: e.originalText,
+        originalClasses: e.originalClasses,
+      });
+    });
+    return items;
   }
 
-  // --- Public: re-sync all on-page indicators for an element's annotation
-  //     and prune the annotation if it has no remaining changes. Used by
-  //     style-modifier after class or text mutations. ---
-  function evaluateAnnotation(el) {
-    const a = findAnnotationByEl(el);
-    if (!a) return;
-    syncBubble(a);
-    syncTextMarker(a);
-    updateBadgeCount();
-    if (isAnnotationEmpty(a)) removeAnnotation(a);
-  }
+  // Live-update bubbles + tracked element scrims when the selection
+  // color is swapped from settings.
+  onColorChange((color) => {
+    noteAnnotations.forEach(a => {
+      if (a.bubbleEl) a.bubbleEl.style.background = color;
+      a.els.forEach(el => applyAnnotationStyle(el));
+    });
+    textEdits.forEach((_, el) => applyAnnotationStyle(el));
+  });
 
-  // --- Public: set/clear a note for an element. Lazily creates the
-  //     annotation; auto-removes when no note, no class diff, and no text
-  //     diff remain. ---
-  function setElementNote(el, text, originalClasses) {
-    let a = findAnnotationByEl(el);
-    const trimmed = (text || '').trim();
-
-    if (!a) {
-      if (!trimmed) return null;
-      a = newAnnotation(el, { note: text, originalClasses });
-      annotations.push(a);
-    } else {
-      a.note = text;
-    }
-
-    syncBubble(a);
-    updateBadgeCount();
-
-    if (isAnnotationEmpty(a)) {
-      removeAnnotation(a);
-      return null;
-    }
-
-    return a;
-  }
-
-  // --- Public: capture the original text of an element (idempotent — only
-  //     sets it the first time). Call once when the element becomes editable
-  //     in Design mode. Pair with evaluateAnnotation(el) on text input to
-  //     keep the marker + badge count up to date. ---
-  function setElementText(el, originalText, originalClasses) {
-    let a = findAnnotationByEl(el);
-    if (!a) {
-      // No existing annotation: create one solely to track text. Marker + badge
-      // appear lazily once the user actually changes the text.
-      a = newAnnotation(el, { originalClasses, originalText });
-      annotations.push(a);
-    } else if (a.originalText == null) {
-      a.originalText = originalText;
-    }
-    evaluateAnnotation(el);
-    return a;
-  }
-
-  // --- Module shell: registered with the registry only so init() runs at
-  //     boot. No `button` — won't appear in the toolbar. ---
-  var annotations$1 = {
+  // ---- Module shell ----
+  var annotations = {
     id: 'annotations',
     enabledByDefault: true,
 
@@ -1303,34 +1734,47 @@
     const sections = [];
     const annotatedEls = new Set();
 
-    // From annotations: includes notes, class diffs, and text edits.
+    // Annotations from the store come in two kinds:
+    //   - 'note': a group of 1+ elements sharing one note
+    //   - 'text': a single-element text edit (silent on-page; only here)
+    // A single element may appear in both (e.g. you grouped it AND edited
+    // its text); we render them as separate sections for clarity.
     const annotations = getAnnotations();
-    annotations.forEach(ann => {
-      annotatedEls.add(ann.el);
-      const { added, removed } = getClassDiff(ann.el, ann.originalClasses);
-      const hasNote = ann.note && ann.note.trim().length > 0;
-      const hasClassChanges = added.length > 0 || removed.length > 0;
-      const hasTextChange = ann.originalText != null
-        && ann.el.innerText !== ann.originalText;
+    annotations.forEach(item => {
+      if (item.kind === 'note') {
+        if (!item.note || !item.note.trim()) return;
+        const header = item.selectors.length > 1
+          ? `### Group of ${item.selectors.length}\n${item.selectors.map(s => `  - ${s}`).join('\n')}`
+          : `### ${item.selectors[0]}`;
+        let section = header;
+        section += `\nNote: "${item.note.trim()}"`;
+        sections.push(section);
+        item.els.forEach(el => annotatedEls.add(el));
+      } else if (item.kind === 'text') {
+        const el = item.el;
+        const hasTextChange = el.innerText !== item.originalText;
+        const { added, removed } = getClassDiff(el, item.originalClasses);
+        const hasClassChanges = added.length > 0 || removed.length > 0;
+        if (!hasTextChange && !hasClassChanges) return;
 
-      if (!hasNote && !hasClassChanges && !hasTextChange) return;
-
-      let section = `### ${ann.selector}`;
-      if (hasNote) section += `\nNote: "${ann.note.trim()}"`;
-      if (hasTextChange) {
-        const before = ann.originalText.replace(/\n/g, '\\n');
-        const after = ann.el.innerText.replace(/\n/g, '\\n');
-        section += `\nText: "${before}" → "${after}"`;
+        let section = `### ${item.selector}`;
+        if (hasTextChange) {
+          const before = item.originalText.replace(/\n/g, '\\n');
+          const after = el.innerText.replace(/\n/g, '\\n');
+          section += `\nText: "${before}" → "${after}"`;
+        }
+        if (hasClassChanges) {
+          section += '\nClasses:';
+          if (added.length) section += `\n  + ${added.join(' ')}`;
+          if (removed.length) section += `\n  - ${removed.join(' ')}`;
+        }
+        sections.push(section);
+        annotatedEls.add(el);
       }
-      if (hasClassChanges) {
-        section += '\nClasses:';
-        if (added.length) section += `\n  + ${added.join(' ')}`;
-        if (removed.length) section += `\n  - ${removed.join(' ')}`;
-      }
-      sections.push(section);
     });
 
-    // From design-mode changes (elements without annotations)
+    // Live class diffs from the current selection — picked up so a user
+    // who's mid-edit can copy without first deselecting.
     const selected = getSelected();
     selected.forEach(({ el, originalClasses }) => {
       if (annotatedEls.has(el)) return;
@@ -1374,6 +1818,575 @@
       btn.addEventListener('mouseenter', () => { btn.style.background = '#333'; });
       btn.addEventListener('mouseleave', () => { btn.style.background = '#222'; });
     }
+  }
+
+  /**
+   * Global enable/disable + clear-all for DOM-Tools.
+   *
+   * Disabled hides the toolbar and any persistent bubbles via a single
+   * class on <html> — annotation data is preserved, just visually gone,
+   * so re-enabling brings everything back. Tools are deactivated to
+   * stop intercepting page interaction.
+   *
+   * Toggled by double-tapping Escape; clear-all is bound to Shift+Esc.
+   */
+
+
+  const HOME_ID = 'style-modifier';
+
+  function ensureDisabledStyles() {
+    if (document.getElementById('dt-disabled-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'dt-disabled-styles';
+    style.textContent = `
+    html.dt-disabled [data-dt-bubble],
+    html.dt-disabled [data-dt-toolbar] { display: none !important; }
+  `;
+    document.head.appendChild(style);
+  }
+
+  function isToolsEnabled() { return state.enabled !== false; }
+
+  function setToolsEnabled(on) {
+    ensureDisabledStyles();
+    state.enabled = !!on;
+    if (state.enabled) {
+      document.documentElement.classList.remove('dt-disabled');
+      activateModule(HOME_ID);
+      setActiveButton(HOME_ID);
+      showToast('DOM-Tools on');
+    } else {
+      closeEditor();
+      getModules().forEach(m => { if (m.deactivate) m.deactivate(); });
+      document.documentElement.classList.add('dt-disabled');
+      showToast('DOM-Tools off');
+    }
+  }
+
+  function toggleToolsEnabled() {
+    setToolsEnabled(!isToolsEnabled());
+  }
+
+  function clearAllChanges() {
+    clearAnnotations();
+    // Clear freehand drawings too — "everything" includes the canvas.
+    const drawMod = getModules().find(m => m.id === 'draw');
+    if (drawMod && drawMod.clear) drawMod.clear();
+    showToast('Cleared all changes');
+  }
+
+  const HOME_MOD_ID = 'style-modifier';
+
+  function activateHome() {
+    activateModule(HOME_MOD_ID);
+    setActiveButton(HOME_MOD_ID);
+  }
+
+  // Skip global letter shortcuts (Shift+T etc.) while the user is typing
+  // into a real text field; they still want to type a literal "T". Esc
+  // bypasses this so they can always exit a tool / disable.
+  function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (el.isContentEditable) return true;
+    return false;
+  }
+
+  function activateModuleById(id) {
+    const mod = getModules().find(m => m.id === id);
+    if (!mod) return;
+    if (mod.toggle) {
+      const stayed = mod.toggle();
+      if (stayed) {
+        getModules().forEach(m => {
+          if (m.id !== id && m.deactivate) m.deactivate();
+        });
+        setActiveButton(id);
+      } else {
+        activateHome();
+      }
+    } else {
+      activateModule(id);
+      setActiveButton(id);
+    }
+  }
+
+  let lastEsc = 0;
+
+  function initKeyboard() {
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Alt') {
+        e.preventDefault();
+        state.altHeld = true;
+        return;
+      }
+
+      // --- Escape family ---------------------------------------------------
+      // Always-available regardless of typing target or enabled state.
+      //   Shift+Esc   → clear every tracked change (notes, text, drawings)
+      //   Esc        → first tap drops back to home; double-tap toggles
+      //                DOM-Tools entirely on/off.
+      if (e.key === 'Escape') {
+        if (e.shiftKey) {
+          e.preventDefault();
+          clearAllChanges();
+          lastEsc = 0;
+          return;
+        }
+
+        e.preventDefault();
+        const now = Date.now();
+        if (now - lastEsc < 400) {
+          toggleToolsEnabled();
+          lastEsc = 0;
+          return;
+        }
+        lastEsc = now;
+
+        // Single tap: if a non-home tool is active, fall back to home.
+        if (!isToolsEnabled()) return;
+        if (state.annotateMode) {
+          getModules().filter(m => m.id === 'draw').forEach(m => m.deactivate?.());
+          state.annotateMode = false;
+          activateHome();
+        } else if (state.editMode || state.cameraMode) {
+          activateHome();
+        }
+        return;
+      }
+
+      // Tool/action shortcuts below this line don't fire while typing or
+      // while DOM-Tools is fully disabled.
+      if (!isToolsEnabled()) return;
+      if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
+
+      // --- Top-level keyboard map -----------------------------------------
+      //   Shift+T → Edit Text tool
+      //   Shift+C → Copy all changes
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === 't') {
+          e.preventDefault();
+          activateModuleById('edit-mode');
+          return;
+        }
+        if (k === 'c') {
+          e.preventDefault();
+          copyAllChanges();
+          return;
+        }
+      }
+
+      // --- Per-module shortcuts (e.g. camera's Cmd+Shift+S) ---------------
+      const modules = getModules();
+      for (const mod of modules) {
+        if (!isEnabled(mod.id) || !mod.shortcuts) continue;
+        for (const sc of mod.shortcuts) {
+          if (sc.when && !sc.when()) continue;
+          const keyMatch = e.key.toLowerCase() === sc.key.toLowerCase();
+          const metaMatch = sc.meta ? (e.ctrlKey || e.metaKey) : !(e.ctrlKey || e.metaKey);
+          const shiftMatch = sc.shift ? e.shiftKey : !e.shiftKey;
+          if (keyMatch && metaMatch && shiftMatch) {
+            e.preventDefault();
+            if (sc.action === 'toggle' && mod.toggle) {
+              const stayed = mod.toggle();
+              if (stayed) {
+                modules.forEach(m => {
+                  if (m.id !== mod.id && m.deactivate) m.deactivate();
+                });
+                setActiveButton(mod.id);
+              } else {
+                activateHome();
+              }
+            } else if (sc.action && mod[sc.action]) {
+              mod[sc.action]();
+            }
+            return;
+          }
+        }
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.key === 'Alt') {
+        state.altHeld = false;
+        state.slotType = null;
+      }
+    });
+  }
+
+  /**
+   * Settings popover, anchored above the toolbar's settings button.
+   *
+   * Self-contained for the minimal build — doesn't depend on a side panel.
+   * Click the gear → small dark popover floats just above the gear with the
+   * feature toggles. Click the gear again or activate any tool → closes.
+   */
+
+
+  let visible$1 = false;
+  let _settingsBtn = null;
+  let _popover = null;
+
+  const EXP_KEY = 'dom-tools-experiments';
+  let experiments = {};
+  try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (e) {}
+
+  const EXPERIMENT_DEFS = [
+    { id: 'dock', label: 'Edge snap', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
+    { id: 'terminal', label: 'Terminal', description: 'Mock terminal overlay for experimentation.', default: false },
+    {
+      id: 'move',
+      label: 'Move elements',
+      description: 'Hold Cmd to grab and rearrange elements.',
+      default: false,
+      options: {
+        id: 'moveType',
+        label: 'Type',
+        choices: [
+          { value: 'dom-reorder', label: 'DOM reorder' },
+          { value: 'free-position', label: 'Free position' },
+        ],
+        default: 'dom-reorder',
+      },
+    },
+  ];
+
+  function isExperimentEnabled(id) {
+    const def = EXPERIMENT_DEFS.find(e => e.id === id);
+    if (id in experiments) return experiments[id];
+    return def ? def.default : false;
+  }
+
+  function getExperimentOption(id, optionId) {
+    const def = EXPERIMENT_DEFS.find(e => e.id === id);
+    if (!def || !def.options || def.options.id !== optionId) return null;
+    const key = `${id}.${optionId}`;
+    if (key in experiments) return experiments[key];
+    return def.options.default;
+  }
+
+  function setExperiment(id, on) {
+    experiments[id] = on;
+    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
+  }
+
+  function setExperimentOption(id, optionId, value) {
+    experiments[`${id}.${optionId}`] = value;
+    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
+  }
+
+  function sectionTitle(text, opts = {}) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    Object.assign(div.style, {
+      color: '#fff', fontSize: '11px', fontWeight: '600',
+      textTransform: 'uppercase', letterSpacing: '1px',
+      marginTop: opts.first ? '0' : '24px',
+      marginBottom: '12px',
+      paddingTop: opts.first ? '0' : '18px',
+      borderTop: opts.first ? 'none' : '1px solid rgba(255,255,255,0.08)',
+      color: '#888',
+    });
+    return div;
+  }
+
+  function buildColorSwatches() {
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
+      display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 0',
+    });
+    const swatchEls = [];
+    function refresh() {
+      const active = getSelectionColor();
+      swatchEls.forEach(({ el, value }) => {
+        el.style.boxShadow = value === active
+          ? '0 0 0 2px #181818, 0 0 0 4px ' + value
+          : 'none';
+      });
+    }
+    COLOR_OPTIONS.forEach(opt => {
+      const sw = document.createElement('button');
+      sw.type = 'button';
+      sw.title = opt.label;
+      sw.setAttribute('aria-label', opt.label);
+      Object.assign(sw.style, {
+        width: '22px', height: '22px', borderRadius: '50%',
+        background: opt.value, border: 'none', padding: '0',
+        cursor: 'pointer', flexShrink: '0', outline: 'none',
+        transition: 'box-shadow 0.12s',
+      });
+      sw.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSelectionColor(opt.value);
+        refresh();
+      });
+      swatchEls.push({ el: sw, value: opt.value });
+      wrap.appendChild(sw);
+    });
+    refresh();
+    return wrap;
+  }
+
+  function buildSettingsPanel() {
+    const container = document.createElement('div');
+
+    const colorTitle = sectionTitle('Selection color', { first: true });
+    container.appendChild(colorTitle);
+    container.appendChild(buildColorSwatches());
+
+    const title = sectionTitle('Features');
+    container.appendChild(title);
+
+    const modules = getModules();
+    modules.forEach(mod => {
+      if (!mod.button) return;
+      const row = document.createElement('label');
+      Object.assign(row.style, {
+        display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0',
+        color: '#ddd', fontSize: '13px', cursor: 'pointer'
+      });
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = isEnabled(mod.id);
+      checkbox.style.accentColor = mod.button.color || COLORS.selector;
+      checkbox.addEventListener('change', () => {
+        setEnabled(mod.id, checkbox.checked);
+        if (checkbox.checked) showButton(mod.id); else hideButton(mod.id);
+      });
+      const label = document.createElement('span');
+      label.textContent = mod.label || mod.id;
+      row.appendChild(checkbox);
+      row.appendChild(label);
+      container.appendChild(row);
+    });
+
+    const expTitle = sectionTitle('Experiments');
+    container.appendChild(expTitle);
+
+    EXPERIMENT_DEFS.forEach(exp => {
+      const wrap = document.createElement('div');
+      wrap.style.marginBottom = '10px';
+      const row = document.createElement('label');
+      Object.assign(row.style, {
+        display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
+        color: '#ddd', fontSize: '13px', cursor: 'pointer'
+      });
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = isExperimentEnabled(exp.id);
+      checkbox.style.accentColor = getSelectionColor();
+      checkbox.style.marginTop = '3px';
+      const labelWrap = document.createElement('div');
+      const labelText = document.createElement('span');
+      labelText.textContent = exp.label;
+      Object.assign(labelText.style, { display: 'block', fontWeight: '500' });
+      const desc = document.createElement('span');
+      desc.textContent = exp.description;
+      Object.assign(desc.style, { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' });
+      labelWrap.appendChild(labelText);
+      labelWrap.appendChild(desc);
+      row.appendChild(checkbox);
+      row.appendChild(labelWrap);
+      wrap.appendChild(row);
+
+      let optionsBlock = null;
+      if (exp.options) {
+        optionsBlock = buildExperimentOptions(exp);
+        optionsBlock.style.display = isExperimentEnabled(exp.id) ? 'block' : 'none';
+        wrap.appendChild(optionsBlock);
+      }
+
+      checkbox.addEventListener('change', () => {
+        setExperiment(exp.id, checkbox.checked);
+        if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
+      });
+
+      container.appendChild(wrap);
+    });
+
+    return container;
+  }
+
+  // Inline radio group rendered just under an experiment when it has
+  // nested options. Only the "move" experiment uses this so far; the
+  // renderer is generic for future ones.
+  function buildExperimentOptions(exp) {
+    const block = document.createElement('div');
+    Object.assign(block.style, {
+      marginLeft: '24px', marginTop: '4px', marginBottom: '6px',
+      paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.08)',
+    });
+    const optLabel = document.createElement('div');
+    optLabel.textContent = exp.options.label;
+    Object.assign(optLabel.style, {
+      color: '#aaa', fontSize: '10px', marginBottom: '4px',
+      textTransform: 'uppercase', letterSpacing: '0.4px',
+    });
+    block.appendChild(optLabel);
+
+    const groupName = `dt-exp-${exp.id}-${exp.options.id}`;
+    exp.options.choices.forEach(choice => {
+      const row = document.createElement('label');
+      Object.assign(row.style, {
+        display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0',
+        color: '#ddd', fontSize: '11px', cursor: 'pointer',
+      });
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = groupName;
+      radio.value = choice.value;
+      radio.checked = getExperimentOption(exp.id, exp.options.id) === choice.value;
+      radio.style.accentColor = getSelectionColor();
+      radio.addEventListener('change', () => {
+        if (radio.checked) setExperimentOption(exp.id, exp.options.id, choice.value);
+      });
+      const text = document.createElement('span');
+      text.textContent = choice.label;
+      row.appendChild(radio);
+      row.appendChild(text);
+      block.appendChild(row);
+    });
+    return block;
+  }
+
+  function onPopoverKeyDown(e) {
+    if (e.key === 'Escape') closeSettings();
+  }
+
+  function showPopover() {
+    // Full-screen overlay: a dimmed/blurred backdrop covering the whole
+    // viewport, with a centered card holding the settings UI. Clicking
+    // the backdrop or pressing Esc closes the panel.
+    _popover = document.createElement('div');
+    _popover.setAttribute('data-dt-settings', '');
+    Object.assign(_popover.style, {
+      position: 'fixed', inset: '0',
+      zIndex: String(Z.toolbar + 1),
+      background: 'rgba(0,0,0,0.55)',
+      backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
+      boxSizing: 'border-box', padding: '40px',
+    });
+
+    const card = document.createElement('div');
+    Object.assign(card.style, {
+      width: 'min(560px, 100%)',
+      maxHeight: '100%',
+      background: 'rgba(24,24,24,0.96)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '12px',
+      boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+      padding: '28px 32px',
+      boxSizing: 'border-box',
+      overflow: 'auto',
+      position: 'relative',
+    });
+
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      marginBottom: '18px',
+    });
+    const title = document.createElement('div');
+    title.textContent = 'Settings';
+    Object.assign(title.style, {
+      fontSize: '18px', fontWeight: '600', color: '#fff', letterSpacing: '0.3px',
+    });
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.setAttribute('aria-label', 'Close settings');
+    Object.assign(closeBtn.style, {
+      width: '32px', height: '32px', background: 'transparent',
+      border: 'none', color: '#aaa', fontSize: '24px', lineHeight: '1',
+      cursor: 'pointer', borderRadius: '6px', padding: '0',
+    });
+    closeBtn.addEventListener('mouseenter', () => {
+      closeBtn.style.background = 'rgba(255,255,255,0.08)';
+      closeBtn.style.color = '#fff';
+    });
+    closeBtn.addEventListener('mouseleave', () => {
+      closeBtn.style.background = 'transparent';
+      closeBtn.style.color = '#aaa';
+    });
+    closeBtn.addEventListener('click', () => closeSettings());
+
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+    card.appendChild(header);
+    card.appendChild(buildSettingsPanel());
+
+    _popover.appendChild(card);
+
+    _popover.addEventListener('click', (e) => {
+      if (e.target === _popover) closeSettings();
+    });
+
+    document.body.appendChild(_popover);
+    inspectorUI.add(_popover);
+    document.addEventListener('keydown', onPopoverKeyDown, true);
+  }
+
+  function hidePopover() {
+    if (_popover) {
+      inspectorUI.delete(_popover);
+      _popover.remove();
+      _popover = null;
+      document.removeEventListener('keydown', onPopoverKeyDown, true);
+    }
+  }
+
+  function toggleSettings() {
+    visible$1 = !visible$1;
+    if (visible$1) {
+      activateModule(null);
+      setActiveButton(null);
+      showPopover();
+      if (_settingsBtn) _settingsBtn.style.background = getSelectionColor();
+    } else {
+      hidePopover();
+      if (_settingsBtn) _settingsBtn.style.background = '#222';
+      activateModule('style-modifier');
+      setActiveButton('style-modifier');
+    }
+  }
+
+  function closeSettings() {
+    if (visible$1) {
+      visible$1 = false;
+      hidePopover();
+      if (_settingsBtn) _settingsBtn.style.background = '#222';
+    }
+  }
+
+  function initSettings() {
+    onToolActivate(closeSettings);
+
+    const btnStyle = {
+      width: '40px', height: '40px', background: '#222', color: '#fff',
+      borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
+      flexShrink: '0'
+    };
+    _settingsBtn = document.createElement('div');
+    _settingsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.44.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 110-7.2 3.6 3.6 0 010 7.2z"/></svg>';
+    Object.assign(_settingsBtn.style, btnStyle);
+    _settingsBtn.addEventListener('mouseenter', () => { if (!visible$1) _settingsBtn.style.background = '#333'; });
+    _settingsBtn.addEventListener('mouseleave', () => { if (!visible$1) _settingsBtn.style.background = '#222'; });
+    _settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); nudge(_settingsBtn); toggleSettings(); });
+    addTooltip(_settingsBtn, 'Settings');
+
+    toolbar.appendChild(_settingsBtn);
+    inspectorUI.add(_settingsBtn);
+
+    // Live theme: keep the gear's "active" background in sync if the
+    // user changes color while the popover is open.
+    onColorChange((color) => {
+      if (visible$1 && _settingsBtn) _settingsBtn.style.background = color;
+    });
   }
 
   let selBox = null;
@@ -1540,7 +2553,7 @@
       function showFullPageHighlight() {
         if (fullPageHighlight) return;
         fullPageHighlight = true;
-        clearHover$1();
+        clearHover$2();
         document.documentElement.style.outline = CAM_OUTLINE;
         document.documentElement.style.backgroundColor = CAM_BG;
       }
@@ -1568,7 +2581,7 @@
           const dy = Math.abs(e.clientY - camStartY);
           if (dx > 4 || dy > 4) {
             camDidDrag = true;
-            clearHover$1();
+            clearHover$2();
             const x = Math.min(e.clientX, camStartX);
             const y = Math.min(e.clientY, camStartY);
             Object.assign(selBox.style, {
@@ -1635,6 +2648,8 @@
       // Clear full-page highlight if shift was held
       document.documentElement.style.outline = '';
       document.documentElement.style.backgroundColor = '';
+      // Restore body cursor (set to crosshair in activate).
+      document.body.style.cursor = '';
     },
 
     captureFullPage,
@@ -1645,6 +2660,20 @@
 
   let drawCanvas = null;
   let isDrawing = false;
+
+  // Centralized so resize / color-change / new-stroke paths all converge
+  // on the same pen settings. strokeStyle pulls from the live theme so
+  // strokes drawn after a color swap pick up the new color immediately
+  // (already-rendered strokes stay as they were — repainting the canvas
+  // would require keeping a vector log we don't have).
+  function applyPenStyle() {
+    if (!drawCanvas) return;
+    const ctx = drawCanvas.getContext('2d');
+    ctx.strokeStyle = getSelectionColor();
+    ctx.lineWidth = PEN_WIDTH;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  }
 
   function resizeDrawCanvas() {
     const dpr = window.devicePixelRatio || 1;
@@ -1658,10 +2687,7 @@
     const ctx = drawCanvas.getContext('2d');
     ctx.scale(dpr, dpr);
     if (oldData) ctx.putImageData(oldData, 0, 0);
-    ctx.strokeStyle = COLORS.pen;
-    ctx.lineWidth = PEN_WIDTH;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    applyPenStyle();
   }
 
   var draw = {
@@ -1687,6 +2713,9 @@
       inspectorUI.add(drawCanvas);
       resizeDrawCanvas();
       window.addEventListener('resize', resizeDrawCanvas);
+      // Theme swap → re-arm the context so the next stroke uses the new
+      // color. (Existing strokes stay as-is; we don't keep a vector log.)
+      onColorChange(applyPenStyle);
 
       // Eraser cursor (follows mouse during right-click erase)
       const ERASER_SIZE = 20;
@@ -1755,7 +2784,9 @@
       state.annotateMode = true;
       state.annotateSub = 'pen';
       drawCanvas.style.pointerEvents = 'auto';
-      document.body.style.cursor = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\'%3E%3Cpath stroke=\'%23000\' stroke-width=\'1.5\' fill=\'%23fff\' d=\'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\'/%3E%3C/svg%3E") 2 18, crosshair';
+      const penCursor = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\'%3E%3Cpath stroke=\'%23000\' stroke-width=\'1.5\' fill=\'%23fff\' d=\'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\'/%3E%3C/svg%3E") 2 18, crosshair';
+      document.body.style.cursor = penCursor;
+      drawCanvas.style.cursor = penCursor;
       showToast('Draw mode');
     },
 
@@ -1764,7 +2795,11 @@
         state.annotateMode = false;
       }
       isDrawing = false;
-      if (drawCanvas) drawCanvas.style.pointerEvents = 'none';
+      if (drawCanvas) {
+        drawCanvas.style.pointerEvents = 'none';
+        drawCanvas.style.cursor = '';
+      }
+      document.body.style.cursor = '';
     },
 
     clear() {
@@ -1779,6 +2814,1008 @@
   };
 
   /**
+   * Text tool — minimal inline text editor.
+   *
+   * Click any text-tagged element to drop a caret in and start typing.
+   * Edits are tracked through the annotation system (originalText vs current
+   * innerText). The element gets the same pink scrim other annotated
+   * elements get, and the diff rolls into the "copy all changes" output
+   * alongside notes — no separate on-page marker.
+   *
+   * No Tailwind toolbar, no global designMode — each element is made
+   * contentEditable on click and reverted on tool deactivate. Sibling tool
+   * to the Comment cursor; only one tool is active at a time.
+   */
+
+
+  // Toolbar button keeps its own identity color so the icon is visually
+  // distinct from the Comment cursor in the rail. The on-page outlines
+  // (hover dashed + editable solid) follow the user-chosen selection
+  // color so every "you're working on this" cue across tools matches.
+  const ORANGE = COLORS.edit;
+  const TEXT_TAGS = [
+    'P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI',
+    'BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL','TD','TH'
+  ];
+
+  let activeMode = false;
+  let hoveredEl = null;
+  let highlightActive = false;
+  const highlightedEls = new Set();
+  const editableEls = new Set();
+  const inputHandlers = new WeakMap();
+
+  function isTextElement(el) {
+    return el && el.nodeType === 1 && TEXT_TAGS.includes(el.tagName);
+  }
+
+  function highlightAllTextElements() {
+    if (highlightActive) return;
+    highlightActive = true;
+    const color = withAlpha(getSelectionColor(), 0.08);
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (isTextElement(node) && !isInspectorUI(node)) {
+        ensureOrig(node);
+        node.style.backgroundColor = color;
+        highlightedEls.add(node);
+      }
+    }
+  }
+
+  function clearAllHighlights() {
+    if (!highlightActive) return;
+    highlightActive = false;
+    highlightedEls.forEach(el => {
+      if (!editableEls.has(el)) applyAnnotationStyle(el);
+    });
+    highlightedEls.clear();
+  }
+
+  function clearHover() {
+    if (!hoveredEl) return;
+    if (!editableEls.has(hoveredEl)) applyAnnotationStyle(hoveredEl);
+    hoveredEl = null;
+  }
+
+  function onMove(e) {
+    if (!activeMode) return;
+    const el = e.target;
+    if (isInspectorUI(el) || !isTextElement(el)) {
+      clearHover();
+      return;
+    }
+    if (el === hoveredEl) return;
+    clearHover();
+    hoveredEl = el;
+    ensureOrig(el);
+    if (!editableEls.has(el)) {
+      // Light wash on hover — no border, matches the Comment tool's
+      // text-hover treatment so the two tools feel the same.
+      el.style.backgroundColor = withAlpha(getSelectionColor(), 0.10);
+    }
+  }
+
+  // Place a collapsed selection range at the (clientX, clientY) point so
+  // the caret lands where the user actually clicked, not at the element's
+  // start. Uses both spec'd APIs for cross-browser support.
+  function placeCaretFromPoint(clientX, clientY) {
+    let range = null;
+    if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(clientX, clientY);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    } else if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(clientX, clientY);
+    }
+    if (range) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+
+  function makeEditable(el) {
+    if (editableEls.has(el)) return;
+    editableEls.add(el);
+    ensureOrig(el);
+    el.contentEditable = 'true';
+    el.spellcheck = false;
+    // Opt-out for Grammarly / LanguageTool / similar editor extensions.
+    el.setAttribute('data-gramm', 'false');
+    el.setAttribute('data-gramm_editor', 'false');
+    el.setAttribute('data-enable-grammarly', 'false');
+    el.setAttribute('data-lt-tmp-id', '');
+    el.style.cursor = 'text';
+    el.style.outline = '2px solid ' + getSelectionColor();
+    el.style.backgroundColor = withAlpha(getSelectionColor(), 0.15);
+
+    const originalText = el.innerText;
+    const originalClasses = el.className;
+    const handler = () => {
+      setElementText(el, originalText, originalClasses);
+      evaluateAnnotation(el);
+      queueRepositionAll();
+    };
+    el.addEventListener('input', handler);
+    inputHandlers.set(el, handler);
+  }
+
+  function unmakeEditable(el) {
+    if (!editableEls.has(el)) return;
+    el.contentEditable = 'false';
+    el.style.cursor = '';
+    el.style.outline = '';
+    const h = inputHandlers.get(el);
+    if (h) {
+      el.removeEventListener('input', h);
+      inputHandlers.delete(el);
+    }
+    editableEls.delete(el);
+    applyAnnotationStyle(el);
+  }
+
+  function onClick(e) {
+    if (!activeMode) return;
+    const el = e.target;
+    if (isInspectorUI(el) || !isTextElement(el)) return;
+    if (editableEls.has(el)) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    clearAllHighlights();
+    clearHover();
+
+    // Open the comment bubble alongside the editable text so the user
+    // can describe the change as well as type the new copy. Bubble
+    // first (its focus call queues), text editable + caret next; the
+    // setTimeout below runs LAST and lands focus on the page text.
+    setEditorTarget([el]);
+    makeEditable(el);
+
+    const x = e.clientX, y = e.clientY;
+    setTimeout(() => {
+      el.focus();
+      placeCaretFromPoint(x, y);
+    }, 0);
+  }
+
+  var editMode = {
+    id: 'edit-mode',
+    label: 'Edit Text',
+    enabledByDefault: true,
+
+    button: {
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M5 4v3h5.5v12h3V7H19V4H5z"/></svg>',
+      tooltip: 'Edit Text',
+      color: ORANGE,
+      order: 8,
+    },
+
+    shortcuts: [],
+
+    init() {
+      document.addEventListener('click', onClick, true);
+      document.addEventListener('mousemove', onMove, true);
+
+      onColorChange((color) => {
+        editableEls.forEach(el => {
+          el.style.outline = '2px solid ' + color;
+          el.style.backgroundColor = withAlpha(color, 0.15);
+        });
+        if (highlightActive) {
+          highlightedEls.forEach(el => {
+            if (!editableEls.has(el)) el.style.backgroundColor = withAlpha(color, 0.08);
+          });
+        }
+        if (hoveredEl && !editableEls.has(hoveredEl)) {
+          hoveredEl.style.backgroundColor = withAlpha(color, 0.10);
+        }
+      });
+    },
+
+    activate() {
+      activeMode = true;
+      state.editMode = true;
+      highlightAllTextElements();
+      showToast('Edit Text — click any text to edit it inline');
+    },
+
+    deactivate() {
+      activeMode = false;
+      state.editMode = false;
+      clearAllHighlights();
+      clearHover();
+      Array.from(editableEls).forEach(unmakeEditable);
+      closeEditor();
+    },
+
+    toggle() {
+      if (activeMode) { this.deactivate(); return false; }
+      this.activate();
+      return true;
+    },
+
+    enable() {},
+    disable() { this.deactivate(); },
+  };
+
+  /**
+   * Mock Terminal experiment.
+   *
+   * Toggled from Settings → Experiments. When enabled, a toolbar button
+   * appears; clicking it opens a draggable, resizable terminal overlay
+   * with a fake shell prompt that echoes commands. Pure UI experiment —
+   * nothing actually executes.
+   */
+
+
+  let termEl = null;
+  let inputEl = null;
+  let outputEl = null;
+  let visible = false;
+  let history = [];
+  let historyIdx = -1;
+
+  const PROMPT = '<span style="color:#10b981">guest@dom-tools</span><span style="color:#888">:</span><span style="color:#3b82f6">~</span><span style="color:#888">$</span> ';
+
+  const MOCK_FS = {
+    '/': ['home', 'usr', 'etc', 'var', 'tmp'],
+    '/home': ['guest'],
+    '/home/guest': ['notes.txt', 'projects', '.bashrc'],
+    '/home/guest/projects': ['dom-tools', 'sketches'],
+  };
+
+  const MOCK_FILES = {
+    '/home/guest/notes.txt': 'Remember to ship the annotation feature.\nAlso: fix that z-index bug.',
+    '/home/guest/.bashrc': '# .bashrc\nexport PATH="$PATH:/usr/local/bin"\nalias ll="ls -la"',
+  };
+
+  let cwd = '/home/guest';
+
+  function resolvePath(p) {
+    if (!p || p === '~') return '/home/guest';
+    if (p.startsWith('~/')) p = '/home/guest/' + p.slice(2);
+    if (!p.startsWith('/')) {
+      p = cwd === '/' ? '/' + p : cwd + '/' + p;
+    }
+    const parts = p.split('/').filter(Boolean);
+    const resolved = [];
+    for (const part of parts) {
+      if (part === '..') resolved.pop();
+      else if (part !== '.') resolved.push(part);
+    }
+    return '/' + resolved.join('/');
+  }
+
+  function runCommand(cmd) {
+    const parts = cmd.trim().split(/\s+/);
+    const bin = parts[0];
+    const args = parts.slice(1);
+
+    if (!bin) return '';
+
+    switch (bin) {
+      case 'help':
+        return 'Available commands: help, echo, pwd, cd, ls, cat, clear, whoami, date, uname';
+      case 'echo':
+        return args.join(' ');
+      case 'pwd':
+        return cwd;
+      case 'whoami':
+        return 'guest';
+      case 'uname':
+        return 'DomToolsOS 1.0.0 mock-kernel';
+      case 'date':
+        return new Date().toString();
+      case 'cd': {
+        const target = resolvePath(args[0]);
+        if (MOCK_FS[target]) { cwd = target; return ''; }
+        return `cd: ${args[0] || ''}: No such file or directory`;
+      }
+      case 'ls': {
+        const target = args[0] ? resolvePath(args[0]) : cwd;
+        const entries = MOCK_FS[target];
+        if (!entries) return `ls: cannot access '${args[0] || target}': No such file or directory`;
+        return entries.join('  ');
+      }
+      case 'cat': {
+        if (!args[0]) return 'cat: missing operand';
+        const target = resolvePath(args[0]);
+        if (MOCK_FILES[target]) return MOCK_FILES[target];
+        return `cat: ${args[0]}: No such file or directory`;
+      }
+      case 'clear':
+        return '\x00CLEAR';
+      default:
+        return `${bin}: command not found`;
+    }
+  }
+
+  function appendOutput(html) {
+    outputEl.innerHTML += html;
+    outputEl.scrollTop = outputEl.scrollHeight;
+  }
+
+  function handleInput(cmd) {
+    appendOutput(`<div style="white-space:pre-wrap">${PROMPT}<span style="color:#e2e8f0">${escapeHtml(cmd)}</span></div>`);
+    const result = runCommand(cmd);
+    if (result === '\x00CLEAR') {
+      outputEl.innerHTML = '';
+    } else if (result) {
+      appendOutput(`<div style="white-space:pre-wrap;color:#cbd5e1">${escapeHtml(result)}</div>`);
+    }
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function createTerminal() {
+    termEl = document.createElement('div');
+    Object.assign(termEl.style, {
+      position: 'fixed',
+      bottom: '80px',
+      right: '20px',
+      width: '480px',
+      height: '320px',
+      background: '#0d1117',
+      border: '1px solid #30363d',
+      borderRadius: '8px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+      zIndex: String(Z.toolbar + 2),
+      display: 'none',
+      flexDirection: 'column',
+      fontFamily: '"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace',
+      fontSize: '12px',
+      overflow: 'hidden',
+      resize: 'both',
+      minWidth: '320px',
+      minHeight: '200px',
+    });
+
+    const titleBar = document.createElement('div');
+    Object.assign(titleBar.style, {
+      display: 'flex',
+      alignItems: 'center',
+      padding: '8px 12px',
+      background: '#161b22',
+      borderBottom: '1px solid #30363d',
+      cursor: 'grab',
+      userSelect: 'none',
+      gap: '8px',
+    });
+
+    const dots = document.createElement('div');
+    dots.innerHTML = '<span style="width:10px;height:10px;border-radius:50%;background:#ff5f57;display:inline-block;margin-right:6px"></span>'
+      + '<span style="width:10px;height:10px;border-radius:50%;background:#febc2e;display:inline-block;margin-right:6px"></span>'
+      + '<span style="width:10px;height:10px;border-radius:50%;background:#28c840;display:inline-block"></span>';
+
+    const titleText = document.createElement('span');
+    titleText.textContent = 'terminal — guest@dom-tools:~';
+    Object.assign(titleText.style, { color: '#8b949e', fontSize: '11px', flex: '1', textAlign: 'center' });
+
+    const closeBtn = document.createElement('span');
+    closeBtn.textContent = '×';
+    Object.assign(closeBtn.style, { color: '#8b949e', fontSize: '16px', cursor: 'pointer', lineHeight: '1' });
+    closeBtn.addEventListener('click', () => hideTerminal());
+
+    titleBar.appendChild(dots);
+    titleBar.appendChild(titleText);
+    titleBar.appendChild(closeBtn);
+
+    outputEl = document.createElement('div');
+    Object.assign(outputEl.style, {
+      flex: '1',
+      overflow: 'auto',
+      padding: '8px 12px',
+      color: '#c9d1d9',
+      lineHeight: '1.5',
+    });
+    outputEl.innerHTML = '<div style="color:#8b949e;margin-bottom:8px">Welcome to dom-tools mock terminal. Type "help" for commands.</div>';
+
+    const inputRow = document.createElement('div');
+    Object.assign(inputRow.style, {
+      display: 'flex',
+      alignItems: 'center',
+      padding: '6px 12px 10px',
+      borderTop: '1px solid #21262d',
+      gap: '0',
+    });
+
+    const promptLabel = document.createElement('span');
+    promptLabel.innerHTML = PROMPT;
+    Object.assign(promptLabel.style, { flexShrink: '0', whiteSpace: 'nowrap' });
+
+    inputEl = document.createElement('input');
+    inputEl.type = 'text';
+    inputEl.setAttribute('data-dt-allow-select', '');
+    Object.assign(inputEl.style, {
+      flex: '1',
+      background: 'transparent',
+      border: 'none',
+      outline: 'none',
+      color: '#e2e8f0',
+      fontFamily: 'inherit',
+      fontSize: 'inherit',
+      caretColor: getSelectionColor(),
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        const cmd = inputEl.value;
+        if (cmd.trim()) {
+          history.push(cmd);
+          historyIdx = history.length;
+        }
+        handleInput(cmd);
+        inputEl.value = '';
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (historyIdx > 0) {
+          historyIdx--;
+          inputEl.value = history[historyIdx];
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (historyIdx < history.length - 1) {
+          historyIdx++;
+          inputEl.value = history[historyIdx];
+        } else {
+          historyIdx = history.length;
+          inputEl.value = '';
+        }
+      }
+    });
+
+    inputRow.appendChild(promptLabel);
+    inputRow.appendChild(inputEl);
+
+    termEl.appendChild(titleBar);
+    termEl.appendChild(outputEl);
+    termEl.appendChild(inputRow);
+
+    // Drag by title bar
+    let dragging = false, dx = 0, dy = 0;
+    titleBar.addEventListener('mousedown', (e) => {
+      if (e.target === closeBtn) return;
+      dragging = true;
+      const rect = termEl.getBoundingClientRect();
+      dx = e.clientX - rect.left;
+      dy = e.clientY - rect.top;
+      titleBar.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      termEl.style.left = (e.clientX - dx) + 'px';
+      termEl.style.top = (e.clientY - dy) + 'px';
+      termEl.style.right = 'auto';
+      termEl.style.bottom = 'auto';
+    });
+    document.addEventListener('mouseup', () => {
+      dragging = false;
+      titleBar.style.cursor = 'grab';
+    });
+
+    // Click inside terminal focuses input
+    termEl.addEventListener('click', (e) => {
+      if (e.target !== closeBtn) inputEl.focus();
+    });
+
+    document.body.appendChild(termEl);
+    inspectorUI.add(termEl);
+  }
+
+  function showTerminal() {
+    if (!termEl) createTerminal();
+    termEl.style.display = 'flex';
+    visible = true;
+    setTimeout(() => inputEl.focus(), 0);
+  }
+
+  function hideTerminal() {
+    if (termEl) termEl.style.display = 'none';
+    visible = false;
+  }
+
+  function toggleTerminal() {
+    if (visible) hideTerminal();
+    else showTerminal();
+  }
+
+  var terminal = {
+    id: 'terminal',
+    label: 'Terminal',
+    experiment: true,
+    enabledByDefault: true,
+
+    button: {
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v12zM7 10l4 3-4 3v-6zm5 5h5v2h-5v-2z"/></svg>',
+      tooltip: 'Terminal',
+      color: '#10b981',
+      order: 12,
+    },
+
+    init() {},
+    activate() { showTerminal(); },
+    deactivate() {},
+    toggle() { toggleTerminal(); return visible; },
+    enable() {},
+    disable() { hideTerminal(); },
+  };
+
+  /**
+   * Move elements experiment.
+   *
+   * Hold Cmd (Meta) to put the page into "grab" mode. Click-drag any
+   * element to move it. Two modes (toggle in Settings → Experiments →
+   * Move elements → Type):
+   *
+   *   - DOM reorder: a colored insertion line shows between siblings
+   *     while dragging. Drop = the element is `insertBefore`'d at that
+   *     position. Result is a clean structural rearrangement.
+   *
+   *   - Free position: ghost follows the cursor freely. Drop = the
+   *     element gets `position: relative` + `top`/`left` offsets so it
+   *     stays put visually without altering DOM order.
+   *
+   * Cmd up or Esc during drag = cancel and restore. Inspector UI (the
+   * toolbar, bubbles, tag labels, terminal, etc.) is never grabbable.
+   */
+
+
+  let active = false;     // module enabled (registered)
+  let cmdHeld = false;
+  let dragging = false;
+  let dragEl = null;
+  let ghostEl = null;
+  let indicator = null;
+  let dropTarget = null;  // { parent, before } for DOM-reorder mode
+  let startX = 0, startY = 0;
+  let startOffsetDx = 0, startOffsetDy = 0;
+
+  // Page-wide cursor override via an `!important` stylesheet rule. We
+  // can't just set `document.body.style.cursor = 'grab'` because the
+  // Comment tool injects a `cursor: pointer !important` rule on
+  // `html.dt-comment-active body *`, which beats inline styles. A class
+  // on <html> + a matching !important rule wins on specificity.
+  function ensureCursorStyles() {
+    if (document.getElementById('dt-move-cursor-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'dt-move-cursor-styles';
+    style.textContent = `
+    html.dt-grab-active, html.dt-grab-active body, html.dt-grab-active body * {
+      cursor: grab !important;
+    }
+    html.dt-grabbing, html.dt-grabbing body, html.dt-grabbing body * {
+      cursor: grabbing !important;
+    }
+  `;
+    document.head.appendChild(style);
+  }
+
+  function setGrabState(state) {
+    const html = document.documentElement;
+    html.classList.remove('dt-grab-active', 'dt-grabbing');
+    if (state === 'grab') html.classList.add('dt-grab-active');
+    else if (state === 'grabbing') html.classList.add('dt-grabbing');
+  }
+
+  // Per-element saved offsets so repeated free-position drags accumulate
+  // instead of resetting each time the user grabs.
+  const offsets = new WeakMap(); // el → { dx, dy, origPosition, origTop, origLeft }
+
+  function getMode() {
+    return getExperimentOption('move', 'moveType') || 'dom-reorder';
+  }
+
+  function isGrabbable(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el === document.body || el === document.documentElement) return false;
+    if (isInspectorUI(el)) return false;
+    return true;
+  }
+
+  // Bright dashed outline + soft tint so the user knows what they're
+  // about to grab when Cmd is held and the cursor is over an element.
+  let hoverPreview = null;
+  function setHoverPreview(el) {
+    if (hoverPreview === el) return;
+    clearHoverPreview();
+    if (!el) return;
+    hoverPreview = el;
+    hoverPreview._dt_move_origOutline = el.style.outline || '';
+    hoverPreview._dt_move_origOutlineOffset = el.style.outlineOffset || '';
+    el.style.outline = '2px dashed ' + getSelectionColor();
+    el.style.outlineOffset = '2px';
+  }
+  function clearHoverPreview() {
+    if (!hoverPreview) return;
+    hoverPreview.style.outline = hoverPreview._dt_move_origOutline || '';
+    hoverPreview.style.outlineOffset = hoverPreview._dt_move_origOutlineOffset || '';
+    delete hoverPreview._dt_move_origOutline;
+    delete hoverPreview._dt_move_origOutlineOffset;
+    hoverPreview = null;
+  }
+
+
+  function createGhost(el) {
+    const r = el.getBoundingClientRect();
+    const clone = el.cloneNode(true);
+    // Strip ids on the clone so we don't duplicate id="x" in the DOM
+    clone.removeAttribute('id');
+    Object.assign(clone.style, {
+      position: 'fixed',
+      left: r.left + 'px',
+      top: r.top + 'px',
+      width: r.width + 'px',
+      height: r.height + 'px',
+      margin: '0',
+      pointerEvents: 'none',
+      opacity: '0.55',
+      zIndex: String(Z.toolbar + 5),
+      boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+      outline: '2px solid ' + getSelectionColor(),
+      transition: 'none',
+    });
+    document.body.appendChild(clone);
+    inspectorUI.add(clone);
+    return clone;
+  }
+
+  function destroyGhost() {
+    if (!ghostEl) return;
+    inspectorUI.delete(ghostEl);
+    ghostEl.remove();
+    ghostEl = null;
+  }
+
+  function createIndicator() {
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+      position: 'absolute',
+      background: getSelectionColor(),
+      boxShadow: '0 0 0 2px ' + withAlpha(getSelectionColor(), 0.3),
+      borderRadius: '2px',
+      zIndex: String(Z.toolbar + 4),
+      pointerEvents: 'none',
+      display: 'none',
+    });
+    document.body.appendChild(el);
+    inspectorUI.add(el);
+    return el;
+  }
+
+  function destroyIndicator() {
+    if (!indicator) return;
+    inspectorUI.delete(indicator);
+    indicator.remove();
+    indicator = null;
+  }
+
+  // Find the candidate sibling under the cursor and decide whether to
+  // insert the dragged element BEFORE that sibling or after it (i.e.,
+  // before its nextSibling). Also figures out flex-row-ish layouts so
+  // the indicator is horizontal vs. vertical.
+  function pickDropTarget(clientX, clientY) {
+    // Briefly hide the ghost so elementFromPoint hits real elements.
+    if (ghostEl) ghostEl.style.display = 'none';
+    const under = document.elementFromPoint(clientX, clientY);
+    if (ghostEl) ghostEl.style.display = '';
+
+    if (!under || isInspectorUI(under)) return null;
+    // Don't allow dropping into the dragged element's own subtree.
+    if (under === dragEl || (dragEl && dragEl.contains(under))) return null;
+
+    // Walk up to find a sibling of dragEl, OR a child of a container
+    // that's a valid drop site. Simple heuristic: the candidate sibling
+    // is the topmost descendant of `under`'s parent that contains the
+    // cursor.
+    let candidate = under;
+    while (candidate && candidate.parentElement) {
+      if (candidate === dragEl) return null;
+      if (candidate.parentElement === dragEl.parentElement) break;
+      candidate = candidate.parentElement;
+    }
+    if (!candidate || candidate.parentElement !== dragEl.parentElement) {
+      // Different parent → allow moving INTO that parent at the
+      // candidate's position.
+      candidate = under;
+      while (candidate && candidate.parentElement && candidate.parentElement.contains(dragEl)) {
+        candidate = candidate.parentElement;
+      }
+      if (!candidate || !candidate.parentElement) return null;
+      if (candidate === dragEl || candidate.contains(dragEl)) return null;
+    }
+
+    const parent = candidate.parentElement;
+    const r = candidate.getBoundingClientRect();
+    const parentStyle = getComputedStyle(parent);
+    const horizontal = parentStyle.display.includes('flex')
+      && (parentStyle.flexDirection === 'row' || parentStyle.flexDirection === 'row-reverse');
+
+    let before;
+    if (horizontal) {
+      const mid = r.left + r.width / 2;
+      before = clientX < mid ? candidate : candidate.nextSibling;
+    } else {
+      const mid = r.top + r.height / 2;
+      before = clientY < mid ? candidate : candidate.nextSibling;
+    }
+
+    return { parent, before, refRect: r, horizontal };
+  }
+
+  function showIndicator(target) {
+    if (!indicator) indicator = createIndicator();
+    if (!target) {
+      indicator.style.display = 'none';
+      return;
+    }
+    const r = target.refRect;
+    const before = target.before;
+    // Insertion line position: at the leading edge of `before` (or
+    // trailing edge of refRect if before is null/refRect's nextSibling).
+    if (target.horizontal) {
+      const x = (before === null || before !== document.body.childNodes[0])
+        ? (target.parent.lastElementChild === null
+            ? r.right
+            : (before ? before.getBoundingClientRect().left : r.right))
+        : r.left;
+      indicator.style.left = (x + window.scrollX - 1) + 'px';
+      indicator.style.top = (r.top + window.scrollY) + 'px';
+      indicator.style.width = '2px';
+      indicator.style.height = r.height + 'px';
+    } else {
+      const y = before
+        ? before.getBoundingClientRect().top
+        : (r.bottom);
+      indicator.style.left = (r.left + window.scrollX) + 'px';
+      indicator.style.top = (y + window.scrollY - 1) + 'px';
+      indicator.style.width = r.width + 'px';
+      indicator.style.height = '2px';
+    }
+    indicator.style.display = 'block';
+  }
+
+  function startDrag(e) {
+    const el = e.target;
+    if (!isGrabbable(el)) return;
+
+    dragging = true;
+    dragEl = el;
+    startX = e.clientX;
+    startY = e.clientY;
+
+    const saved = offsets.get(el);
+    startOffsetDx = saved ? saved.dx : 0;
+    startOffsetDy = saved ? saved.dy : 0;
+
+    ghostEl = createGhost(el);
+    setGrabState('grabbing');
+    // Dim the original so the ghost reads as "the moved one".
+    el._dt_move_savedOpacity = el.style.opacity || '';
+    el.style.opacity = '0.3';
+
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function updateDrag(e) {
+    if (!dragging || !ghostEl) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    // Keep the ghost following the cursor.
+    dragEl.getBoundingClientRect();
+    // We snapshotted ghost's left/top at drag start; just translate.
+    ghostEl.style.transform = `translate(${dx}px, ${dy}px)`;
+
+    if (getMode() === 'dom-reorder') {
+      dropTarget = pickDropTarget(e.clientX, e.clientY);
+      showIndicator(dropTarget);
+    }
+  }
+
+  function commitDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+
+    const mode = getMode();
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    if (mode === 'dom-reorder') {
+      if (dropTarget && dropTarget.parent && dropTarget.parent !== dragEl) {
+        try {
+          dropTarget.parent.insertBefore(dragEl, dropTarget.before);
+          showToast('Element moved');
+        } catch (_) {}
+      }
+    } else {
+      // free-position: accumulate offset
+      const newDx = startOffsetDx + dx;
+      const newDy = startOffsetDy + dy;
+      let saved = offsets.get(dragEl);
+      if (!saved) {
+        saved = {
+          dx: 0,
+          dy: 0,
+          origPosition: dragEl.style.position || '',
+          origTop: dragEl.style.top || '',
+          origLeft: dragEl.style.left || '',
+        };
+        offsets.set(dragEl, saved);
+      }
+      saved.dx = newDx;
+      saved.dy = newDy;
+      if (getComputedStyle(dragEl).position === 'static') {
+        dragEl.style.position = 'relative';
+      }
+      dragEl.style.left = newDx + 'px';
+      dragEl.style.top = newDy + 'px';
+      showToast('Element repositioned');
+    }
+
+    finishDrag();
+  }
+
+  function cancelDrag() {
+    if (!dragging) return;
+    dragging = false;
+    finishDrag();
+  }
+
+  function finishDrag() {
+    if (dragEl) {
+      dragEl.style.opacity = dragEl._dt_move_savedOpacity || '';
+      delete dragEl._dt_move_savedOpacity;
+    }
+    destroyGhost();
+    destroyIndicator();
+    dropTarget = null;
+    dragEl = null;
+    setGrabState(cmdHeld ? 'grab' : null);
+  }
+
+  function onKeyDown(e) {
+    if (!active) return;
+    if (e.key === 'Meta' || e.key === 'Control') {
+      cmdHeld = true;
+      if (!dragging) setGrabState('grab');
+    } else if (e.key === 'Escape' && dragging) {
+      cancelDrag();
+    }
+  }
+
+  function onKeyUp(e) {
+    if (!active) return;
+    if (e.key === 'Meta' || e.key === 'Control') {
+      cmdHeld = false;
+      if (dragging) {
+        cancelDrag();
+      } else {
+        setGrabState(null);
+        clearHoverPreview();
+      }
+    }
+  }
+
+  function onMouseMove(e) {
+    if (!active) return;
+    if (dragging) {
+      updateDrag(e);
+      return;
+    }
+    if (!cmdHeld) return;
+    const el = e.target;
+    if (isGrabbable(el)) {
+      setHoverPreview(el);
+      setGrabState('grab');
+    } else {
+      clearHoverPreview();
+    }
+  }
+
+  function onMouseDown(e) {
+    if (!active || !cmdHeld) return;
+    // Only respond to primary button.
+    if (e.button !== 0) return;
+    if (!isGrabbable(e.target)) return;
+    clearHoverPreview();
+    startDrag(e);
+  }
+
+  function onMouseUp(e) {
+    if (!active) return;
+    if (dragging) commitDrag(e);
+  }
+
+  function onWindowBlur() {
+    cmdHeld = false;
+    if (dragging) cancelDrag();
+    else { setGrabState(null); clearHoverPreview(); }
+  }
+
+  var move = {
+    id: 'move',
+    label: 'Move',
+    experiment: true,
+    enabledByDefault: true,
+
+    init() {
+      active = true;
+      ensureCursorStyles();
+      document.addEventListener('keydown', onKeyDown, true);
+      document.addEventListener('keyup', onKeyUp, true);
+      document.addEventListener('mousemove', onMouseMove, true);
+      document.addEventListener('mousedown', onMouseDown, true);
+      document.addEventListener('mouseup', onMouseUp, true);
+      window.addEventListener('blur', onWindowBlur);
+    },
+
+    enable() { active = true; },
+    disable() {
+      active = false;
+      cancelDrag();
+      clearHoverPreview();
+      setGrabState(null);
+    },
+  };
+
+  /**
+   * Right-click → copy element selector.
+   *
+   * Lightweight global handler: right-click on any page element copies a
+   * CSS selector for it to the clipboard, with a small "nudge" animation
+   * on the element to confirm the copy. Suppresses the native context
+   * menu when the click hits a real page element.
+   *
+   * Skipped when:
+   *   - the click is on inspector UI (toolbar, bubble, settings panel…)
+   *   - the Draw tool is in pen mode (it uses right-click for erase)
+   */
+
+
+  function onContextMenu(e) {
+    // Draw tool owns right-click while in pen mode (it erases).
+    if (state.annotateMode && state.annotateSub === 'pen') return;
+
+    // Suppress the native right-click menu page-wide while dom-tools is
+    // active — the right-click is now our "copy selector" gesture.
+    e.preventDefault();
+    e.stopPropagation();
+
+    const el = e.target;
+    if (!el || el.nodeType !== 1) return;
+    if (isInspectorUI(el)) return;
+    if (el === document.body || el === document.documentElement) return;
+
+    const selector = getSelector(el);
+    navigator.clipboard.writeText(selector).then(() => {
+      nudge(el);
+      showToast(`Copied: ${selector.length > 60 ? selector.slice(0, 57) + '…' : selector}`);
+    }).catch(() => {
+      showToast('Could not copy selector');
+    });
+  }
+
+  var copySelector = {
+    id: 'copy-selector',
+    enabledByDefault: true,
+
+    init() {
+      document.addEventListener('contextmenu', onContextMenu, true);
+    },
+  };
+
+  /**
    * DOM-Tools (minimal)
    * Drop <script src="dom-tools.js"></script> before </body> in any HTML file.
    * Activate by adding ?dom-tools to the page URL.
@@ -1788,10 +3825,14 @@
   if (new URLSearchParams(window.location.search).has('dom-tools')) {
     initHelpers();
 
-    register(annotations$1);
+    register(annotations);
     register(draw);
-    register(styleModifier);
+    register(moduleSpec);
+    register(editMode);
     register(camera);
+    register(copySelector);
+    if (isExperimentEnabled('terminal')) register(terminal);
+    if (isExperimentEnabled('move')) register(move);
 
     renderToolbar();
     initSettings();
@@ -1799,7 +3840,7 @@
     initCopyAll();
     initKeyboard();
 
-    styleModifier.activate();
+    moduleSpec.activate();
     setActiveButton('style-modifier');
   }
 
