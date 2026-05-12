@@ -33,7 +33,7 @@ function bootDomTools() {
   register(draw);
   register(styleModifier);
   register(editMode);
-  register(camera);
+  if (isExperimentEnabled('camera')) register(camera);
   register(copySelector);
   register(canvasZoom);
   if (isExperimentEnabled('terminal')) register(terminal);

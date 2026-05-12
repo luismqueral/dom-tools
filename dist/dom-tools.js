@@ -21,19 +21,6 @@
     return mod ? mod.enabledByDefault !== false : true;
   }
 
-  function setEnabled(id, on) {
-    featureState[id] = on;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(featureState));
-    const mod = modules.find(m => m.id === id);
-    if (!mod) return;
-    if (on) {
-      if (mod.enable) mod.enable();
-    } else {
-      if (mod.deactivate) mod.deactivate();
-      if (mod.disable) mod.disable();
-    }
-  }
-
   function activateModule(id) {
     modules.forEach(m => {
       if (!isEnabled(m.id)) return;
@@ -562,16 +549,6 @@
     });
   }
 
-  function showButton(id) {
-    const btn = buttonMap.get(id);
-    if (btn) btn.style.display = 'flex';
-  }
-
-  function hideButton(id) {
-    const btn = buttonMap.get(id);
-    if (btn) btn.style.display = 'none';
-  }
-
   // --- Copy-all button (with badge for changed-element count) ---
   let copyBtn = null;
   let copyBadge = null;
@@ -675,6 +652,12 @@
       default: false,
     },
     {
+      id: 'camera',
+      label: 'Full-page screenshot',
+      description: 'Capture the entire scrollable page as PNG.',
+      default: false,
+    },
+    {
       id: 'canvas-zoom',
       label: 'Canvas zoom & pan',
       description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.',
@@ -770,32 +753,6 @@
     const colorTitle = sectionTitle('Selection color', { first: true });
     container.appendChild(colorTitle);
     container.appendChild(buildColorSwatches());
-
-    const title = sectionTitle('Features');
-    container.appendChild(title);
-
-    const modules = getModules();
-    modules.forEach(mod => {
-      if (!mod.button) return;
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0',
-        color: '#ddd', fontSize: '13px', cursor: 'pointer'
-      });
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = isEnabled(mod.id);
-      checkbox.style.accentColor = mod.button.color || COLORS.selector;
-      checkbox.addEventListener('change', () => {
-        setEnabled(mod.id, checkbox.checked);
-        if (checkbox.checked) showButton(mod.id); else hideButton(mod.id);
-      });
-      const label = document.createElement('span');
-      label.textContent = mod.label || mod.id;
-      row.appendChild(checkbox);
-      row.appendChild(label);
-      container.appendChild(row);
-    });
 
     const expTitle = sectionTitle('Experiments');
     container.appendChild(expTitle);
@@ -5171,7 +5128,7 @@
     register(draw);
     register(moduleSpec);
     register(editMode);
-    register(camera);
+    if (isExperimentEnabled('camera')) register(camera);
     register(copySelector);
     register(canvasZoom);
     if (isExperimentEnabled('terminal')) register(terminal);

@@ -7,10 +7,10 @@
  */
 
 import { inspectorUI } from './core/state.js';
-import { Z, COLORS } from './core/constants.js';
+import { Z } from './core/constants.js';
 import { addTooltip, nudge } from './core/helpers.js';
-import { getModules, isEnabled, setEnabled, activateModule } from './core/registry.js';
-import { showButton, hideButton, setActiveButton, onToolActivate, toolbar as tbEl } from './toolbar.js';
+import { activateModule } from './core/registry.js';
+import { setActiveButton, onToolActivate, toolbar as tbEl } from './toolbar.js';
 import { COLOR_OPTIONS, getSelectionColor, setSelectionColor, onColorChange } from './core/theme.js';
 
 let visible = false;
@@ -43,6 +43,12 @@ const EXPERIMENT_DEFS = [
     id: 'duplicate',
     label: 'Duplicate element',
     description: 'Hold Shift and click-drag any element to duplicate it.',
+    default: false,
+  },
+  {
+    id: 'camera',
+    label: 'Full-page screenshot',
+    description: 'Capture the entire scrollable page as PNG.',
     default: false,
   },
   {
@@ -141,32 +147,6 @@ function buildSettingsPanel() {
   const colorTitle = sectionTitle('Selection color', { first: true });
   container.appendChild(colorTitle);
   container.appendChild(buildColorSwatches());
-
-  const title = sectionTitle('Features');
-  container.appendChild(title);
-
-  const modules = getModules();
-  modules.forEach(mod => {
-    if (!mod.button) return;
-    const row = document.createElement('label');
-    Object.assign(row.style, {
-      display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0',
-      color: '#ddd', fontSize: '13px', cursor: 'pointer'
-    });
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = isEnabled(mod.id);
-    checkbox.style.accentColor = mod.button.color || COLORS.selector;
-    checkbox.addEventListener('change', () => {
-      setEnabled(mod.id, checkbox.checked);
-      if (checkbox.checked) showButton(mod.id); else hideButton(mod.id);
-    });
-    const label = document.createElement('span');
-    label.textContent = mod.label || mod.id;
-    row.appendChild(checkbox);
-    row.appendChild(label);
-    container.appendChild(row);
-  });
 
   const expTitle = sectionTitle('Experiments');
   container.appendChild(expTitle);
