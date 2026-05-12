@@ -58,6 +58,8 @@ export function getOrigOutline(el) { return ORIG_OUTLINES.get(el) || ''; }
 export function getOrigBackground(el) { return ORIG_BACKGROUNDS.get(el) || ''; }
 
 export function applyAnnotationStyle(el) {
+  // Text-mode editing elements are kept naked — skip all styling.
+  if (el.hasAttribute('data-dt-text-editing')) return;
   if (isAnnotated(el)) {
     const inHoveredGroup = hoveredAnnotation && hoveredAnnotation.els.includes(el);
     const inActiveGroup = activeAnnotation && activeAnnotation.els.includes(el);
@@ -242,6 +244,8 @@ function createBubble(annotation) {
   ta.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Escape') ta.blur();
+    // Block held-spacebar repeat so it doesn't fill the field with spaces
+    if (e.key === ' ' && e.repeat) e.preventDefault();
   });
 
   bubble.appendChild(handle);
@@ -317,16 +321,61 @@ function createBubble(annotation) {
 }
 
 // Default placement: primary element's top-left, bubble sitting just
-// above. customPosition (set by drag) is added on top of that so the
-// bubble follows its element through scrolls but keeps any user-chosen
-// offset.
+// above. If there isn't enough room above (element near viewport top),
+// flip below the element so the bubble never clips off-screen or
+// overlaps the tag label. customPosition (set by drag) is added on top
+// so the bubble follows its element through scrolls but keeps any
+// user-chosen offset.
+// Last click coordinates — set via setClickOrigin() from the Comment
+// tool so the bubble appears near where the user clicked.
+let _clickX = null;
+let _clickY = null;
+export function setClickOrigin(x, y) { _clickX = x; _clickY = y; }
+
 function positionBubble(bubble, el, custom) {
   if (!el) return;
   const r = el.getBoundingClientRect();
   const bubbleH = bubble.offsetHeight || 32;
-  let left = r.left + window.scrollX;
-  let top = r.top + window.scrollY - bubbleH - 6;
-  if (custom) { left += custom.dx; top += custom.dy; }
+  const bubbleW = bubble.offsetWidth || 180;
+  let left, top;
+
+  // Consume click origin into a custom position on first use
+  if (!custom && _clickX !== null) {
+    const cx = _clickX;
+    const cy = _clickY;
+    _clickX = null;
+    _clickY = null;
+
+    left = cx + window.scrollX + 8;
+    top = cy + window.scrollY - bubbleH - 8;
+    // If it would go above viewport, flip below the click
+    if (cy - bubbleH - 8 < 0) {
+      top = cy + window.scrollY + 16;
+    }
+    // Clamp to viewport right edge
+    const maxLeft = window.scrollX + document.documentElement.clientWidth - bubbleW - 8;
+    if (left > maxLeft) left = maxLeft;
+
+    // Store as custom offset so repositions keep the bubble here
+    const ann = noteAnnotations.find(a => a.bubbleEl === bubble);
+    if (ann) {
+      ann.customPosition = {
+        dx: left - (r.left + window.scrollX),
+        dy: top - (r.top + window.scrollY - bubbleH - 6),
+      };
+    }
+  } else if (custom) {
+    // User dragged — respect their position unconditionally
+    left = r.left + window.scrollX + custom.dx;
+    top = r.top + window.scrollY - bubbleH - 6 + custom.dy;
+  } else if (r.top < bubbleH + 6 + 16) {
+    // Not enough room above — flip below the element
+    top = r.top + window.scrollY + r.height + 6;
+    left = r.left + window.scrollX;
+  } else {
+    top = r.top + window.scrollY - bubbleH - 6;
+    left = r.left + window.scrollX;
+  }
   bubble.style.left = left + 'px';
   bubble.style.top = top + 'px';
 }

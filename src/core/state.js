@@ -11,6 +11,7 @@ export const state = {
   annotateSub: 'sticky', // 'pen' | 'sticky'
   stickyMode: false,
   styleModActive: false,
+  handToolActive: false,
 };
 
 // Set of all inspector UI elements (ignored by hover/click)

@@ -1,17 +1,13 @@
 /**
- * Comment tool — minimal click-to-leave-feedback mode.
+ * Select tool — point-and-click element selection for leaving feedback.
  *
- * Click an element to select it; the pink note bubble that appears IS
- * the editor — type directly into it. Shift+click another element to
- * add it to the current selection — typing then attaches the same note
- * to every selected element as a group annotation. Each selected
- * element gets its own pink-bordered outline while the group is
- * active; once you select something else, those previously-selected
- * (still annotated) elements drop back to a translucent pink scrim
- * instead of a hard border.
+ * Click an element to select it; the note bubble that appears IS the
+ * editor — type directly into it. Shift+click another element to add
+ * it to the current selection (group annotation). Each selected element
+ * gets its own outlined highlight while the group is active.
  *
- * Comment mode is read-only as far as page text is concerned — inline
- * text editing is the Edit Text tool's job, not ours.
+ * This tool is read-only as far as page text is concerned — inline text
+ * editing is exclusively the Edit Text tool's job.
  */
 
 import { state, inspectorUI } from '../core/state.js';
@@ -19,6 +15,7 @@ import { Z } from '../core/constants.js';
 import { showToast, isInspectorUI, nudge } from '../core/helpers.js';
 import { setActiveButton } from '../toolbar.js';
 import { activateModule } from '../core/registry.js';
+import { isExperimentEnabled } from '../settings.js';
 import { getSelectionColor, withAlpha, onColorChange } from '../core/theme.js';
 import { ensurePlexMono } from '../core/fonts.js';
 // NOTE: circular import with annotations.js is intentional and safe — both
@@ -27,18 +24,10 @@ import {
   setEditorTarget, closeEditor,
   ensureOrig, applyAnnotationStyle, getOrigBackground, getOrigOutline,
   findNoteAnnotationByEl, isActiveNoteEmpty,
-  setElementText, evaluateAnnotation, queueRepositionAll,
+  setClickOrigin,
+  setElementText, evaluateAnnotation,
 } from './annotations.js';
 
-// Tags treated as "text" for hover purposes — they get a soft highlight
-// instead of the dashed border + scale that block-level elements get.
-const TEXT_TAGS = [
-  'P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI',
-  'BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL','TD','TH'
-];
-function isTextElement(el) {
-  return el && el.nodeType === 1 && TEXT_TAGS.includes(el.tagName);
-}
 
 let activeMode = false;
 let selected = [];
@@ -52,15 +41,6 @@ export function getSelected() { return selected; }
 //     typing/editing still works. ---
 function ensureSelectionStyles() {
   if (document.getElementById('dt-comment-styles')) return;
-  // Text-tag selector kept in lockstep with TEXT_TAGS so hover cursor
-  // and hover background-only treatment apply to the same set.
-  const textSelector = TEXT_TAGS
-    .map(t => `html.dt-comment-active ${t.toLowerCase()}`)
-    .join(', ');
-  // Anything matching this lives in our own UI and should NOT pick up
-  // the page-wide Comment-mode cursor / user-select overrides.
-  // :where() has zero specificity, so wrapping it inside the :not()
-  // keeps the page rule's specificity manageable.
   const inspectorUiSelector = ':where(' + [
     '[data-dt-toolbar]', '[data-dt-toolbar] *',
     '[data-dt-bubble]', '[data-dt-bubble] *',
@@ -74,34 +54,25 @@ function ensureSelectionStyles() {
     html.dt-comment-active body *:not(${inspectorUiSelector}) {
       user-select: none !important;
       -webkit-user-select: none !important;
-      cursor: default !important;
+      cursor: pointer !important;
     }
-    html.dt-comment-active [contenteditable="true"],
-    html.dt-comment-active [contenteditable="true"] *,
     html.dt-comment-active [data-dt-allow-select],
     html.dt-comment-active [data-dt-allow-select] * {
       user-select: text !important;
       -webkit-user-select: text !important;
-    }
-    ${textSelector} {
       cursor: text !important;
     }
-    html.dt-comment-active [contenteditable="true"],
-    html.dt-comment-active [contenteditable="true"] *,
+    html.dt-comment-active.dt-inline-editing body *:not([data-dt-allow-select]):not([data-dt-allow-select] *) {
+      cursor: default !important;
+    }
     html.dt-comment-active [data-dt-bubble] textarea {
       cursor: text !important;
     }
     html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
       cursor: grab !important;
     }
-    /* Native text-selection highlight follows the theme color across
-       any surface dom-tools is responsible for: the bubble's
-       textarea, contentEditable elements we promoted, and (when
-       Comment mode is live) the page itself for visual consistency. */
     [data-dt-bubble] textarea::selection,
     [data-dt-bubble] textarea::-moz-selection,
-    [contenteditable="true"]::selection,
-    [contenteditable="true"] *::selection,
     html.dt-comment-active ::selection {
       background: var(--dt-color-scrim);
       color: inherit;
@@ -241,7 +212,6 @@ function desiredLabelEls() {
   const set = new Set();
   if (hoveredEl) set.add(hoveredEl);
   selected.forEach(s => set.add(s.el));
-  editableEls.forEach(el => set.add(el));
   return set;
 }
 
@@ -373,6 +343,11 @@ function clearHover() {
 
 function onMove(e) {
   if (!activeMode) return;
+  // Suppress hover while hand tool or inline editing is active
+  if (state.handToolActive || editingEl) {
+    if (hoveredEl) clearHover();
+    return;
+  }
   // Tag labels react to the cursor regardless of which element is
   // currently the hover target — even hovering inside a non-selected
   // child of a labeled selection should still hide the corner pill.
@@ -384,133 +359,27 @@ function onMove(e) {
   }
   if (el === hoveredEl) return;
   clearHover();
-  // Don't hover-paint elements that are already in a "live" state —
-  // selected for commenting, or being text-edited.
+  // Don't hover-paint elements that are already selected.
   if (selected.find(s => s.el === el)) return;
-  if (editableEls.has(el)) return;
   hoveredEl = el;
   ensureOrig(el);
 
   const color = getSelectionColor();
-  el.style.outline = getOrigOutline(el);
-
-  if (isTextElement(el)) {
-    // Text: light wash on hover.
-    el.style.backgroundColor = withAlpha(color, 0.10);
-  } else {
-    // Container: deeper wash since it's a region, not a single line.
-    el.style.backgroundColor = withAlpha(color, 0.22);
-  }
+  el.style.outline = '2.5px solid ' + withAlpha(color, 0.55);
+  el.style.backgroundColor = getOrigBackground(el);
   refreshTagLabels();
 }
 
-// --- Inline text editing (experiment) -----------------------------------
-// Comment mode used to be read-only; the dedicated Edit Text tool was
-// the only way to retype copy. Now we also allow inline editing on
-// text-tag elements directly from Comment mode — clicking a paragraph
-// places a caret AND opens the comment bubble, so the user can either
-// type new text or click into the bubble to leave a note. Text edits
-// roll into the same annotation tracker, so copy-all picks them up
-// regardless of which tool produced them.
-const editableEls = new Set();
-const inputHandlers = new WeakMap();
-
-function placeCaretFromPoint(clientX, clientY) {
-  let range = null;
-  if (document.caretPositionFromPoint) {
-    const pos = document.caretPositionFromPoint(clientX, clientY);
-    if (pos) {
-      range = document.createRange();
-      range.setStart(pos.offsetNode, pos.offset);
-      range.collapse(true);
-    }
-  } else if (document.caretRangeFromPoint) {
-    range = document.caretRangeFromPoint(clientX, clientY);
-  }
-  if (range) {
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-  }
-}
-
-function makeTextEditable(el) {
-  if (editableEls.has(el)) return;
-  editableEls.add(el);
-  ensureOrig(el);
-  el.contentEditable = 'true';
-  // Spellcheck draws a red wavy underline under "misspelled" words —
-  // for design-tool text edits that's almost always noise. Off.
-  el.spellcheck = false;
-  // Opt out of editor-injecting browser extensions (Grammarly,
-  // LanguageTool, etc.). They add their own colored outlines / icons
-  // into any contentEditable they find, which fights our chrome.
-  el.setAttribute('data-gramm', 'false');
-  el.setAttribute('data-gramm_editor', 'false');
-  el.setAttribute('data-enable-grammarly', 'false');
-  el.setAttribute('data-lt-tmp-id', '');
-  el.style.outline = '2px solid ' + getSelectionColor();
-  el.style.backgroundColor = withAlpha(getSelectionColor(), 0.15);
-  const originalText = el.innerText;
-  const originalClasses = el.className;
-  const handler = () => {
-    setElementText(el, originalText, originalClasses);
-    evaluateAnnotation(el);
-    queueRepositionAll();
-  };
-  el.addEventListener('input', handler);
-  inputHandlers.set(el, handler);
-  refreshTagLabels();
-}
-
-function revertTextEditable(el) {
-  if (!editableEls.has(el)) return;
-  el.contentEditable = 'false';
-  const h = inputHandlers.get(el);
-  if (h) {
-    el.removeEventListener('input', h);
-    inputHandlers.delete(el);
-  }
-  editableEls.delete(el);
-  // Drop our outline; let the shared annotation tracker decide the
-  // resting state (scrim if a text edit was made, otherwise pristine).
-  applyAnnotationStyle(el);
-  refreshTagLabels();
-}
-
-function revertAllEditable() {
-  Array.from(editableEls).forEach(revertTextEditable);
-}
-
-// Intent-aware click router.
-//
-// The cursor over the click target tells us what the user wanted:
-//   - I-beam over a text-tag element → "edit this text". Drop the
-//     comment bubble + selection group, flip the element editable,
-//     place the caret. No bubble appears — typing IS the action.
-//   - Pointer over a container → "comment on this layout". Run the
-//     normal selection/group flow, the pink bubble shows up, type a
-//     note about it.
-//
-// Two carve-outs:
-//   - Shift+click is always group-select intent (works on text and
-//     container alike) — useful when the user actually wants to
-//     comment on a paragraph rather than retype it.
-//   - Clicking a text-tag element that's already part of a saved
-//     comment re-opens the comment instead of trampling it with a
-//     fresh text-edit session.
+// --- Click handler -------------------------------------------------------
 function onClick(e) {
   if (!activeMode) return;
+  if (state.handToolActive) return;
   const el = e.target;
   if (isInspectorUI(el)) return;
-  // <body> / <html> aren't real "elements you'd want to comment on" —
-  // they're the canvas. Letting them be selected outlines the whole
-  // viewport in theme color and is almost never the user's intent.
-  // BUT: if the user has an empty note open (clicked an element, no
-  // text typed yet) and clicks blank canvas, treat that as "never
-  // mind" — drop the selection and the empty bubble. Notes with text
-  // stay put on a stray canvas click; the user shouldn't lose their
-  // work that easily.
+
+  // Don't interfere with inline editing
+  if (editingEl && (el === editingEl || editingEl.contains(el))) return;
+
   if (el === document.body || el === document.documentElement) {
     if (isActiveNoteEmpty() && selected.length) {
       clearSelection();
@@ -518,61 +387,112 @@ function onClick(e) {
     return;
   }
 
-  // Re-clicking inside an already-editable text element should just
-  // move the caret natively. Don't preventDefault, don't re-copy
-  // markup (would spam the clipboard), don't re-trigger selection.
-  if (editableEls.has(el)) return;
-
   e.preventDefault();
   e.stopPropagation();
   clearHover();
   nudge(el);
-
-  // Text-edit intent. The user is doing two related things at once
-  // here: rewriting the words on the page AND (potentially) leaving a
-  // note about why. Both UIs come up — a caret in the element so they
-  // can type, and the comment bubble so they can describe the change.
-  // The text element keeps focus by default; clicking the bubble
-  // shifts focus to the textarea.
-  if (isTextElement(el) && !e.shiftKey) {
-    // If the user already has a saved comment on this text, treat the
-    // click as "open my note" instead of "retype the words".
-    if (findNoteAnnotationByEl(el)) {
-      revertAllEditable();
-      selectElement(el, false);
-      return;
-    }
-    revertAllEditable();
-    const x = e.clientX, y = e.clientY;
-    // Bubble first (queues its own focus on the textarea), then make
-    // the element editable; our setTimeout below runs LAST and steals
-    // focus back to the page text. Net result: caret on text, bubble
-    // visible alongside.
-    selectElement(el, false);
-    makeTextEditable(el);
-    setTimeout(() => {
-      el.focus();
-      placeCaretFromPoint(x, y);
-    }, 0);
-    return;
-  }
-
-  // Container/comment intent (and shift+click). Switching back to
-  // commenting flushes any open text-edit so the visual state is
-  // unambiguous about what the user is currently doing.
-  revertAllEditable();
+  setClickOrigin(e.clientX, e.clientY);
   selectElement(el, e.shiftKey);
+}
+
+// --- Double-click to edit (experiment-gated) -----------------------------
+// Tags that should NOT be made contentEditable (structural/interactive)
+const NON_EDITABLE_TAGS = new Set([
+  'HTML','BODY','SCRIPT','STYLE','LINK','META','HEAD',
+  'IFRAME','OBJECT','EMBED','VIDEO','AUDIO','CANVAS',
+  'INPUT','TEXTAREA','SELECT','BUTTON','FORM',
+  'SVG','PATH','IMG','BR','HR',
+]);
+
+let editingEl = null;
+
+function onDblClick(e) {
+  if (!activeMode) return;
+  if (!isExperimentEnabled('dblclick-edit')) return;
+  if (state.handToolActive) return;
+  const el = e.target;
+  if (isInspectorUI(el)) return;
+  if (!el || !el.tagName || NON_EDITABLE_TAGS.has(el.tagName)) return;
+  if (!el.textContent || !el.textContent.trim()) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  // Close the bubble that single-click opened — dblclick means "edit text"
+  closeEditor();
+  deselectAll();
+
+  // Make element editable inline
+  editingEl = el;
+  ensureOrig(el);
+  const originalText = el.innerText;
+  const originalClasses = el.className;
+  el.contentEditable = 'true';
+  el.spellcheck = false;
+  el.setAttribute('data-dt-allow-select', '');
+
+  // Visual feedback — text cursor + highlight
+  const color = getSelectionColor();
+  el.style.outline = '2px solid ' + color;
+  el.style.backgroundColor = withAlpha(color, 0.08);
+  el.style.cursor = 'text';
+  document.documentElement.classList.add('dt-inline-editing');
+
+  // Focus, select all text, and place caret after a tick (let the bubble close first)
+  setTimeout(() => {
+    el.focus();
+    // Select all text so the user sees what they're editing
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }, 0);
+
+  // Track text changes for copy-all output (register once on first input,
+  // then re-apply our editing outline since setElementText triggers
+  // applyAnnotationStyle which would overwrite it).
+  function onInput() {
+    setElementText(el, originalText, originalClasses);
+    // Restore editing visual — applyAnnotationStyle resets outline/bg
+    el.style.outline = '2px solid ' + color;
+    el.style.backgroundColor = withAlpha(color, 0.08);
+  }
+  el.addEventListener('input', onInput);
+
+  // Exit edit on blur or Escape
+  function exitEdit() {
+    el.removeEventListener('blur', exitEdit);
+    el.removeEventListener('keydown', onEditKey);
+    el.removeEventListener('input', onInput);
+    el.contentEditable = 'false';
+    el.removeAttribute('data-dt-allow-select');
+    el.style.cursor = '';
+    document.documentElement.classList.remove('dt-inline-editing');
+    editingEl = null;
+    evaluateAnnotation(el);
+    applyOutline(el);
+  }
+  function onEditKey(ev) {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      el.blur();
+    }
+  }
+  el.addEventListener('blur', exitEdit);
+  el.addEventListener('keydown', onEditKey);
 }
 
 // --- Module spec ---------------------------------------------------------
 const moduleSpec = {
   id: 'style-modifier',
-  label: 'Comment',
+  label: 'Select',
   enabledByDefault: true,
 
   button: {
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
-    tooltip: 'Comment (shift+click for group)',
+    tooltip: 'Select (shift+click for group)',
     get color() { return getSelectionColor(); },
     order: 5,
   },
@@ -583,6 +503,7 @@ const moduleSpec = {
     ensureSelectionStyles();
     ensurePlexMono();
     document.addEventListener('click', onClick, true);
+    document.addEventListener('dblclick', onDblClick, true);
     document.addEventListener('mousemove', onMove, true);
     window.addEventListener('scroll', repositionAllTagLabels, true);
     window.addEventListener('resize', repositionAllTagLabels);
@@ -593,10 +514,6 @@ const moduleSpec = {
     // everywhere.
     onColorChange((color) => {
       selected.forEach(s => applyOutline(s.el));
-      editableEls.forEach(el => {
-        el.style.outline = '2px solid ' + color;
-        el.style.backgroundColor = withAlpha(color, 0.15);
-      });
       tagLabels.forEach((entry) => { entry.lbl.style.background = color; });
       if (activeMode) setActiveButton('style-modifier');
     });
@@ -607,7 +524,7 @@ const moduleSpec = {
     state.styleModActive = true;
     document.body.style.cursor = '';
     document.documentElement.classList.add('dt-comment-active');
-    showToast('Click to comment, shift+click to group');
+    showToast('Click to select, shift+click to group');
   },
 
   deactivate() {
@@ -617,7 +534,6 @@ const moduleSpec = {
     document.documentElement.classList.remove('dt-comment-active');
     clearHover();
     clearSelection();
-    revertAllEditable();
     hideTagLabels();
   },
 

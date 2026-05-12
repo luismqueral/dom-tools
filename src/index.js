@@ -19,6 +19,7 @@ import terminal from './features/terminal.js';
 import move from './features/move.js';
 import duplicate from './features/duplicate.js';
 import copySelector from './features/copy-selector.js';
+import canvasZoom from './features/canvas-zoom.js';
 
 let booted = false;
 
@@ -34,6 +35,7 @@ function bootDomTools() {
   register(editMode);
   register(camera);
   register(copySelector);
+  register(canvasZoom);
   if (isExperimentEnabled('terminal')) register(terminal);
   if (isExperimentEnabled('move')) register(move);
   if (isExperimentEnabled('duplicate')) register(duplicate);

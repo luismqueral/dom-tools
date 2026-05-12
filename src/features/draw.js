@@ -1,23 +1,146 @@
 import { state, inspectorUI } from '../core/state.js';
-import { COLORS, PEN_WIDTH, Z } from '../core/constants.js';
+import { Z } from '../core/constants.js';
 import { showToast } from '../core/helpers.js';
 import { getSelectionColor, onColorChange } from '../core/theme.js';
 
 let drawCanvas = null;
 let isDrawing = false;
+let drawPanel = null;
 
-// Centralized so resize / color-change / new-stroke paths all converge
-// on the same pen settings. strokeStyle pulls from the live theme so
-// strokes drawn after a color swap pick up the new color immediately
-// (already-rendered strokes stay as they were — repainting the canvas
-// would require keeping a vector log we don't have).
+// --- Draw settings (user-selectable via panel) ---
+const DRAW_COLORS = [
+  { id: 'theme', value: null, label: 'Theme' },  // uses getSelectionColor()
+  { id: 'black', value: '#1e1e1e', label: 'Black' },
+  { id: 'red', value: '#e03131', label: 'Red' },
+  { id: 'orange', value: '#f76707', label: 'Orange' },
+  { id: 'green', value: '#2f9e44', label: 'Green' },
+  { id: 'blue', value: '#1971c2', label: 'Blue' },
+  { id: 'violet', value: '#7048e8', label: 'Violet' },
+];
+const DRAW_SIZES = [
+  { id: 'S', width: 1.5 },
+  { id: 'M', width: 3 },
+  { id: 'L', width: 5 },
+  { id: 'XL', width: 8 },
+];
+let activeColorId = 'theme';
+let activeSizeId = 'M';
+
+function getDrawColor() {
+  const opt = DRAW_COLORS.find(c => c.id === activeColorId);
+  return (opt && opt.value) || getSelectionColor();
+}
+function getDrawWidth() {
+  return (DRAW_SIZES.find(s => s.id === activeSizeId) || DRAW_SIZES[1]).width;
+}
+
 function applyPenStyle() {
   if (!drawCanvas) return;
   const ctx = drawCanvas.getContext('2d');
-  ctx.strokeStyle = getSelectionColor();
-  ctx.lineWidth = PEN_WIDTH;
+  ctx.strokeStyle = getDrawColor();
+  ctx.lineWidth = getDrawWidth();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+}
+
+// --- Floating draw panel (top-right, tldraw-style) ---
+function createDrawPanel() {
+  const panel = document.createElement('div');
+  panel.setAttribute('data-dt-ignore', '');
+  Object.assign(panel.style, {
+    position: 'fixed', top: '16px', right: '16px', zIndex: String(Z.toolbar + 1),
+    background: '#fff', borderRadius: '12px', padding: '12px',
+    boxShadow: '0 2px 16px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.06)',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    fontSize: '11px', userSelect: 'none', WebkitUserSelect: 'none',
+    display: 'none', minWidth: '148px',
+  });
+  inspectorUI.add(panel);
+
+  // Color swatches
+  const colorLabel = document.createElement('div');
+  colorLabel.textContent = 'Color';
+  Object.assign(colorLabel.style, { fontSize: '10px', fontWeight: '600', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' });
+  panel.appendChild(colorLabel);
+
+  const colorRow = document.createElement('div');
+  Object.assign(colorRow.style, { display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '12px' });
+  panel.appendChild(colorRow);
+
+  DRAW_COLORS.forEach(c => {
+    const swatch = document.createElement('button');
+    swatch.dataset.colorId = c.id;
+    const fill = c.value || getSelectionColor();
+    Object.assign(swatch.style, {
+      width: '22px', height: '22px', borderRadius: '50%', border: '2px solid transparent',
+      background: fill, cursor: 'pointer', padding: '0', transition: 'border-color 0.1s, transform 0.1s',
+    });
+    if (c.id === 'theme') {
+      // Gradient ring to indicate "theme" swatch
+      swatch.style.background = getSelectionColor();
+    }
+    swatch.addEventListener('click', () => {
+      activeColorId = c.id;
+      applyPenStyle();
+      renderPanelState();
+    });
+    colorRow.appendChild(swatch);
+  });
+
+  // Size options
+  const sizeLabel = document.createElement('div');
+  sizeLabel.textContent = 'Size';
+  Object.assign(sizeLabel.style, { fontSize: '10px', fontWeight: '600', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' });
+  panel.appendChild(sizeLabel);
+
+  const sizeRow = document.createElement('div');
+  Object.assign(sizeRow.style, { display: 'flex', gap: '6px', alignItems: 'center' });
+  panel.appendChild(sizeRow);
+
+  DRAW_SIZES.forEach(s => {
+    const btn = document.createElement('button');
+    btn.dataset.sizeId = s.id;
+    const dotSize = Math.max(6, s.width * 2.2);
+    Object.assign(btn.style, {
+      width: '32px', height: '28px', borderRadius: '6px', border: '1.5px solid #e5e7eb',
+      background: '#fff', cursor: 'pointer', padding: '0',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'border-color 0.1s, background 0.1s',
+    });
+    const dot = document.createElement('span');
+    Object.assign(dot.style, {
+      width: dotSize + 'px', height: dotSize + 'px', borderRadius: '50%', background: '#374151', display: 'block',
+    });
+    btn.appendChild(dot);
+    btn.addEventListener('click', () => {
+      activeSizeId = s.id;
+      applyPenStyle();
+      renderPanelState();
+    });
+    sizeRow.appendChild(btn);
+  });
+
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function renderPanelState() {
+  if (!drawPanel) return;
+  // Update color swatches
+  drawPanel.querySelectorAll('[data-color-id]').forEach(swatch => {
+    const isActive = swatch.dataset.colorId === activeColorId;
+    swatch.style.borderColor = isActive ? getSelectionColor() : 'transparent';
+    swatch.style.transform = isActive ? 'scale(1.15)' : 'scale(1)';
+    // Keep theme swatch synced with current theme color
+    if (swatch.dataset.colorId === 'theme') {
+      swatch.style.background = getSelectionColor();
+    }
+  });
+  // Update size buttons
+  drawPanel.querySelectorAll('[data-size-id]').forEach(btn => {
+    const isActive = btn.dataset.sizeId === activeSizeId;
+    btn.style.borderColor = isActive ? getSelectionColor() : '#e5e7eb';
+    btn.style.background = isActive ? getSelectionColor() + '12' : '#fff';
+  });
 }
 
 function resizeDrawCanvas() {
@@ -43,7 +166,7 @@ export default {
   button: {
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
     tooltip: 'Draw',
-    color: COLORS.annotate,
+    color: '#3b82f6',
     order: 10,
   },
 
@@ -60,7 +183,7 @@ export default {
     window.addEventListener('resize', resizeDrawCanvas);
     // Theme swap → re-arm the context so the next stroke uses the new
     // color. (Existing strokes stay as-is; we don't keep a vector log.)
-    onColorChange(applyPenStyle);
+    onColorChange(() => { applyPenStyle(); renderPanelState(); });
 
     // Eraser cursor (follows mouse during right-click erase)
     const ERASER_SIZE = 20;
@@ -129,9 +252,11 @@ export default {
     state.annotateMode = true;
     state.annotateSub = 'pen';
     drawCanvas.style.pointerEvents = 'auto';
-    const penCursor = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\'%3E%3Cpath stroke=\'%23000\' stroke-width=\'1.5\' fill=\'%23fff\' d=\'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\'/%3E%3C/svg%3E") 2 18, crosshair';
-    document.body.style.cursor = penCursor;
-    drawCanvas.style.cursor = penCursor;
+    document.body.style.cursor = 'crosshair';
+    drawCanvas.style.cursor = 'crosshair';
+    if (!drawPanel) drawPanel = createDrawPanel();
+    drawPanel.style.display = 'block';
+    renderPanelState();
     showToast('Draw mode');
   },
 
@@ -144,6 +269,7 @@ export default {
       drawCanvas.style.pointerEvents = 'none';
       drawCanvas.style.cursor = '';
     }
+    if (drawPanel) drawPanel.style.display = 'none';
     document.body.style.cursor = '';
   },
 

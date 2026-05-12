@@ -1,81 +1,129 @@
 /**
- * Text tool — minimal inline text editor.
+ * Text tool — minimal, distraction-free inline text editor.
  *
- * Click any text-tagged element to drop a caret in and start typing.
- * Edits are tracked through the annotation system (originalText vs current
- * innerText). The element gets the same pink scrim other annotated
- * elements get, and the diff rolls into the "copy all changes" output
- * alongside notes — no separate on-page marker.
- *
- * No Tailwind toolbar, no global designMode — each element is made
- * contentEditable on click and reverted on tool deactivate. Sibling tool
- * to the Comment cursor; only one tool is active at a time.
+ * Hover a text element to see a dashed border + "click to edit" label.
+ * Click to drop a caret — the element goes completely naked (no border,
+ * no label, no wash). Edits are tracked through the annotation system
+ * and roll into the "copy all changes" output silently.
  */
 
-import { state } from '../core/state.js';
-import { COLORS } from '../core/constants.js';
+import { state, inspectorUI } from '../core/state.js';
+import { COLORS, Z } from '../core/constants.js';
 import { showToast, isInspectorUI } from '../core/helpers.js';
-import { getSelectionColor, withAlpha, onColorChange } from '../core/theme.js';
+import { getSelectionColor, withAlpha } from '../core/theme.js';
 import {
   setElementText, evaluateAnnotation, queueRepositionAll,
   ensureOrig, applyAnnotationStyle, getOrigBackground,
 } from './annotations.js';
 
-// Toolbar button keeps its own identity color so the icon is visually
-// distinct from the Comment cursor in the rail. Text mode is
-// intentionally chrome-free while you're typing — no border, no scrim,
-// no comment bubble. Hover before you click still shows a soft wash so
-// you can see what you're about to edit, but the moment you commit to
-// editing the surface goes back to looking like plain page text.
-const ORANGE = COLORS.edit;
+const BLUE = COLORS.selector;
 const TEXT_TAGS = [
   'P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI',
-  'BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL','TD','TH'
+  'BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL','TD','TH',
+  'DIV',
 ];
 
 let activeMode = false;
 let hoveredEl = null;
-let highlightActive = false;
-const highlightedEls = new Set();
 const editableEls = new Set();
 const inputHandlers = new WeakMap();
 
+// Shared hover label element
+let hoverLabel = null;
+
 function isTextElement(el) {
-  return el && el.nodeType === 1 && TEXT_TAGS.includes(el.tagName);
+  if (!el || el.nodeType !== 1) return false;
+  if (TEXT_TAGS.includes(el.tagName)) return true;
+  // Also allow divs/other elements that contain direct text
+  if (el.tagName === 'DIV' && el.textContent && el.textContent.trim()) return true;
+  return false;
 }
 
-function highlightAllTextElements() {
-  if (highlightActive) return;
-  highlightActive = true;
-  const color = withAlpha(getSelectionColor(), 0.08);
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
-  let node;
-  while ((node = walker.nextNode())) {
-    if (isTextElement(node) && !isInspectorUI(node)) {
-      ensureOrig(node);
-      node.style.backgroundColor = color;
-      highlightedEls.add(node);
-    }
+// --- Hover label -----------------------------------------------------------
+
+function ensureHoverLabel() {
+  if (hoverLabel) return;
+  hoverLabel = document.createElement('div');
+  hoverLabel.textContent = 'click to edit';
+  Object.assign(hoverLabel.style, {
+    position: 'fixed',
+    zIndex: String(Z.tooltip),
+    background: 'rgba(0,0,0,0.45)',
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: '9px',
+    fontFamily: 'system-ui, sans-serif',
+    fontWeight: '400',
+    padding: '2px 6px',
+    borderRadius: '3px',
+    pointerEvents: 'none',
+    whiteSpace: 'nowrap',
+    opacity: '0',
+    transition: 'opacity 0.12s',
+    letterSpacing: '0.1px',
+  });
+  document.body.appendChild(hoverLabel);
+  inspectorUI.add(hoverLabel);
+}
+
+function positionLabel(el) {
+  if (!hoverLabel) return;
+  const rect = el.getBoundingClientRect();
+  hoverLabel.style.top = (rect.top - 22) + 'px';
+  hoverLabel.style.left = (rect.right - hoverLabel.offsetWidth) + 'px';
+  // If label would go offscreen top, put it below
+  if (rect.top - 22 < 4) {
+    hoverLabel.style.top = (rect.bottom + 4) + 'px';
+  }
+  // Clamp left
+  const labelRect = hoverLabel.getBoundingClientRect();
+  if (labelRect.left < 4) hoverLabel.style.left = '4px';
+  hoverLabel.style.opacity = '1';
+}
+
+function hideLabel() {
+  if (hoverLabel) hoverLabel.style.opacity = '0';
+}
+
+function destroyLabel() {
+  if (hoverLabel) {
+    inspectorUI.delete(hoverLabel);
+    hoverLabel.remove();
+    hoverLabel = null;
   }
 }
 
-function clearAllHighlights() {
-  if (!highlightActive) return;
-  highlightActive = false;
-  highlightedEls.forEach(el => {
-    if (!editableEls.has(el)) applyAnnotationStyle(el);
-  });
-  highlightedEls.clear();
+// --- Hover border ----------------------------------------------------------
+
+function applyHoverBorder(el) {
+  ensureOrig(el);
+  el.style.outline = '1px dashed rgba(150,150,150,0.5)';
+  el.style.outlineOffset = '2px';
 }
+
+function clearHoverBorder(el) {
+  if (!el) return;
+  if (editableEls.has(el)) {
+    el.style.outline = '';
+    el.style.outlineOffset = '';
+  } else {
+    applyAnnotationStyle(el);
+    el.style.outlineOffset = '';
+  }
+}
+
+// --- Hover logic -----------------------------------------------------------
 
 function clearHover() {
   if (!hoveredEl) return;
-  if (!editableEls.has(hoveredEl)) applyAnnotationStyle(hoveredEl);
+  clearHoverBorder(hoveredEl);
+  hideLabel();
   hoveredEl = null;
 }
 
 function onMove(e) {
   if (!activeMode) return;
+  // Suppress all hover states while actively editing
+  if (editableEls.size > 0) { clearHover(); return; }
   const el = e.target;
   if (isInspectorUI(el) || !isTextElement(el)) {
     clearHover();
@@ -84,17 +132,13 @@ function onMove(e) {
   if (el === hoveredEl) return;
   clearHover();
   hoveredEl = el;
-  ensureOrig(el);
-  if (!editableEls.has(el)) {
-    // Light wash on hover — no border, matches the Comment tool's
-    // text-hover treatment so the two tools feel the same.
-    el.style.backgroundColor = withAlpha(getSelectionColor(), 0.10);
-  }
+  applyHoverBorder(el);
+  ensureHoverLabel();
+  positionLabel(el);
 }
 
-// Place a collapsed selection range at the (clientX, clientY) point so
-// the caret lands where the user actually clicked, not at the element's
-// start. Uses both spec'd APIs for cross-browser support.
+// --- Caret placement -------------------------------------------------------
+
 function placeCaretFromPoint(clientX, clientY) {
   let range = null;
   if (document.caretPositionFromPoint) {
@@ -114,21 +158,23 @@ function placeCaretFromPoint(clientX, clientY) {
   }
 }
 
+// --- Editable lifecycle ----------------------------------------------------
+
 function makeEditable(el) {
   if (editableEls.has(el)) return;
   editableEls.add(el);
   ensureOrig(el);
   el.contentEditable = 'true';
   el.spellcheck = false;
-  // Opt-out for Grammarly / LanguageTool / similar editor extensions.
   el.setAttribute('data-gramm', 'false');
   el.setAttribute('data-gramm_editor', 'false');
   el.setAttribute('data-enable-grammarly', 'false');
   el.setAttribute('data-lt-tmp-id', '');
+  el.setAttribute('data-dt-text-editing', '');
   el.style.cursor = 'text';
-  // While the user is typing the element should look untouched — no
-  // border, no scrim, no all-text wash. Just a caret on plain text.
-  el.style.outline = '';
+  // Naked — no border, no wash, just plain text + caret
+  el.style.outline = 'none';
+  el.style.outlineOffset = '';
   el.style.backgroundColor = getOrigBackground(el);
 
   const originalText = el.innerText;
@@ -144,9 +190,11 @@ function makeEditable(el) {
 
 function unmakeEditable(el) {
   if (!editableEls.has(el)) return;
+  el.removeAttribute('data-dt-text-editing');
   el.contentEditable = 'false';
   el.style.cursor = '';
   el.style.outline = '';
+  el.style.outlineOffset = '';
   const h = inputHandlers.get(el);
   if (h) {
     el.removeEventListener('input', h);
@@ -156,6 +204,8 @@ function unmakeEditable(el) {
   applyAnnotationStyle(el);
 }
 
+// --- Click handler ---------------------------------------------------------
+
 function onClick(e) {
   if (!activeMode) return;
   const el = e.target;
@@ -164,12 +214,8 @@ function onClick(e) {
 
   e.preventDefault();
   e.stopPropagation();
-  clearAllHighlights();
   clearHover();
 
-  // Text mode is purely about typing — no comment bubble, no border.
-  // The diff (originalText vs current innerText) still rolls into
-  // copy-all output via setElementText in the input handler.
   makeEditable(el);
 
   const x = e.clientX, y = e.clientY;
@@ -179,6 +225,8 @@ function onClick(e) {
   }, 0);
 }
 
+// --- Module spec -----------------------------------------------------------
+
 export default {
   id: 'edit-mode',
   label: 'Edit Text',
@@ -187,7 +235,7 @@ export default {
   button: {
     icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M5 4v3h5.5v12h3V7H19V4H5z"/></svg>',
     tooltip: 'Edit Text',
-    color: ORANGE,
+    color: BLUE,
     order: 8,
   },
 
@@ -196,33 +244,19 @@ export default {
   init() {
     document.addEventListener('click', onClick, true);
     document.addEventListener('mousemove', onMove, true);
-
-    onColorChange((color) => {
-      // Editable elements aren't tinted anymore, so nothing to repaint
-      // there. Just refresh the all-text wash and the hover wash.
-      if (highlightActive) {
-        highlightedEls.forEach(el => {
-          if (!editableEls.has(el)) el.style.backgroundColor = withAlpha(color, 0.08);
-        });
-      }
-      if (hoveredEl && !editableEls.has(hoveredEl)) {
-        hoveredEl.style.backgroundColor = withAlpha(color, 0.10);
-      }
-    });
   },
 
   activate() {
     activeMode = true;
     state.editMode = true;
-    highlightAllTextElements();
     showToast('Edit Text — click any text to edit it inline');
   },
 
   deactivate() {
     activeMode = false;
     state.editMode = false;
-    clearAllHighlights();
     clearHover();
+    destroyLabel();
     Array.from(editableEls).forEach(unmakeEditable);
   },
 

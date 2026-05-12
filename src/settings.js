@@ -45,6 +45,18 @@ const EXPERIMENT_DEFS = [
     description: 'Hold Shift and click-drag any element to duplicate it.',
     default: false,
   },
+  {
+    id: 'canvas-zoom',
+    label: 'Canvas zoom & pan',
+    description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.',
+    default: true,
+  },
+  {
+    id: 'dblclick-edit',
+    label: 'Double-click to edit text',
+    description: 'Double-click a text element in Select mode to edit it inline.',
+    default: false,
+  },
 ];
 
 export function isExperimentEnabled(id) {
@@ -353,6 +365,8 @@ export function closeSettings() {
     visible = false;
     hidePopover();
     if (_settingsBtn) _settingsBtn.style.background = '#222';
+    activateModule('style-modifier');
+    setActiveButton('style-modifier');
   }
 }
 

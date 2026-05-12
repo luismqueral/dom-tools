@@ -60,6 +60,7 @@
     annotateMode: false,
     annotateSub: 'sticky', // 'pen' | 'sticky'
     styleModActive: false,
+    handToolActive: false,
   };
 
   // Set of all inspector UI elements (ignored by hover/click)
@@ -68,14 +69,11 @@
   // Colors
   const COLORS = {
     selector: '#0066ff',
-    edit: '#e67e00',
-    camera: '#cc3300',
-    annotate: '#7c3aed'};
+    camera: '#cc3300'};
   const SEL_OUTLINE = '2px solid ' + COLORS.selector;
   const SEL_BG = 'rgba(0, 102, 255, 0.12)';
   const CAM_OUTLINE = '2px solid ' + COLORS.camera;
   const CAM_BG = 'rgba(204, 51, 0, 0.06)';
-  const PEN_WIDTH = 2.5;
 
   const Z = {
     toolbar: 100000,
@@ -636,6 +634,399 @@
   }
 
   /**
+   * Settings popover, anchored above the toolbar's settings button.
+   *
+   * Self-contained for the minimal build — doesn't depend on a side panel.
+   * Click the gear → small dark popover floats just above the gear with the
+   * feature toggles. Click the gear again or activate any tool → closes.
+   */
+
+
+  let visible$1 = false;
+  let _settingsBtn = null;
+  let _popover = null;
+
+  const EXP_KEY = 'dom-tools-experiments';
+  let experiments = {};
+  try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (e) {}
+
+  const EXPERIMENT_DEFS = [
+    { id: 'dock', label: 'Edge snap', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
+    { id: 'terminal', label: 'Terminal', description: 'Mock terminal overlay for experimentation.', default: false },
+    {
+      id: 'move',
+      label: 'Move elements',
+      description: 'Hold Cmd to grab and rearrange elements.',
+      default: false,
+      options: {
+        id: 'moveType',
+        label: 'Type',
+        choices: [
+          { value: 'dom-reorder', label: 'DOM reorder' },
+          { value: 'free-position', label: 'Free position' },
+        ],
+        default: 'dom-reorder',
+      },
+    },
+    {
+      id: 'duplicate',
+      label: 'Duplicate element',
+      description: 'Hold Shift and click-drag any element to duplicate it.',
+      default: false,
+    },
+    {
+      id: 'canvas-zoom',
+      label: 'Canvas zoom & pan',
+      description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.',
+      default: true,
+    },
+    {
+      id: 'dblclick-edit',
+      label: 'Double-click to edit text',
+      description: 'Double-click a text element in Select mode to edit it inline.',
+      default: false,
+    },
+  ];
+
+  function isExperimentEnabled(id) {
+    const def = EXPERIMENT_DEFS.find(e => e.id === id);
+    if (id in experiments) return experiments[id];
+    return def ? def.default : false;
+  }
+
+  function getExperimentOption(id, optionId) {
+    const def = EXPERIMENT_DEFS.find(e => e.id === id);
+    if (!def || !def.options || def.options.id !== optionId) return null;
+    const key = `${id}.${optionId}`;
+    if (key in experiments) return experiments[key];
+    return def.options.default;
+  }
+
+  function setExperiment(id, on) {
+    experiments[id] = on;
+    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
+  }
+
+  function setExperimentOption(id, optionId, value) {
+    experiments[`${id}.${optionId}`] = value;
+    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
+  }
+
+  function sectionTitle(text, opts = {}) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    Object.assign(div.style, {
+      color: '#fff', fontSize: '11px', fontWeight: '600',
+      textTransform: 'uppercase', letterSpacing: '1px',
+      marginTop: opts.first ? '0' : '24px',
+      marginBottom: '12px',
+      paddingTop: opts.first ? '0' : '18px',
+      borderTop: opts.first ? 'none' : '1px solid rgba(255,255,255,0.08)',
+      color: '#888',
+    });
+    return div;
+  }
+
+  function buildColorSwatches() {
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
+      display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 0',
+    });
+    const swatchEls = [];
+    function refresh() {
+      const active = getSelectionColor();
+      swatchEls.forEach(({ el, value }) => {
+        el.style.boxShadow = value === active
+          ? '0 0 0 2px #181818, 0 0 0 4px ' + value
+          : 'none';
+      });
+    }
+    COLOR_OPTIONS.forEach(opt => {
+      const sw = document.createElement('button');
+      sw.type = 'button';
+      sw.title = opt.label;
+      sw.setAttribute('aria-label', opt.label);
+      Object.assign(sw.style, {
+        width: '22px', height: '22px', borderRadius: '50%',
+        background: opt.value, border: 'none', padding: '0',
+        cursor: 'pointer', flexShrink: '0', outline: 'none',
+        transition: 'box-shadow 0.12s',
+      });
+      sw.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSelectionColor(opt.value);
+        refresh();
+      });
+      swatchEls.push({ el: sw, value: opt.value });
+      wrap.appendChild(sw);
+    });
+    refresh();
+    return wrap;
+  }
+
+  function buildSettingsPanel() {
+    const container = document.createElement('div');
+
+    const colorTitle = sectionTitle('Selection color', { first: true });
+    container.appendChild(colorTitle);
+    container.appendChild(buildColorSwatches());
+
+    const title = sectionTitle('Features');
+    container.appendChild(title);
+
+    const modules = getModules();
+    modules.forEach(mod => {
+      if (!mod.button) return;
+      const row = document.createElement('label');
+      Object.assign(row.style, {
+        display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0',
+        color: '#ddd', fontSize: '13px', cursor: 'pointer'
+      });
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = isEnabled(mod.id);
+      checkbox.style.accentColor = mod.button.color || COLORS.selector;
+      checkbox.addEventListener('change', () => {
+        setEnabled(mod.id, checkbox.checked);
+        if (checkbox.checked) showButton(mod.id); else hideButton(mod.id);
+      });
+      const label = document.createElement('span');
+      label.textContent = mod.label || mod.id;
+      row.appendChild(checkbox);
+      row.appendChild(label);
+      container.appendChild(row);
+    });
+
+    const expTitle = sectionTitle('Experiments');
+    container.appendChild(expTitle);
+
+    EXPERIMENT_DEFS.forEach(exp => {
+      const wrap = document.createElement('div');
+      wrap.style.marginBottom = '10px';
+      const row = document.createElement('label');
+      Object.assign(row.style, {
+        display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
+        color: '#ddd', fontSize: '13px', cursor: 'pointer'
+      });
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = isExperimentEnabled(exp.id);
+      checkbox.style.accentColor = getSelectionColor();
+      checkbox.style.marginTop = '3px';
+      const labelWrap = document.createElement('div');
+      const labelText = document.createElement('span');
+      labelText.textContent = exp.label;
+      Object.assign(labelText.style, { display: 'block', fontWeight: '500' });
+      const desc = document.createElement('span');
+      desc.textContent = exp.description;
+      Object.assign(desc.style, { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' });
+      labelWrap.appendChild(labelText);
+      labelWrap.appendChild(desc);
+      row.appendChild(checkbox);
+      row.appendChild(labelWrap);
+      wrap.appendChild(row);
+
+      let optionsBlock = null;
+      if (exp.options) {
+        optionsBlock = buildExperimentOptions(exp);
+        optionsBlock.style.display = isExperimentEnabled(exp.id) ? 'block' : 'none';
+        wrap.appendChild(optionsBlock);
+      }
+
+      checkbox.addEventListener('change', () => {
+        setExperiment(exp.id, checkbox.checked);
+        if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
+      });
+
+      container.appendChild(wrap);
+    });
+
+    return container;
+  }
+
+  // Inline radio group rendered just under an experiment when it has
+  // nested options. Only the "move" experiment uses this so far; the
+  // renderer is generic for future ones.
+  function buildExperimentOptions(exp) {
+    const block = document.createElement('div');
+    Object.assign(block.style, {
+      marginLeft: '24px', marginTop: '4px', marginBottom: '6px',
+      paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.08)',
+    });
+    const optLabel = document.createElement('div');
+    optLabel.textContent = exp.options.label;
+    Object.assign(optLabel.style, {
+      color: '#aaa', fontSize: '10px', marginBottom: '4px',
+      textTransform: 'uppercase', letterSpacing: '0.4px',
+    });
+    block.appendChild(optLabel);
+
+    const groupName = `dt-exp-${exp.id}-${exp.options.id}`;
+    exp.options.choices.forEach(choice => {
+      const row = document.createElement('label');
+      Object.assign(row.style, {
+        display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0',
+        color: '#ddd', fontSize: '11px', cursor: 'pointer',
+      });
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = groupName;
+      radio.value = choice.value;
+      radio.checked = getExperimentOption(exp.id, exp.options.id) === choice.value;
+      radio.style.accentColor = getSelectionColor();
+      radio.addEventListener('change', () => {
+        if (radio.checked) setExperimentOption(exp.id, exp.options.id, choice.value);
+      });
+      const text = document.createElement('span');
+      text.textContent = choice.label;
+      row.appendChild(radio);
+      row.appendChild(text);
+      block.appendChild(row);
+    });
+    return block;
+  }
+
+  function onPopoverKeyDown(e) {
+    if (e.key === 'Escape') closeSettings();
+  }
+
+  function showPopover() {
+    // Full-screen overlay: a dimmed/blurred backdrop covering the whole
+    // viewport, with a centered card holding the settings UI. Clicking
+    // the backdrop or pressing Esc closes the panel.
+    _popover = document.createElement('div');
+    _popover.setAttribute('data-dt-settings', '');
+    Object.assign(_popover.style, {
+      position: 'fixed', inset: '0',
+      zIndex: String(Z.toolbar + 1),
+      background: 'rgba(0,0,0,0.55)',
+      backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
+      boxSizing: 'border-box', padding: '40px',
+    });
+
+    const card = document.createElement('div');
+    Object.assign(card.style, {
+      width: 'min(560px, 100%)',
+      maxHeight: '100%',
+      background: 'rgba(24,24,24,0.96)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '12px',
+      boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+      padding: '28px 32px',
+      boxSizing: 'border-box',
+      overflow: 'auto',
+      position: 'relative',
+    });
+
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      marginBottom: '18px',
+    });
+    const title = document.createElement('div');
+    title.textContent = 'Settings';
+    Object.assign(title.style, {
+      fontSize: '18px', fontWeight: '600', color: '#fff', letterSpacing: '0.3px',
+    });
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.setAttribute('aria-label', 'Close settings');
+    Object.assign(closeBtn.style, {
+      width: '32px', height: '32px', background: 'transparent',
+      border: 'none', color: '#aaa', fontSize: '24px', lineHeight: '1',
+      cursor: 'pointer', borderRadius: '6px', padding: '0',
+    });
+    closeBtn.addEventListener('mouseenter', () => {
+      closeBtn.style.background = 'rgba(255,255,255,0.08)';
+      closeBtn.style.color = '#fff';
+    });
+    closeBtn.addEventListener('mouseleave', () => {
+      closeBtn.style.background = 'transparent';
+      closeBtn.style.color = '#aaa';
+    });
+    closeBtn.addEventListener('click', () => closeSettings());
+
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+    card.appendChild(header);
+    card.appendChild(buildSettingsPanel());
+
+    _popover.appendChild(card);
+
+    _popover.addEventListener('click', (e) => {
+      if (e.target === _popover) closeSettings();
+    });
+
+    document.body.appendChild(_popover);
+    inspectorUI.add(_popover);
+    document.addEventListener('keydown', onPopoverKeyDown, true);
+  }
+
+  function hidePopover() {
+    if (_popover) {
+      inspectorUI.delete(_popover);
+      _popover.remove();
+      _popover = null;
+      document.removeEventListener('keydown', onPopoverKeyDown, true);
+    }
+  }
+
+  function toggleSettings() {
+    visible$1 = !visible$1;
+    if (visible$1) {
+      activateModule(null);
+      setActiveButton(null);
+      showPopover();
+      if (_settingsBtn) _settingsBtn.style.background = getSelectionColor();
+    } else {
+      hidePopover();
+      if (_settingsBtn) _settingsBtn.style.background = '#222';
+      activateModule('style-modifier');
+      setActiveButton('style-modifier');
+    }
+  }
+
+  function closeSettings() {
+    if (visible$1) {
+      visible$1 = false;
+      hidePopover();
+      if (_settingsBtn) _settingsBtn.style.background = '#222';
+      activateModule('style-modifier');
+      setActiveButton('style-modifier');
+    }
+  }
+
+  function initSettings() {
+    onToolActivate(closeSettings);
+
+    const btnStyle = {
+      width: '40px', height: '40px', background: '#222', color: '#fff',
+      borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
+      flexShrink: '0'
+    };
+    _settingsBtn = document.createElement('div');
+    _settingsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.44.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 110-7.2 3.6 3.6 0 010 7.2z"/></svg>';
+    Object.assign(_settingsBtn.style, btnStyle);
+    _settingsBtn.addEventListener('mouseenter', () => { if (!visible$1) _settingsBtn.style.background = '#333'; });
+    _settingsBtn.addEventListener('mouseleave', () => { if (!visible$1) _settingsBtn.style.background = '#222'; });
+    _settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); nudge(_settingsBtn); toggleSettings(); });
+    addTooltip(_settingsBtn, 'Settings');
+
+    toolbar.appendChild(_settingsBtn);
+    inspectorUI.add(_settingsBtn);
+
+    // Live theme: keep the gear's "active" background in sync if the
+    // user changes color while the popover is open.
+    onColorChange((color) => {
+      if (visible$1 && _settingsBtn) _settingsBtn.style.background = color;
+    });
+  }
+
+  /**
    * Pixelfraktur — small woff2 inlined as base64 so the bundle ships
    * with the font and works regardless of where dom-tools is hosted
    * (no relative path / CDN concerns). Used for the multi-select tag
@@ -666,31 +1057,18 @@
   }
 
   /**
-   * Comment tool — minimal click-to-leave-feedback mode.
+   * Select tool — point-and-click element selection for leaving feedback.
    *
-   * Click an element to select it; the pink note bubble that appears IS
-   * the editor — type directly into it. Shift+click another element to
-   * add it to the current selection — typing then attaches the same note
-   * to every selected element as a group annotation. Each selected
-   * element gets its own pink-bordered outline while the group is
-   * active; once you select something else, those previously-selected
-   * (still annotated) elements drop back to a translucent pink scrim
-   * instead of a hard border.
+   * Click an element to select it; the note bubble that appears IS the
+   * editor — type directly into it. Shift+click another element to add
+   * it to the current selection (group annotation). Each selected element
+   * gets its own outlined highlight while the group is active.
    *
-   * Comment mode is read-only as far as page text is concerned — inline
-   * text editing is the Edit Text tool's job, not ours.
+   * This tool is read-only as far as page text is concerned — inline text
+   * editing is exclusively the Edit Text tool's job.
    */
 
 
-  // Tags treated as "text" for hover purposes — they get a soft highlight
-  // instead of the dashed border + scale that block-level elements get.
-  const TEXT_TAGS$1 = [
-    'P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI',
-    'BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL','TD','TH'
-  ];
-  function isTextElement$1(el) {
-    return el && el.nodeType === 1 && TEXT_TAGS$1.includes(el.tagName);
-  }
 
   let activeMode$1 = false;
   let selected = [];
@@ -704,15 +1082,6 @@
   //     typing/editing still works. ---
   function ensureSelectionStyles() {
     if (document.getElementById('dt-comment-styles')) return;
-    // Text-tag selector kept in lockstep with TEXT_TAGS so hover cursor
-    // and hover background-only treatment apply to the same set.
-    const textSelector = TEXT_TAGS$1
-      .map(t => `html.dt-comment-active ${t.toLowerCase()}`)
-      .join(', ');
-    // Anything matching this lives in our own UI and should NOT pick up
-    // the page-wide Comment-mode cursor / user-select overrides.
-    // :where() has zero specificity, so wrapping it inside the :not()
-    // keeps the page rule's specificity manageable.
     const inspectorUiSelector = ':where(' + [
       '[data-dt-toolbar]', '[data-dt-toolbar] *',
       '[data-dt-bubble]', '[data-dt-bubble] *',
@@ -726,34 +1095,25 @@
     html.dt-comment-active body *:not(${inspectorUiSelector}) {
       user-select: none !important;
       -webkit-user-select: none !important;
-      cursor: default !important;
+      cursor: pointer !important;
     }
-    html.dt-comment-active [contenteditable="true"],
-    html.dt-comment-active [contenteditable="true"] *,
     html.dt-comment-active [data-dt-allow-select],
     html.dt-comment-active [data-dt-allow-select] * {
       user-select: text !important;
       -webkit-user-select: text !important;
-    }
-    ${textSelector} {
       cursor: text !important;
     }
-    html.dt-comment-active [contenteditable="true"],
-    html.dt-comment-active [contenteditable="true"] *,
+    html.dt-comment-active.dt-inline-editing body *:not([data-dt-allow-select]):not([data-dt-allow-select] *) {
+      cursor: default !important;
+    }
     html.dt-comment-active [data-dt-bubble] textarea {
       cursor: text !important;
     }
     html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
       cursor: grab !important;
     }
-    /* Native text-selection highlight follows the theme color across
-       any surface dom-tools is responsible for: the bubble's
-       textarea, contentEditable elements we promoted, and (when
-       Comment mode is live) the page itself for visual consistency. */
     [data-dt-bubble] textarea::selection,
     [data-dt-bubble] textarea::-moz-selection,
-    [contenteditable="true"]::selection,
-    [contenteditable="true"] *::selection,
     html.dt-comment-active ::selection {
       background: var(--dt-color-scrim);
       color: inherit;
@@ -893,7 +1253,6 @@
     const set = new Set();
     if (hoveredEl$1) set.add(hoveredEl$1);
     selected.forEach(s => set.add(s.el));
-    editableEls$1.forEach(el => set.add(el));
     return set;
   }
 
@@ -1024,6 +1383,11 @@
 
   function onMove$1(e) {
     if (!activeMode$1) return;
+    // Suppress hover while hand tool or inline editing is active
+    if (state.handToolActive || editingEl) {
+      if (hoveredEl$1) clearHover$1();
+      return;
+    }
     // Tag labels react to the cursor regardless of which element is
     // currently the hover target — even hovering inside a non-selected
     // child of a labeled selection should still hide the corner pill.
@@ -1035,133 +1399,27 @@
     }
     if (el === hoveredEl$1) return;
     clearHover$1();
-    // Don't hover-paint elements that are already in a "live" state —
-    // selected for commenting, or being text-edited.
+    // Don't hover-paint elements that are already selected.
     if (selected.find(s => s.el === el)) return;
-    if (editableEls$1.has(el)) return;
     hoveredEl$1 = el;
     ensureOrig(el);
 
     const color = getSelectionColor();
-    el.style.outline = getOrigOutline(el);
-
-    if (isTextElement$1(el)) {
-      // Text: light wash on hover.
-      el.style.backgroundColor = withAlpha(color, 0.10);
-    } else {
-      // Container: deeper wash since it's a region, not a single line.
-      el.style.backgroundColor = withAlpha(color, 0.22);
-    }
+    el.style.outline = '2.5px solid ' + withAlpha(color, 0.55);
+    el.style.backgroundColor = getOrigBackground(el);
     refreshTagLabels();
   }
 
-  // --- Inline text editing (experiment) -----------------------------------
-  // Comment mode used to be read-only; the dedicated Edit Text tool was
-  // the only way to retype copy. Now we also allow inline editing on
-  // text-tag elements directly from Comment mode — clicking a paragraph
-  // places a caret AND opens the comment bubble, so the user can either
-  // type new text or click into the bubble to leave a note. Text edits
-  // roll into the same annotation tracker, so copy-all picks them up
-  // regardless of which tool produced them.
-  const editableEls$1 = new Set();
-  const inputHandlers$1 = new WeakMap();
-
-  function placeCaretFromPoint$1(clientX, clientY) {
-    let range = null;
-    if (document.caretPositionFromPoint) {
-      const pos = document.caretPositionFromPoint(clientX, clientY);
-      if (pos) {
-        range = document.createRange();
-        range.setStart(pos.offsetNode, pos.offset);
-        range.collapse(true);
-      }
-    } else if (document.caretRangeFromPoint) {
-      range = document.caretRangeFromPoint(clientX, clientY);
-    }
-    if (range) {
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-  }
-
-  function makeTextEditable(el) {
-    if (editableEls$1.has(el)) return;
-    editableEls$1.add(el);
-    ensureOrig(el);
-    el.contentEditable = 'true';
-    // Spellcheck draws a red wavy underline under "misspelled" words —
-    // for design-tool text edits that's almost always noise. Off.
-    el.spellcheck = false;
-    // Opt out of editor-injecting browser extensions (Grammarly,
-    // LanguageTool, etc.). They add their own colored outlines / icons
-    // into any contentEditable they find, which fights our chrome.
-    el.setAttribute('data-gramm', 'false');
-    el.setAttribute('data-gramm_editor', 'false');
-    el.setAttribute('data-enable-grammarly', 'false');
-    el.setAttribute('data-lt-tmp-id', '');
-    el.style.outline = '2px solid ' + getSelectionColor();
-    el.style.backgroundColor = withAlpha(getSelectionColor(), 0.15);
-    const originalText = el.innerText;
-    const originalClasses = el.className;
-    const handler = () => {
-      setElementText(el, originalText, originalClasses);
-      evaluateAnnotation(el);
-      queueRepositionAll();
-    };
-    el.addEventListener('input', handler);
-    inputHandlers$1.set(el, handler);
-    refreshTagLabels();
-  }
-
-  function revertTextEditable(el) {
-    if (!editableEls$1.has(el)) return;
-    el.contentEditable = 'false';
-    const h = inputHandlers$1.get(el);
-    if (h) {
-      el.removeEventListener('input', h);
-      inputHandlers$1.delete(el);
-    }
-    editableEls$1.delete(el);
-    // Drop our outline; let the shared annotation tracker decide the
-    // resting state (scrim if a text edit was made, otherwise pristine).
-    applyAnnotationStyle(el);
-    refreshTagLabels();
-  }
-
-  function revertAllEditable() {
-    Array.from(editableEls$1).forEach(revertTextEditable);
-  }
-
-  // Intent-aware click router.
-  //
-  // The cursor over the click target tells us what the user wanted:
-  //   - I-beam over a text-tag element → "edit this text". Drop the
-  //     comment bubble + selection group, flip the element editable,
-  //     place the caret. No bubble appears — typing IS the action.
-  //   - Pointer over a container → "comment on this layout". Run the
-  //     normal selection/group flow, the pink bubble shows up, type a
-  //     note about it.
-  //
-  // Two carve-outs:
-  //   - Shift+click is always group-select intent (works on text and
-  //     container alike) — useful when the user actually wants to
-  //     comment on a paragraph rather than retype it.
-  //   - Clicking a text-tag element that's already part of a saved
-  //     comment re-opens the comment instead of trampling it with a
-  //     fresh text-edit session.
+  // --- Click handler -------------------------------------------------------
   function onClick$1(e) {
     if (!activeMode$1) return;
+    if (state.handToolActive) return;
     const el = e.target;
     if (isInspectorUI(el)) return;
-    // <body> / <html> aren't real "elements you'd want to comment on" —
-    // they're the canvas. Letting them be selected outlines the whole
-    // viewport in theme color and is almost never the user's intent.
-    // BUT: if the user has an empty note open (clicked an element, no
-    // text typed yet) and clicks blank canvas, treat that as "never
-    // mind" — drop the selection and the empty bubble. Notes with text
-    // stay put on a stray canvas click; the user shouldn't lose their
-    // work that easily.
+
+    // Don't interfere with inline editing
+    if (editingEl && (el === editingEl || editingEl.contains(el))) return;
+
     if (el === document.body || el === document.documentElement) {
       if (isActiveNoteEmpty() && selected.length) {
         clearSelection();
@@ -1169,61 +1427,112 @@
       return;
     }
 
-    // Re-clicking inside an already-editable text element should just
-    // move the caret natively. Don't preventDefault, don't re-copy
-    // markup (would spam the clipboard), don't re-trigger selection.
-    if (editableEls$1.has(el)) return;
-
     e.preventDefault();
     e.stopPropagation();
     clearHover$1();
     nudge(el);
-
-    // Text-edit intent. The user is doing two related things at once
-    // here: rewriting the words on the page AND (potentially) leaving a
-    // note about why. Both UIs come up — a caret in the element so they
-    // can type, and the comment bubble so they can describe the change.
-    // The text element keeps focus by default; clicking the bubble
-    // shifts focus to the textarea.
-    if (isTextElement$1(el) && !e.shiftKey) {
-      // If the user already has a saved comment on this text, treat the
-      // click as "open my note" instead of "retype the words".
-      if (findNoteAnnotationByEl(el)) {
-        revertAllEditable();
-        selectElement(el, false);
-        return;
-      }
-      revertAllEditable();
-      const x = e.clientX, y = e.clientY;
-      // Bubble first (queues its own focus on the textarea), then make
-      // the element editable; our setTimeout below runs LAST and steals
-      // focus back to the page text. Net result: caret on text, bubble
-      // visible alongside.
-      selectElement(el, false);
-      makeTextEditable(el);
-      setTimeout(() => {
-        el.focus();
-        placeCaretFromPoint$1(x, y);
-      }, 0);
-      return;
-    }
-
-    // Container/comment intent (and shift+click). Switching back to
-    // commenting flushes any open text-edit so the visual state is
-    // unambiguous about what the user is currently doing.
-    revertAllEditable();
+    setClickOrigin(e.clientX, e.clientY);
     selectElement(el, e.shiftKey);
+  }
+
+  // --- Double-click to edit (experiment-gated) -----------------------------
+  // Tags that should NOT be made contentEditable (structural/interactive)
+  const NON_EDITABLE_TAGS = new Set([
+    'HTML','BODY','SCRIPT','STYLE','LINK','META','HEAD',
+    'IFRAME','OBJECT','EMBED','VIDEO','AUDIO','CANVAS',
+    'INPUT','TEXTAREA','SELECT','BUTTON','FORM',
+    'SVG','PATH','IMG','BR','HR',
+  ]);
+
+  let editingEl = null;
+
+  function onDblClick(e) {
+    if (!activeMode$1) return;
+    if (!isExperimentEnabled('dblclick-edit')) return;
+    if (state.handToolActive) return;
+    const el = e.target;
+    if (isInspectorUI(el)) return;
+    if (!el || !el.tagName || NON_EDITABLE_TAGS.has(el.tagName)) return;
+    if (!el.textContent || !el.textContent.trim()) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Close the bubble that single-click opened — dblclick means "edit text"
+    closeEditor();
+    deselectAll();
+
+    // Make element editable inline
+    editingEl = el;
+    ensureOrig(el);
+    const originalText = el.innerText;
+    const originalClasses = el.className;
+    el.contentEditable = 'true';
+    el.spellcheck = false;
+    el.setAttribute('data-dt-allow-select', '');
+
+    // Visual feedback — text cursor + highlight
+    const color = getSelectionColor();
+    el.style.outline = '2px solid ' + color;
+    el.style.backgroundColor = withAlpha(color, 0.08);
+    el.style.cursor = 'text';
+    document.documentElement.classList.add('dt-inline-editing');
+
+    // Focus, select all text, and place caret after a tick (let the bubble close first)
+    setTimeout(() => {
+      el.focus();
+      // Select all text so the user sees what they're editing
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }, 0);
+
+    // Track text changes for copy-all output (register once on first input,
+    // then re-apply our editing outline since setElementText triggers
+    // applyAnnotationStyle which would overwrite it).
+    function onInput() {
+      setElementText(el, originalText, originalClasses);
+      // Restore editing visual — applyAnnotationStyle resets outline/bg
+      el.style.outline = '2px solid ' + color;
+      el.style.backgroundColor = withAlpha(color, 0.08);
+    }
+    el.addEventListener('input', onInput);
+
+    // Exit edit on blur or Escape
+    function exitEdit() {
+      el.removeEventListener('blur', exitEdit);
+      el.removeEventListener('keydown', onEditKey);
+      el.removeEventListener('input', onInput);
+      el.contentEditable = 'false';
+      el.removeAttribute('data-dt-allow-select');
+      el.style.cursor = '';
+      document.documentElement.classList.remove('dt-inline-editing');
+      editingEl = null;
+      evaluateAnnotation(el);
+      applyOutline(el);
+    }
+    function onEditKey(ev) {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        el.blur();
+      }
+    }
+    el.addEventListener('blur', exitEdit);
+    el.addEventListener('keydown', onEditKey);
   }
 
   // --- Module spec ---------------------------------------------------------
   const moduleSpec = {
     id: 'style-modifier',
-    label: 'Comment',
+    label: 'Select',
     enabledByDefault: true,
 
     button: {
       icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/></svg>',
-      tooltip: 'Comment (shift+click for group)',
+      tooltip: 'Select (shift+click for group)',
       get color() { return getSelectionColor(); },
       order: 5,
     },
@@ -1234,6 +1543,7 @@
       ensureSelectionStyles();
       ensurePlexMono();
       document.addEventListener('click', onClick$1, true);
+      document.addEventListener('dblclick', onDblClick, true);
       document.addEventListener('mousemove', onMove$1, true);
       window.addEventListener('scroll', repositionAllTagLabels, true);
       window.addEventListener('resize', repositionAllTagLabels);
@@ -1244,10 +1554,6 @@
       // everywhere.
       onColorChange((color) => {
         selected.forEach(s => applyOutline(s.el));
-        editableEls$1.forEach(el => {
-          el.style.outline = '2px solid ' + color;
-          el.style.backgroundColor = withAlpha(color, 0.15);
-        });
         tagLabels.forEach((entry) => { entry.lbl.style.background = color; });
         if (activeMode$1) setActiveButton('style-modifier');
       });
@@ -1258,7 +1564,7 @@
       state.styleModActive = true;
       document.body.style.cursor = '';
       document.documentElement.classList.add('dt-comment-active');
-      showToast('Click to comment, shift+click to group');
+      showToast('Click to select, shift+click to group');
     },
 
     deactivate() {
@@ -1268,7 +1574,6 @@
       document.documentElement.classList.remove('dt-comment-active');
       clearHover$1();
       clearSelection();
-      revertAllEditable();
       hideTagLabels();
     },
 
@@ -1333,6 +1638,8 @@
   function getOrigBackground(el) { return ORIG_BACKGROUNDS.get(el) || ''; }
 
   function applyAnnotationStyle(el) {
+    // Text-mode editing elements are kept naked — skip all styling.
+    if (el.hasAttribute('data-dt-text-editing')) return;
     if (isAnnotated(el)) {
       const inHoveredGroup = hoveredAnnotation && hoveredAnnotation.els.includes(el);
       const inActiveGroup = activeAnnotation && activeAnnotation.els.includes(el);
@@ -1512,6 +1819,8 @@
     ta.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Escape') ta.blur();
+      // Block held-spacebar repeat so it doesn't fill the field with spaces
+      if (e.key === ' ' && e.repeat) e.preventDefault();
     });
 
     bubble.appendChild(handle);
@@ -1587,16 +1896,61 @@
   }
 
   // Default placement: primary element's top-left, bubble sitting just
-  // above. customPosition (set by drag) is added on top of that so the
-  // bubble follows its element through scrolls but keeps any user-chosen
-  // offset.
+  // above. If there isn't enough room above (element near viewport top),
+  // flip below the element so the bubble never clips off-screen or
+  // overlaps the tag label. customPosition (set by drag) is added on top
+  // so the bubble follows its element through scrolls but keeps any
+  // user-chosen offset.
+  // Last click coordinates — set via setClickOrigin() from the Comment
+  // tool so the bubble appears near where the user clicked.
+  let _clickX = null;
+  let _clickY = null;
+  function setClickOrigin(x, y) { _clickX = x; _clickY = y; }
+
   function positionBubble(bubble, el, custom) {
     if (!el) return;
     const r = el.getBoundingClientRect();
     const bubbleH = bubble.offsetHeight || 32;
-    let left = r.left + window.scrollX;
-    let top = r.top + window.scrollY - bubbleH - 6;
-    if (custom) { left += custom.dx; top += custom.dy; }
+    const bubbleW = bubble.offsetWidth || 180;
+    let left, top;
+
+    // Consume click origin into a custom position on first use
+    if (!custom && _clickX !== null) {
+      const cx = _clickX;
+      const cy = _clickY;
+      _clickX = null;
+      _clickY = null;
+
+      left = cx + window.scrollX + 8;
+      top = cy + window.scrollY - bubbleH - 8;
+      // If it would go above viewport, flip below the click
+      if (cy - bubbleH - 8 < 0) {
+        top = cy + window.scrollY + 16;
+      }
+      // Clamp to viewport right edge
+      const maxLeft = window.scrollX + document.documentElement.clientWidth - bubbleW - 8;
+      if (left > maxLeft) left = maxLeft;
+
+      // Store as custom offset so repositions keep the bubble here
+      const ann = noteAnnotations.find(a => a.bubbleEl === bubble);
+      if (ann) {
+        ann.customPosition = {
+          dx: left - (r.left + window.scrollX),
+          dy: top - (r.top + window.scrollY - bubbleH - 6),
+        };
+      }
+    } else if (custom) {
+      // User dragged — respect their position unconditionally
+      left = r.left + window.scrollX + custom.dx;
+      top = r.top + window.scrollY - bubbleH - 6 + custom.dy;
+    } else if (r.top < bubbleH + 6 + 16) {
+      // Not enough room above — flip below the element
+      top = r.top + window.scrollY + r.height + 6;
+      left = r.left + window.scrollX;
+    } else {
+      top = r.top + window.scrollY - bubbleH - 6;
+      left = r.left + window.scrollX;
+    }
     bubble.style.left = left + 'px';
     bubble.style.top = top + 'px';
   }
@@ -2084,7 +2438,7 @@
   // Skip global letter shortcuts (Shift+T etc.) while the user is typing
   // into a real text field; they still want to type a literal "T". Esc
   // bypasses this so they can always exit a tool / disable.
-  function isTypingTarget(el) {
+  function isTypingTarget$1(el) {
     if (!el) return false;
     const tag = el.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
@@ -2162,7 +2516,7 @@
       // Tool/action shortcuts below this line don't fire while typing or
       // while DOM-Tools is fully disabled.
       if (!isToolsEnabled()) return;
-      if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
+      if (isTypingTarget$1(e.target) || isTypingTarget$1(document.activeElement)) return;
 
       // --- Top-level keyboard map -----------------------------------------
       //   Shift+T → Edit Text tool
@@ -2216,385 +2570,6 @@
         state.altHeld = false;
         state.slotType = null;
       }
-    });
-  }
-
-  /**
-   * Settings popover, anchored above the toolbar's settings button.
-   *
-   * Self-contained for the minimal build — doesn't depend on a side panel.
-   * Click the gear → small dark popover floats just above the gear with the
-   * feature toggles. Click the gear again or activate any tool → closes.
-   */
-
-
-  let visible$1 = false;
-  let _settingsBtn = null;
-  let _popover = null;
-
-  const EXP_KEY = 'dom-tools-experiments';
-  let experiments = {};
-  try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (e) {}
-
-  const EXPERIMENT_DEFS = [
-    { id: 'dock', label: 'Edge snap', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
-    { id: 'terminal', label: 'Terminal', description: 'Mock terminal overlay for experimentation.', default: false },
-    {
-      id: 'move',
-      label: 'Move elements',
-      description: 'Hold Cmd to grab and rearrange elements.',
-      default: false,
-      options: {
-        id: 'moveType',
-        label: 'Type',
-        choices: [
-          { value: 'dom-reorder', label: 'DOM reorder' },
-          { value: 'free-position', label: 'Free position' },
-        ],
-        default: 'dom-reorder',
-      },
-    },
-    {
-      id: 'duplicate',
-      label: 'Duplicate element',
-      description: 'Hold Shift and click-drag any element to duplicate it.',
-      default: false,
-    },
-  ];
-
-  function isExperimentEnabled(id) {
-    const def = EXPERIMENT_DEFS.find(e => e.id === id);
-    if (id in experiments) return experiments[id];
-    return def ? def.default : false;
-  }
-
-  function getExperimentOption(id, optionId) {
-    const def = EXPERIMENT_DEFS.find(e => e.id === id);
-    if (!def || !def.options || def.options.id !== optionId) return null;
-    const key = `${id}.${optionId}`;
-    if (key in experiments) return experiments[key];
-    return def.options.default;
-  }
-
-  function setExperiment(id, on) {
-    experiments[id] = on;
-    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
-  }
-
-  function setExperimentOption(id, optionId, value) {
-    experiments[`${id}.${optionId}`] = value;
-    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
-  }
-
-  function sectionTitle(text, opts = {}) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    Object.assign(div.style, {
-      color: '#fff', fontSize: '11px', fontWeight: '600',
-      textTransform: 'uppercase', letterSpacing: '1px',
-      marginTop: opts.first ? '0' : '24px',
-      marginBottom: '12px',
-      paddingTop: opts.first ? '0' : '18px',
-      borderTop: opts.first ? 'none' : '1px solid rgba(255,255,255,0.08)',
-      color: '#888',
-    });
-    return div;
-  }
-
-  function buildColorSwatches() {
-    const wrap = document.createElement('div');
-    Object.assign(wrap.style, {
-      display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 0',
-    });
-    const swatchEls = [];
-    function refresh() {
-      const active = getSelectionColor();
-      swatchEls.forEach(({ el, value }) => {
-        el.style.boxShadow = value === active
-          ? '0 0 0 2px #181818, 0 0 0 4px ' + value
-          : 'none';
-      });
-    }
-    COLOR_OPTIONS.forEach(opt => {
-      const sw = document.createElement('button');
-      sw.type = 'button';
-      sw.title = opt.label;
-      sw.setAttribute('aria-label', opt.label);
-      Object.assign(sw.style, {
-        width: '22px', height: '22px', borderRadius: '50%',
-        background: opt.value, border: 'none', padding: '0',
-        cursor: 'pointer', flexShrink: '0', outline: 'none',
-        transition: 'box-shadow 0.12s',
-      });
-      sw.addEventListener('click', (e) => {
-        e.stopPropagation();
-        setSelectionColor(opt.value);
-        refresh();
-      });
-      swatchEls.push({ el: sw, value: opt.value });
-      wrap.appendChild(sw);
-    });
-    refresh();
-    return wrap;
-  }
-
-  function buildSettingsPanel() {
-    const container = document.createElement('div');
-
-    const colorTitle = sectionTitle('Selection color', { first: true });
-    container.appendChild(colorTitle);
-    container.appendChild(buildColorSwatches());
-
-    const title = sectionTitle('Features');
-    container.appendChild(title);
-
-    const modules = getModules();
-    modules.forEach(mod => {
-      if (!mod.button) return;
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0',
-        color: '#ddd', fontSize: '13px', cursor: 'pointer'
-      });
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = isEnabled(mod.id);
-      checkbox.style.accentColor = mod.button.color || COLORS.selector;
-      checkbox.addEventListener('change', () => {
-        setEnabled(mod.id, checkbox.checked);
-        if (checkbox.checked) showButton(mod.id); else hideButton(mod.id);
-      });
-      const label = document.createElement('span');
-      label.textContent = mod.label || mod.id;
-      row.appendChild(checkbox);
-      row.appendChild(label);
-      container.appendChild(row);
-    });
-
-    const expTitle = sectionTitle('Experiments');
-    container.appendChild(expTitle);
-
-    EXPERIMENT_DEFS.forEach(exp => {
-      const wrap = document.createElement('div');
-      wrap.style.marginBottom = '10px';
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
-        color: '#ddd', fontSize: '13px', cursor: 'pointer'
-      });
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = isExperimentEnabled(exp.id);
-      checkbox.style.accentColor = getSelectionColor();
-      checkbox.style.marginTop = '3px';
-      const labelWrap = document.createElement('div');
-      const labelText = document.createElement('span');
-      labelText.textContent = exp.label;
-      Object.assign(labelText.style, { display: 'block', fontWeight: '500' });
-      const desc = document.createElement('span');
-      desc.textContent = exp.description;
-      Object.assign(desc.style, { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' });
-      labelWrap.appendChild(labelText);
-      labelWrap.appendChild(desc);
-      row.appendChild(checkbox);
-      row.appendChild(labelWrap);
-      wrap.appendChild(row);
-
-      let optionsBlock = null;
-      if (exp.options) {
-        optionsBlock = buildExperimentOptions(exp);
-        optionsBlock.style.display = isExperimentEnabled(exp.id) ? 'block' : 'none';
-        wrap.appendChild(optionsBlock);
-      }
-
-      checkbox.addEventListener('change', () => {
-        setExperiment(exp.id, checkbox.checked);
-        if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
-      });
-
-      container.appendChild(wrap);
-    });
-
-    return container;
-  }
-
-  // Inline radio group rendered just under an experiment when it has
-  // nested options. Only the "move" experiment uses this so far; the
-  // renderer is generic for future ones.
-  function buildExperimentOptions(exp) {
-    const block = document.createElement('div');
-    Object.assign(block.style, {
-      marginLeft: '24px', marginTop: '4px', marginBottom: '6px',
-      paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.08)',
-    });
-    const optLabel = document.createElement('div');
-    optLabel.textContent = exp.options.label;
-    Object.assign(optLabel.style, {
-      color: '#aaa', fontSize: '10px', marginBottom: '4px',
-      textTransform: 'uppercase', letterSpacing: '0.4px',
-    });
-    block.appendChild(optLabel);
-
-    const groupName = `dt-exp-${exp.id}-${exp.options.id}`;
-    exp.options.choices.forEach(choice => {
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0',
-        color: '#ddd', fontSize: '11px', cursor: 'pointer',
-      });
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = groupName;
-      radio.value = choice.value;
-      radio.checked = getExperimentOption(exp.id, exp.options.id) === choice.value;
-      radio.style.accentColor = getSelectionColor();
-      radio.addEventListener('change', () => {
-        if (radio.checked) setExperimentOption(exp.id, exp.options.id, choice.value);
-      });
-      const text = document.createElement('span');
-      text.textContent = choice.label;
-      row.appendChild(radio);
-      row.appendChild(text);
-      block.appendChild(row);
-    });
-    return block;
-  }
-
-  function onPopoverKeyDown(e) {
-    if (e.key === 'Escape') closeSettings();
-  }
-
-  function showPopover() {
-    // Full-screen overlay: a dimmed/blurred backdrop covering the whole
-    // viewport, with a centered card holding the settings UI. Clicking
-    // the backdrop or pressing Esc closes the panel.
-    _popover = document.createElement('div');
-    _popover.setAttribute('data-dt-settings', '');
-    Object.assign(_popover.style, {
-      position: 'fixed', inset: '0',
-      zIndex: String(Z.toolbar + 1),
-      background: 'rgba(0,0,0,0.55)',
-      backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
-      boxSizing: 'border-box', padding: '40px',
-    });
-
-    const card = document.createElement('div');
-    Object.assign(card.style, {
-      width: 'min(560px, 100%)',
-      maxHeight: '100%',
-      background: 'rgba(24,24,24,0.96)',
-      border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: '12px',
-      boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
-      padding: '28px 32px',
-      boxSizing: 'border-box',
-      overflow: 'auto',
-      position: 'relative',
-    });
-
-    const header = document.createElement('div');
-    Object.assign(header.style, {
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      marginBottom: '18px',
-    });
-    const title = document.createElement('div');
-    title.textContent = 'Settings';
-    Object.assign(title.style, {
-      fontSize: '18px', fontWeight: '600', color: '#fff', letterSpacing: '0.3px',
-    });
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.innerHTML = '&times;';
-    closeBtn.setAttribute('aria-label', 'Close settings');
-    Object.assign(closeBtn.style, {
-      width: '32px', height: '32px', background: 'transparent',
-      border: 'none', color: '#aaa', fontSize: '24px', lineHeight: '1',
-      cursor: 'pointer', borderRadius: '6px', padding: '0',
-    });
-    closeBtn.addEventListener('mouseenter', () => {
-      closeBtn.style.background = 'rgba(255,255,255,0.08)';
-      closeBtn.style.color = '#fff';
-    });
-    closeBtn.addEventListener('mouseleave', () => {
-      closeBtn.style.background = 'transparent';
-      closeBtn.style.color = '#aaa';
-    });
-    closeBtn.addEventListener('click', () => closeSettings());
-
-    header.appendChild(title);
-    header.appendChild(closeBtn);
-    card.appendChild(header);
-    card.appendChild(buildSettingsPanel());
-
-    _popover.appendChild(card);
-
-    _popover.addEventListener('click', (e) => {
-      if (e.target === _popover) closeSettings();
-    });
-
-    document.body.appendChild(_popover);
-    inspectorUI.add(_popover);
-    document.addEventListener('keydown', onPopoverKeyDown, true);
-  }
-
-  function hidePopover() {
-    if (_popover) {
-      inspectorUI.delete(_popover);
-      _popover.remove();
-      _popover = null;
-      document.removeEventListener('keydown', onPopoverKeyDown, true);
-    }
-  }
-
-  function toggleSettings() {
-    visible$1 = !visible$1;
-    if (visible$1) {
-      activateModule(null);
-      setActiveButton(null);
-      showPopover();
-      if (_settingsBtn) _settingsBtn.style.background = getSelectionColor();
-    } else {
-      hidePopover();
-      if (_settingsBtn) _settingsBtn.style.background = '#222';
-      activateModule('style-modifier');
-      setActiveButton('style-modifier');
-    }
-  }
-
-  function closeSettings() {
-    if (visible$1) {
-      visible$1 = false;
-      hidePopover();
-      if (_settingsBtn) _settingsBtn.style.background = '#222';
-    }
-  }
-
-  function initSettings() {
-    onToolActivate(closeSettings);
-
-    const btnStyle = {
-      width: '40px', height: '40px', background: '#222', color: '#fff',
-      borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
-      flexShrink: '0'
-    };
-    _settingsBtn = document.createElement('div');
-    _settingsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.44.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 110-7.2 3.6 3.6 0 010 7.2z"/></svg>';
-    Object.assign(_settingsBtn.style, btnStyle);
-    _settingsBtn.addEventListener('mouseenter', () => { if (!visible$1) _settingsBtn.style.background = '#333'; });
-    _settingsBtn.addEventListener('mouseleave', () => { if (!visible$1) _settingsBtn.style.background = '#222'; });
-    _settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); nudge(_settingsBtn); toggleSettings(); });
-    addTooltip(_settingsBtn, 'Settings');
-
-    toolbar.appendChild(_settingsBtn);
-    inspectorUI.add(_settingsBtn);
-
-    // Live theme: keep the gear's "active" background in sync if the
-    // user changes color while the popover is open.
-    onColorChange((color) => {
-      if (visible$1 && _settingsBtn) _settingsBtn.style.background = color;
     });
   }
 
@@ -2869,19 +2844,142 @@
 
   let drawCanvas = null;
   let isDrawing = false;
+  let drawPanel = null;
 
-  // Centralized so resize / color-change / new-stroke paths all converge
-  // on the same pen settings. strokeStyle pulls from the live theme so
-  // strokes drawn after a color swap pick up the new color immediately
-  // (already-rendered strokes stay as they were — repainting the canvas
-  // would require keeping a vector log we don't have).
+  // --- Draw settings (user-selectable via panel) ---
+  const DRAW_COLORS = [
+    { id: 'theme', value: null, label: 'Theme' },  // uses getSelectionColor()
+    { id: 'black', value: '#1e1e1e', label: 'Black' },
+    { id: 'red', value: '#e03131', label: 'Red' },
+    { id: 'orange', value: '#f76707', label: 'Orange' },
+    { id: 'green', value: '#2f9e44', label: 'Green' },
+    { id: 'blue', value: '#1971c2', label: 'Blue' },
+    { id: 'violet', value: '#7048e8', label: 'Violet' },
+  ];
+  const DRAW_SIZES = [
+    { id: 'S', width: 1.5 },
+    { id: 'M', width: 3 },
+    { id: 'L', width: 5 },
+    { id: 'XL', width: 8 },
+  ];
+  let activeColorId = 'theme';
+  let activeSizeId = 'M';
+
+  function getDrawColor() {
+    const opt = DRAW_COLORS.find(c => c.id === activeColorId);
+    return (opt && opt.value) || getSelectionColor();
+  }
+  function getDrawWidth() {
+    return (DRAW_SIZES.find(s => s.id === activeSizeId) || DRAW_SIZES[1]).width;
+  }
+
   function applyPenStyle() {
     if (!drawCanvas) return;
     const ctx = drawCanvas.getContext('2d');
-    ctx.strokeStyle = getSelectionColor();
-    ctx.lineWidth = PEN_WIDTH;
+    ctx.strokeStyle = getDrawColor();
+    ctx.lineWidth = getDrawWidth();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+  }
+
+  // --- Floating draw panel (top-right, tldraw-style) ---
+  function createDrawPanel() {
+    const panel = document.createElement('div');
+    panel.setAttribute('data-dt-ignore', '');
+    Object.assign(panel.style, {
+      position: 'fixed', top: '16px', right: '16px', zIndex: String(Z.toolbar + 1),
+      background: '#fff', borderRadius: '12px', padding: '12px',
+      boxShadow: '0 2px 16px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.06)',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      fontSize: '11px', userSelect: 'none', WebkitUserSelect: 'none',
+      display: 'none', minWidth: '148px',
+    });
+    inspectorUI.add(panel);
+
+    // Color swatches
+    const colorLabel = document.createElement('div');
+    colorLabel.textContent = 'Color';
+    Object.assign(colorLabel.style, { fontSize: '10px', fontWeight: '600', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' });
+    panel.appendChild(colorLabel);
+
+    const colorRow = document.createElement('div');
+    Object.assign(colorRow.style, { display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '12px' });
+    panel.appendChild(colorRow);
+
+    DRAW_COLORS.forEach(c => {
+      const swatch = document.createElement('button');
+      swatch.dataset.colorId = c.id;
+      const fill = c.value || getSelectionColor();
+      Object.assign(swatch.style, {
+        width: '22px', height: '22px', borderRadius: '50%', border: '2px solid transparent',
+        background: fill, cursor: 'pointer', padding: '0', transition: 'border-color 0.1s, transform 0.1s',
+      });
+      if (c.id === 'theme') {
+        // Gradient ring to indicate "theme" swatch
+        swatch.style.background = getSelectionColor();
+      }
+      swatch.addEventListener('click', () => {
+        activeColorId = c.id;
+        applyPenStyle();
+        renderPanelState();
+      });
+      colorRow.appendChild(swatch);
+    });
+
+    // Size options
+    const sizeLabel = document.createElement('div');
+    sizeLabel.textContent = 'Size';
+    Object.assign(sizeLabel.style, { fontSize: '10px', fontWeight: '600', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' });
+    panel.appendChild(sizeLabel);
+
+    const sizeRow = document.createElement('div');
+    Object.assign(sizeRow.style, { display: 'flex', gap: '6px', alignItems: 'center' });
+    panel.appendChild(sizeRow);
+
+    DRAW_SIZES.forEach(s => {
+      const btn = document.createElement('button');
+      btn.dataset.sizeId = s.id;
+      const dotSize = Math.max(6, s.width * 2.2);
+      Object.assign(btn.style, {
+        width: '32px', height: '28px', borderRadius: '6px', border: '1.5px solid #e5e7eb',
+        background: '#fff', cursor: 'pointer', padding: '0',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'border-color 0.1s, background 0.1s',
+      });
+      const dot = document.createElement('span');
+      Object.assign(dot.style, {
+        width: dotSize + 'px', height: dotSize + 'px', borderRadius: '50%', background: '#374151', display: 'block',
+      });
+      btn.appendChild(dot);
+      btn.addEventListener('click', () => {
+        activeSizeId = s.id;
+        applyPenStyle();
+        renderPanelState();
+      });
+      sizeRow.appendChild(btn);
+    });
+
+    document.body.appendChild(panel);
+    return panel;
+  }
+
+  function renderPanelState() {
+    if (!drawPanel) return;
+    // Update color swatches
+    drawPanel.querySelectorAll('[data-color-id]').forEach(swatch => {
+      const isActive = swatch.dataset.colorId === activeColorId;
+      swatch.style.borderColor = isActive ? getSelectionColor() : 'transparent';
+      swatch.style.transform = isActive ? 'scale(1.15)' : 'scale(1)';
+      // Keep theme swatch synced with current theme color
+      if (swatch.dataset.colorId === 'theme') {
+        swatch.style.background = getSelectionColor();
+      }
+    });
+    // Update size buttons
+    drawPanel.querySelectorAll('[data-size-id]').forEach(btn => {
+      const isActive = btn.dataset.sizeId === activeSizeId;
+      btn.style.borderColor = isActive ? getSelectionColor() : '#e5e7eb';
+      btn.style.background = isActive ? getSelectionColor() + '12' : '#fff';
+    });
   }
 
   function resizeDrawCanvas() {
@@ -2907,7 +3005,7 @@
     button: {
       icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
       tooltip: 'Draw',
-      color: COLORS.annotate,
+      color: '#3b82f6',
       order: 10,
     },
 
@@ -2924,7 +3022,7 @@
       window.addEventListener('resize', resizeDrawCanvas);
       // Theme swap → re-arm the context so the next stroke uses the new
       // color. (Existing strokes stay as-is; we don't keep a vector log.)
-      onColorChange(applyPenStyle);
+      onColorChange(() => { applyPenStyle(); renderPanelState(); });
 
       // Eraser cursor (follows mouse during right-click erase)
       const ERASER_SIZE = 20;
@@ -2993,9 +3091,11 @@
       state.annotateMode = true;
       state.annotateSub = 'pen';
       drawCanvas.style.pointerEvents = 'auto';
-      const penCursor = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\'%3E%3Cpath stroke=\'%23000\' stroke-width=\'1.5\' fill=\'%23fff\' d=\'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\'/%3E%3C/svg%3E") 2 18, crosshair';
-      document.body.style.cursor = penCursor;
-      drawCanvas.style.cursor = penCursor;
+      document.body.style.cursor = 'crosshair';
+      drawCanvas.style.cursor = 'crosshair';
+      if (!drawPanel) drawPanel = createDrawPanel();
+      drawPanel.style.display = 'block';
+      renderPanelState();
       showToast('Draw mode');
     },
 
@@ -3008,6 +3108,7 @@
         drawCanvas.style.pointerEvents = 'none';
         drawCanvas.style.cursor = '';
       }
+      if (drawPanel) drawPanel.style.display = 'none';
       document.body.style.cursor = '';
     },
 
@@ -3023,75 +3124,123 @@
   };
 
   /**
-   * Text tool — minimal inline text editor.
+   * Text tool — minimal, distraction-free inline text editor.
    *
-   * Click any text-tagged element to drop a caret in and start typing.
-   * Edits are tracked through the annotation system (originalText vs current
-   * innerText). The element gets the same pink scrim other annotated
-   * elements get, and the diff rolls into the "copy all changes" output
-   * alongside notes — no separate on-page marker.
-   *
-   * No Tailwind toolbar, no global designMode — each element is made
-   * contentEditable on click and reverted on tool deactivate. Sibling tool
-   * to the Comment cursor; only one tool is active at a time.
+   * Hover a text element to see a dashed border + "click to edit" label.
+   * Click to drop a caret — the element goes completely naked (no border,
+   * no label, no wash). Edits are tracked through the annotation system
+   * and roll into the "copy all changes" output silently.
    */
 
 
-  // Toolbar button keeps its own identity color so the icon is visually
-  // distinct from the Comment cursor in the rail. Text mode is
-  // intentionally chrome-free while you're typing — no border, no scrim,
-  // no comment bubble. Hover before you click still shows a soft wash so
-  // you can see what you're about to edit, but the moment you commit to
-  // editing the surface goes back to looking like plain page text.
-  const ORANGE = COLORS.edit;
+  const BLUE = COLORS.selector;
   const TEXT_TAGS = [
     'P','H1','H2','H3','H4','H5','H6','SPAN','A','LABEL','LI',
-    'BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL','TD','TH'
+    'BLOCKQUOTE','FIGCAPTION','DT','DD','EM','STRONG','SMALL','TD','TH',
+    'DIV',
   ];
 
   let activeMode = false;
   let hoveredEl = null;
-  let highlightActive = false;
-  const highlightedEls = new Set();
   const editableEls = new Set();
   const inputHandlers = new WeakMap();
 
+  // Shared hover label element
+  let hoverLabel = null;
+
   function isTextElement(el) {
-    return el && el.nodeType === 1 && TEXT_TAGS.includes(el.tagName);
+    if (!el || el.nodeType !== 1) return false;
+    if (TEXT_TAGS.includes(el.tagName)) return true;
+    // Also allow divs/other elements that contain direct text
+    if (el.tagName === 'DIV' && el.textContent && el.textContent.trim()) return true;
+    return false;
   }
 
-  function highlightAllTextElements() {
-    if (highlightActive) return;
-    highlightActive = true;
-    const color = withAlpha(getSelectionColor(), 0.08);
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
-    let node;
-    while ((node = walker.nextNode())) {
-      if (isTextElement(node) && !isInspectorUI(node)) {
-        ensureOrig(node);
-        node.style.backgroundColor = color;
-        highlightedEls.add(node);
-      }
+  // --- Hover label -----------------------------------------------------------
+
+  function ensureHoverLabel() {
+    if (hoverLabel) return;
+    hoverLabel = document.createElement('div');
+    hoverLabel.textContent = 'click to edit';
+    Object.assign(hoverLabel.style, {
+      position: 'fixed',
+      zIndex: String(Z.tooltip),
+      background: 'rgba(0,0,0,0.45)',
+      color: 'rgba(255,255,255,0.8)',
+      fontSize: '9px',
+      fontFamily: 'system-ui, sans-serif',
+      fontWeight: '400',
+      padding: '2px 6px',
+      borderRadius: '3px',
+      pointerEvents: 'none',
+      whiteSpace: 'nowrap',
+      opacity: '0',
+      transition: 'opacity 0.12s',
+      letterSpacing: '0.1px',
+    });
+    document.body.appendChild(hoverLabel);
+    inspectorUI.add(hoverLabel);
+  }
+
+  function positionLabel(el) {
+    if (!hoverLabel) return;
+    const rect = el.getBoundingClientRect();
+    hoverLabel.style.top = (rect.top - 22) + 'px';
+    hoverLabel.style.left = (rect.right - hoverLabel.offsetWidth) + 'px';
+    // If label would go offscreen top, put it below
+    if (rect.top - 22 < 4) {
+      hoverLabel.style.top = (rect.bottom + 4) + 'px';
+    }
+    // Clamp left
+    const labelRect = hoverLabel.getBoundingClientRect();
+    if (labelRect.left < 4) hoverLabel.style.left = '4px';
+    hoverLabel.style.opacity = '1';
+  }
+
+  function hideLabel() {
+    if (hoverLabel) hoverLabel.style.opacity = '0';
+  }
+
+  function destroyLabel() {
+    if (hoverLabel) {
+      inspectorUI.delete(hoverLabel);
+      hoverLabel.remove();
+      hoverLabel = null;
     }
   }
 
-  function clearAllHighlights() {
-    if (!highlightActive) return;
-    highlightActive = false;
-    highlightedEls.forEach(el => {
-      if (!editableEls.has(el)) applyAnnotationStyle(el);
-    });
-    highlightedEls.clear();
+  // --- Hover border ----------------------------------------------------------
+
+  function applyHoverBorder(el) {
+    ensureOrig(el);
+    el.style.outline = '1px dashed rgba(150,150,150,0.5)';
+    el.style.outlineOffset = '2px';
   }
+
+  function clearHoverBorder(el) {
+    if (!el) return;
+    if (editableEls.has(el)) {
+      el.style.outline = '';
+      el.style.outlineOffset = '';
+    } else {
+      applyAnnotationStyle(el);
+      el.style.outlineOffset = '';
+    }
+  }
+
+  // --- Hover logic -----------------------------------------------------------
 
   function clearHover() {
     if (!hoveredEl) return;
-    if (!editableEls.has(hoveredEl)) applyAnnotationStyle(hoveredEl);
+    clearHoverBorder(hoveredEl);
+    hideLabel();
     hoveredEl = null;
   }
 
   function onMove(e) {
     if (!activeMode) return;
+    // Suppress all hover states while actively editing
+    if (editableEls.size > 0) { clearHover(); return; }
     const el = e.target;
     if (isInspectorUI(el) || !isTextElement(el)) {
       clearHover();
@@ -3100,17 +3249,13 @@
     if (el === hoveredEl) return;
     clearHover();
     hoveredEl = el;
-    ensureOrig(el);
-    if (!editableEls.has(el)) {
-      // Light wash on hover — no border, matches the Comment tool's
-      // text-hover treatment so the two tools feel the same.
-      el.style.backgroundColor = withAlpha(getSelectionColor(), 0.10);
-    }
+    applyHoverBorder(el);
+    ensureHoverLabel();
+    positionLabel(el);
   }
 
-  // Place a collapsed selection range at the (clientX, clientY) point so
-  // the caret lands where the user actually clicked, not at the element's
-  // start. Uses both spec'd APIs for cross-browser support.
+  // --- Caret placement -------------------------------------------------------
+
   function placeCaretFromPoint(clientX, clientY) {
     let range = null;
     if (document.caretPositionFromPoint) {
@@ -3130,21 +3275,23 @@
     }
   }
 
+  // --- Editable lifecycle ----------------------------------------------------
+
   function makeEditable(el) {
     if (editableEls.has(el)) return;
     editableEls.add(el);
     ensureOrig(el);
     el.contentEditable = 'true';
     el.spellcheck = false;
-    // Opt-out for Grammarly / LanguageTool / similar editor extensions.
     el.setAttribute('data-gramm', 'false');
     el.setAttribute('data-gramm_editor', 'false');
     el.setAttribute('data-enable-grammarly', 'false');
     el.setAttribute('data-lt-tmp-id', '');
+    el.setAttribute('data-dt-text-editing', '');
     el.style.cursor = 'text';
-    // While the user is typing the element should look untouched — no
-    // border, no scrim, no all-text wash. Just a caret on plain text.
-    el.style.outline = '';
+    // Naked — no border, no wash, just plain text + caret
+    el.style.outline = 'none';
+    el.style.outlineOffset = '';
     el.style.backgroundColor = getOrigBackground(el);
 
     const originalText = el.innerText;
@@ -3160,9 +3307,11 @@
 
   function unmakeEditable(el) {
     if (!editableEls.has(el)) return;
+    el.removeAttribute('data-dt-text-editing');
     el.contentEditable = 'false';
     el.style.cursor = '';
     el.style.outline = '';
+    el.style.outlineOffset = '';
     const h = inputHandlers.get(el);
     if (h) {
       el.removeEventListener('input', h);
@@ -3172,6 +3321,8 @@
     applyAnnotationStyle(el);
   }
 
+  // --- Click handler ---------------------------------------------------------
+
   function onClick(e) {
     if (!activeMode) return;
     const el = e.target;
@@ -3180,12 +3331,8 @@
 
     e.preventDefault();
     e.stopPropagation();
-    clearAllHighlights();
     clearHover();
 
-    // Text mode is purely about typing — no comment bubble, no border.
-    // The diff (originalText vs current innerText) still rolls into
-    // copy-all output via setElementText in the input handler.
     makeEditable(el);
 
     const x = e.clientX, y = e.clientY;
@@ -3195,6 +3342,8 @@
     }, 0);
   }
 
+  // --- Module spec -----------------------------------------------------------
+
   var editMode = {
     id: 'edit-mode',
     label: 'Edit Text',
@@ -3203,7 +3352,7 @@
     button: {
       icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M5 4v3h5.5v12h3V7H19V4H5z"/></svg>',
       tooltip: 'Edit Text',
-      color: ORANGE,
+      color: BLUE,
       order: 8,
     },
 
@@ -3212,33 +3361,19 @@
     init() {
       document.addEventListener('click', onClick, true);
       document.addEventListener('mousemove', onMove, true);
-
-      onColorChange((color) => {
-        // Editable elements aren't tinted anymore, so nothing to repaint
-        // there. Just refresh the all-text wash and the hover wash.
-        if (highlightActive) {
-          highlightedEls.forEach(el => {
-            if (!editableEls.has(el)) el.style.backgroundColor = withAlpha(color, 0.08);
-          });
-        }
-        if (hoveredEl && !editableEls.has(hoveredEl)) {
-          hoveredEl.style.backgroundColor = withAlpha(color, 0.10);
-        }
-      });
     },
 
     activate() {
       activeMode = true;
       state.editMode = true;
-      highlightAllTextElements();
       showToast('Edit Text — click any text to edit it inline');
     },
 
     deactivate() {
       activeMode = false;
       state.editMode = false;
-      clearAllHighlights();
       clearHover();
+      destroyLabel();
       Array.from(editableEls).forEach(unmakeEditable);
     },
 
@@ -3578,7 +3713,7 @@
    */
 
 
-  let active$1 = false;     // module enabled (registered)
+  let active$2 = false;     // module enabled (registered)
   let cmdHeld = false;
   let dragging$1 = false;
   let dragEl = null;
@@ -3593,7 +3728,7 @@
   // Comment tool injects a `cursor: pointer !important` rule on
   // `html.dt-comment-active body *`, which beats inline styles. A class
   // on <html> + a matching !important rule wins on specificity.
-  function ensureCursorStyles$1() {
+  function ensureCursorStyles$2() {
     if (document.getElementById('dt-move-cursor-styles')) return;
     const style = document.createElement('style');
     style.id = 'dt-move-cursor-styles';
@@ -3892,8 +4027,8 @@
     setGrabState(cmdHeld ? 'grab' : null);
   }
 
-  function onKeyDown$1(e) {
-    if (!active$1) return;
+  function onKeyDown$2(e) {
+    if (!active$2) return;
     if (e.key === 'Meta' || e.key === 'Control') {
       cmdHeld = true;
       if (!dragging$1) setGrabState('grab');
@@ -3902,8 +4037,8 @@
     }
   }
 
-  function onKeyUp$1(e) {
-    if (!active$1) return;
+  function onKeyUp$2(e) {
+    if (!active$2) return;
     if (e.key === 'Meta' || e.key === 'Control') {
       cmdHeld = false;
       if (dragging$1) {
@@ -3915,8 +4050,8 @@
     }
   }
 
-  function onMouseMove$1(e) {
-    if (!active$1) return;
+  function onMouseMove$2(e) {
+    if (!active$2) return;
     if (dragging$1) {
       updateDrag$1(e);
       return;
@@ -3931,8 +4066,8 @@
     }
   }
 
-  function onMouseDown$1(e) {
-    if (!active$1 || !cmdHeld) return;
+  function onMouseDown$2(e) {
+    if (!active$2 || !cmdHeld) return;
     // Only respond to primary button.
     if (e.button !== 0) return;
     if (!isGrabbable(e.target)) return;
@@ -3940,12 +4075,12 @@
     startDrag$1(e);
   }
 
-  function onMouseUp$1(e) {
-    if (!active$1) return;
+  function onMouseUp$2(e) {
+    if (!active$2) return;
     if (dragging$1) commitDrag$1(e);
   }
 
-  function onWindowBlur$1() {
+  function onWindowBlur$2() {
     cmdHeld = false;
     if (dragging$1) cancelDrag$1();
     else { setGrabState(null); clearHoverPreview$1(); }
@@ -3958,19 +4093,19 @@
     enabledByDefault: true,
 
     init() {
-      active$1 = true;
-      ensureCursorStyles$1();
-      document.addEventListener('keydown', onKeyDown$1, true);
-      document.addEventListener('keyup', onKeyUp$1, true);
-      document.addEventListener('mousemove', onMouseMove$1, true);
-      document.addEventListener('mousedown', onMouseDown$1, true);
-      document.addEventListener('mouseup', onMouseUp$1, true);
-      window.addEventListener('blur', onWindowBlur$1);
+      active$2 = true;
+      ensureCursorStyles$2();
+      document.addEventListener('keydown', onKeyDown$2, true);
+      document.addEventListener('keyup', onKeyUp$2, true);
+      document.addEventListener('mousemove', onMouseMove$2, true);
+      document.addEventListener('mousedown', onMouseDown$2, true);
+      document.addEventListener('mouseup', onMouseUp$2, true);
+      window.addEventListener('blur', onWindowBlur$2);
     },
 
-    enable() { active$1 = true; },
+    enable() { active$2 = true; },
     disable() {
-      active$1 = false;
+      active$2 = false;
       cancelDrag$1();
       clearHoverPreview$1();
       setGrabState(null);
@@ -3992,7 +4127,7 @@
    */
 
 
-  let active = false;
+  let active$1 = false;
   let shiftHeld = false;
   let dragging = false;
   let sourceEl = null;     // the original element being duplicated
@@ -4002,7 +4137,7 @@
   let dropTarget = null;
   let startX = 0, startY = 0;
 
-  function ensureCursorStyles() {
+  function ensureCursorStyles$1() {
     if (document.getElementById('dt-dup-cursor-styles')) return;
     const style = document.createElement('style');
     style.id = 'dt-dup-cursor-styles';
@@ -4244,8 +4379,8 @@
     setDupState(shiftHeld ? 'active' : null);
   }
 
-  function onKeyDown(e) {
-    if (!active) return;
+  function onKeyDown$1(e) {
+    if (!active$1) return;
     if (e.key === 'Shift') {
       shiftHeld = true;
       if (!dragging) setDupState('active');
@@ -4254,8 +4389,8 @@
     }
   }
 
-  function onKeyUp(e) {
-    if (!active) return;
+  function onKeyUp$1(e) {
+    if (!active$1) return;
     if (e.key === 'Shift') {
       shiftHeld = false;
       if (dragging) cancelDrag();
@@ -4263,8 +4398,8 @@
     }
   }
 
-  function onMouseMove(e) {
-    if (!active) return;
+  function onMouseMove$1(e) {
+    if (!active$1) return;
     if (dragging) { updateDrag(e); return; }
     if (!shiftHeld) return;
     const el = e.target;
@@ -4276,20 +4411,20 @@
     }
   }
 
-  function onMouseDown(e) {
-    if (!active || !shiftHeld) return;
+  function onMouseDown$1(e) {
+    if (!active$1 || !shiftHeld) return;
     if (e.button !== 0) return;
     if (!isDuplicable(e.target)) return;
     clearHoverPreview();
     startDrag(e);
   }
 
-  function onMouseUp(e) {
-    if (!active) return;
+  function onMouseUp$1(e) {
+    if (!active$1) return;
     if (dragging) commitDrag();
   }
 
-  function onWindowBlur() {
+  function onWindowBlur$1() {
     shiftHeld = false;
     if (dragging) cancelDrag();
     else { setDupState(null); clearHoverPreview(); }
@@ -4302,19 +4437,19 @@
     enabledByDefault: true,
 
     init() {
-      active = true;
-      ensureCursorStyles();
-      document.addEventListener('keydown', onKeyDown, true);
-      document.addEventListener('keyup', onKeyUp, true);
-      document.addEventListener('mousemove', onMouseMove, true);
-      document.addEventListener('mousedown', onMouseDown, true);
-      document.addEventListener('mouseup', onMouseUp, true);
-      window.addEventListener('blur', onWindowBlur);
+      active$1 = true;
+      ensureCursorStyles$1();
+      document.addEventListener('keydown', onKeyDown$1, true);
+      document.addEventListener('keyup', onKeyUp$1, true);
+      document.addEventListener('mousemove', onMouseMove$1, true);
+      document.addEventListener('mousedown', onMouseDown$1, true);
+      document.addEventListener('mouseup', onMouseUp$1, true);
+      window.addEventListener('blur', onWindowBlur$1);
     },
 
-    enable() { active = true; },
+    enable() { active$1 = true; },
     disable() {
-      active = false;
+      active$1 = false;
       cancelDrag();
       clearHoverPreview();
       setDupState(null);
@@ -4385,6 +4520,639 @@
   };
 
   /**
+   * Canvas Zoom & Pan — Figma-style navigation.
+   *
+   * - Cmd + Scroll: zoom in/out via transform scale (not browser zoom)
+   * - Spacebar + Drag: pan the canvas via transform translate
+   *
+   * Transforms are applied to a wrapper div that contains all page
+   * content. Inspector UI (toolbar, overlays) lives outside the wrapper
+   * so it stays fixed and usable at any zoom level.
+   */
+
+
+  let active = false;
+  let wrapper = null;
+
+  // Transform state
+  let scale = 1;
+  let panX = 0;
+  let panY = 0;
+
+  // Interaction state
+  let spaceHeld = false;
+  let panning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let panStartPanX = 0;
+  let panStartPanY = 0;
+
+  // Hold-threshold: if spacebar is held longer than this, activate hand
+  // tool even inside text inputs. Mimics Figma behavior.
+  const SPACE_HOLD_MS = 200;
+  let spaceHoldTimer = null;
+  let spaceWasInInput = false;
+
+  const MIN_SCALE = 0.25;
+  const MAX_SCALE = 4;
+  const ZOOM_SPEED = 0.002;
+
+  // --- Zoom level indicator (tldraw-style) ---
+  let zoomIndicator = null;
+  let hideTimeout = null;
+
+  function ensureZoomIndicator() {
+    if (zoomIndicator) return;
+    zoomIndicator = document.createElement('div');
+    Object.assign(zoomIndicator.style, {
+      position: 'fixed',
+      bottom: '72px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background: 'rgba(30,30,30,0.85)',
+      color: '#fff',
+      fontSize: '12px',
+      fontWeight: '600',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      padding: '4px 10px',
+      borderRadius: '6px',
+      zIndex: String(Z.toolbar + 1),
+      pointerEvents: 'none',
+      opacity: '0',
+      transition: 'opacity 0.15s ease',
+      backdropFilter: 'blur(8px)',
+      WebkitBackdropFilter: 'blur(8px)',
+    });
+    document.body.appendChild(zoomIndicator);
+    inspectorUI.add(zoomIndicator);
+  }
+
+  function showZoomLevel() {
+    ensureZoomIndicator();
+    zoomIndicator.textContent = Math.round(scale * 100) + '%';
+    zoomIndicator.style.opacity = '1';
+    clearTimeout(hideTimeout);
+    hideTimeout = setTimeout(() => {
+      if (zoomIndicator) zoomIndicator.style.opacity = '0';
+    }, 1200);
+  }
+
+  // --- Minimap (bottom-right viewport overview with page thumbnail) ---
+  let minimap = null;
+  let minimapCanvas = null;
+  let minimapViewport = null;
+  let minimapCtx = null;
+  let thumbnailDirty = true;
+
+  const MAP_W = 160;
+  const MAP_H = 120;
+  const MAP_PAD = 6;
+
+  function ensureMinimap() {
+    if (minimap) return;
+    minimap = document.createElement('div');
+    Object.assign(minimap.style, {
+      position: 'fixed',
+      bottom: '72px',
+      right: '16px',
+      width: MAP_W + 'px',
+      height: MAP_H + 'px',
+      background: 'rgba(30,30,30,0.9)',
+      border: '1px solid rgba(255,255,255,0.12)',
+      borderRadius: '8px',
+      zIndex: String(Z.toolbar + 1),
+      pointerEvents: 'none',
+      opacity: '0',
+      transition: 'opacity 0.2s ease',
+      overflow: 'hidden',
+      backdropFilter: 'blur(8px)',
+      WebkitBackdropFilter: 'blur(8px)',
+    });
+
+    // Canvas for page thumbnail
+    minimapCanvas = document.createElement('canvas');
+    minimapCanvas.width = MAP_W * 2; // retina
+    minimapCanvas.height = MAP_H * 2;
+    Object.assign(minimapCanvas.style, {
+      position: 'absolute',
+      inset: '0',
+      width: '100%',
+      height: '100%',
+    });
+    minimapCtx = minimapCanvas.getContext('2d');
+    minimap.appendChild(minimapCanvas);
+
+    // Viewport rectangle overlay
+    minimapViewport = document.createElement('div');
+    Object.assign(minimapViewport.style, {
+      position: 'absolute',
+      border: '1.5px solid #60a5fa',
+      borderRadius: '2px',
+      background: 'rgba(96,165,250,0.1)',
+    });
+    minimap.appendChild(minimapViewport);
+
+    document.body.appendChild(minimap);
+    inspectorUI.add(minimap);
+  }
+
+  // Render a lightweight thumbnail of the page by sampling visible elements
+  // and drawing colored blocks. Not pixel-perfect, but gives spatial context.
+  function renderThumbnail() {
+    if (!minimapCtx || !wrapper) return;
+    thumbnailDirty = false;
+
+    const ctx = minimapCtx;
+    const dpr = 2;
+    const cW = MAP_W * dpr;
+    const cH = MAP_H * dpr;
+    const pad = MAP_PAD * dpr;
+    const innerW = cW - pad * 2;
+    const innerH = cH - pad * 2;
+
+    const docW = wrapper.scrollWidth;
+    const docH = wrapper.scrollHeight;
+
+    // Fit document proportionally
+    const docAspect = docW / docH;
+    const mapAspect = innerW / innerH;
+    let drawW, drawH;
+    if (docAspect > mapAspect) {
+      drawW = innerW;
+      drawH = innerW / docAspect;
+    } else {
+      drawH = innerH;
+      drawW = innerH * docAspect;
+    }
+    const offsetX = pad + (innerW - drawW) / 2;
+    const offsetY = pad + (innerH - drawH) / 2;
+    const s = drawW / docW;
+
+    // Clear
+    ctx.clearRect(0, 0, cW, cH);
+
+    // Document background
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(offsetX, offsetY, drawW, drawH);
+
+    // Sample visible elements and draw blocks
+    const els = wrapper.querySelectorAll('*');
+    const wrapperRect = wrapper.getBoundingClientRect();
+
+    for (let i = 0; i < els.length && i < 300; i++) {
+      const el = els[i];
+      if (inspectorUI.has(el)) continue;
+      if (el.offsetWidth === 0 || el.offsetHeight === 0) continue;
+
+      const r = el.getBoundingClientRect();
+      // Position relative to wrapper's content origin
+      const x = (r.left - wrapperRect.left + wrapper.scrollLeft) * s;
+      const y = (r.top - wrapperRect.top + wrapper.scrollTop) * s;
+      const w = r.width * s;
+      const h = r.height * s;
+
+      if (w < 1 || h < 1) continue;
+
+      // Sample the element's color
+      const computed = window.getComputedStyle(el);
+      const bg = computed.backgroundColor;
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+        ctx.fillStyle = bg;
+        ctx.fillRect(offsetX + x, offsetY + y, w, h);
+      }
+
+      // Draw text-like elements as grey lines
+      const tag = el.tagName;
+      if (['P','H1','H2','H3','H4','H5','H6','SPAN','A','LI','LABEL'].includes(tag)) {
+        ctx.fillStyle = 'rgba(60,60,60,0.25)';
+        const lineH = Math.max(1.5, h * 0.4);
+        ctx.fillRect(offsetX + x, offsetY + y + (h - lineH) / 2, w * 0.85, lineH);
+      }
+
+      // Images get a subtle grey fill
+      if (tag === 'IMG' || tag === 'VIDEO' || tag === 'SVG') {
+        ctx.fillStyle = 'rgba(120,120,120,0.2)';
+        ctx.fillRect(offsetX + x, offsetY + y, w, h);
+      }
+    }
+  }
+
+  function updateMinimap() {
+    if (!minimap || !wrapper) return;
+
+    const show = scale !== 1 || panX !== 0 || panY !== 0;
+    minimap.style.opacity = show ? '1' : '0';
+    if (!show) return;
+
+    // Render thumbnail once and keep it static — only the viewport rect moves
+    if (thumbnailDirty) renderThumbnail();
+    const pad = MAP_PAD;
+    const innerW = MAP_W - pad * 2;
+    const innerH = MAP_H - pad * 2;
+
+    const docW = wrapper.scrollWidth;
+    const docH = wrapper.scrollHeight;
+
+    const docAspect = docW / docH;
+    const mapAspect = innerW / innerH;
+    let drawW, drawH;
+    if (docAspect > mapAspect) {
+      drawW = innerW;
+      drawH = innerW / docAspect;
+    } else {
+      drawH = innerH;
+      drawW = innerH * docAspect;
+    }
+    const offsetX = pad + (innerW - drawW) / 2;
+    const offsetY = pad + (innerH - drawH) / 2;
+    const s = drawW / docW;
+
+    // Viewport in document coordinates
+    const vpW = window.innerWidth / scale;
+    const vpH = window.innerHeight / scale;
+    const vpX = -panX / scale;
+    const vpY = -panY / scale;
+
+    Object.assign(minimapViewport.style, {
+      left: (offsetX + vpX * s) + 'px',
+      top: (offsetY + vpY * s) + 'px',
+      width: Math.min(vpW * s, drawW) + 'px',
+      height: Math.min(vpH * s, drawH) + 'px',
+    });
+  }
+
+  // --- Content wrapper ---
+  // Wraps all page content so transforms don't affect inspector UI.
+
+  function ensureWrapper() {
+    if (wrapper) return;
+    wrapper = document.createElement('div');
+    wrapper.id = 'dt-canvas-wrapper';
+    wrapper.style.transformOrigin = '0 0';
+    wrapper.style.minHeight = '100vh';
+
+    // Move all existing body children into the wrapper, except
+    // elements that belong to the inspector UI.
+    const children = Array.from(document.body.childNodes);
+    for (const child of children) {
+      if (child.nodeType === 1 && inspectorUI.has(child)) continue;
+      wrapper.appendChild(child);
+    }
+    // Insert wrapper as first child of body (before any inspector UI nodes)
+    document.body.insertBefore(wrapper, document.body.firstChild);
+  }
+
+  // --- Canvas background with contrast ---
+  // Parse an rgb/rgba string into [r, g, b]. Returns null if unparseable.
+  function parseRgb(str) {
+    if (!str) return null;
+    const m = str.match(/rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)/);
+    return m ? [+m[1], +m[2], +m[3]] : null;
+  }
+
+  // Perceived luminance (0–255 scale, rough)
+  function luminance(r, g, b) {
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+  }
+
+  // Pick a canvas bg that contrasts with the document's background.
+  // Light documents get a medium grey canvas; dark documents get a lighter one.
+  // Mid-tone documents (greys) get a darker canvas for separation.
+  function computeCanvasBg(docBgStr) {
+    const rgb = parseRgb(docBgStr);
+    if (!rgb) return '#e5e5e5';
+    const lum = luminance(...rgb);
+    if (lum > 200) return '#d4d4d4';      // white/light → medium grey
+    if (lum > 140) return '#9ca3af';      // mid-light (grey sites) → darker grey
+    if (lum > 80)  return '#4b5563';      // mid-dark → dark grey
+    return '#374151';                      // dark → slightly lighter dark
+  }
+
+  // --- Transform application ---
+
+  // Snapshot the page's original background before we ever touch it.
+  let originalDocBg = null;
+
+  function snapshotDocBg() {
+    if (originalDocBg !== null) return;
+    const isTransparent = (c) => !c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent';
+    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
+    const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
+    originalDocBg = !isTransparent(bodyBg) ? bodyBg : !isTransparent(htmlBg) ? htmlBg : '#fff';
+  }
+
+  function applyTransform() {
+    if (!wrapper) return;
+    wrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    ensureMinimap();
+    updateMinimap();
+
+    const zoomed = scale !== 1;
+    if (zoomed) {
+      if (!wrapper.dataset.dtBgSet) {
+        snapshotDocBg();
+        wrapper.style.background = originalDocBg;
+        wrapper.style.padding = '16px';
+        wrapper.style.border = '1px solid #d1d5db';
+        wrapper.style.borderRadius = '4px';
+        wrapper.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)';
+        wrapper.dataset.dtBgSet = '1';
+      }
+      document.body.style.background = computeCanvasBg(originalDocBg);
+    } else {
+      document.body.style.background = '';
+      wrapper.style.background = '';
+      wrapper.style.padding = '';
+      wrapper.style.border = '';
+      wrapper.style.borderRadius = '';
+      wrapper.style.boxShadow = '';
+      delete wrapper.dataset.dtBgSet;
+    }
+    showZoomLevel();
+  }
+
+  function resetTransform() {
+    scale = 1;
+    panX = 0;
+    panY = 0;
+    if (wrapper) {
+      wrapper.style.transform = '';
+      wrapper.style.background = '';
+      wrapper.style.padding = '';
+      wrapper.style.border = '';
+      wrapper.style.borderRadius = '';
+      wrapper.style.boxShadow = '';
+      delete wrapper.dataset.dtBgSet;
+    }
+    document.body.style.background = '';
+    updateMinimap();
+    showZoomLevel();
+  }
+
+  // --- Cursor styles ---
+
+  function ensureCursorStyles() {
+    if (document.getElementById('dt-zoom-cursor-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'dt-zoom-cursor-styles';
+    style.textContent = `
+    html.dt-space-grab, html.dt-space-grab body,
+    html.dt-space-grab body *,
+    html.dt-comment-active.dt-space-grab body,
+    html.dt-comment-active.dt-space-grab body * {
+      cursor: grab !important;
+    }
+    html.dt-space-grabbing, html.dt-space-grabbing body,
+    html.dt-space-grabbing body *,
+    html.dt-comment-active.dt-space-grabbing body,
+    html.dt-comment-active.dt-space-grabbing body * {
+      cursor: grabbing !important;
+    }
+    /* Hide all markings and selection outlines while hand tool is active */
+    html.dt-space-grab [data-dt-tag-label],
+    html.dt-space-grab [data-dt-bubble],
+    html.dt-space-grabbing [data-dt-tag-label],
+    html.dt-space-grabbing [data-dt-bubble] {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+    html.dt-space-grab #dt-canvas-wrapper *,
+    html.dt-space-grabbing #dt-canvas-wrapper * {
+      outline: transparent !important;
+    }
+  `;
+    document.head.appendChild(style);
+    inspectorUI.add(style);
+  }
+
+  function setCursorState(cursorState) {
+    const html = document.documentElement;
+    html.classList.remove('dt-space-grab', 'dt-space-grabbing');
+    if (cursorState === 'grab') html.classList.add('dt-space-grab');
+    else if (cursorState === 'grabbing') html.classList.add('dt-space-grabbing');
+  }
+
+  // --- Zoom (Cmd + Scroll) — only when experiment is enabled ---
+
+  function onWheel(e) {
+    if (!active) return;
+    if (!e.metaKey && !e.ctrlKey) return;
+    if (!isExperimentEnabled('canvas-zoom')) return;
+
+    e.preventDefault();
+
+    // Cursor position in content coordinates (before transform)
+    const cursorX = (e.clientX - panX) / scale;
+    const cursorY = (e.clientY - panY) / scale;
+
+    const delta = -e.deltaY * ZOOM_SPEED;
+    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * (1 + delta)));
+
+    // Adjust pan so the point under the cursor stays fixed
+    panX = e.clientX - cursorX * newScale;
+    panY = e.clientY - cursorY * newScale;
+    scale = newScale;
+
+    applyTransform();
+  }
+
+  // --- Pan (Spacebar + Drag) ---
+
+  function activateHandTool() {
+    spaceHeld = true;
+    state.handToolActive = true;
+    document.documentElement.style.userSelect = 'none';
+    document.documentElement.style.webkitUserSelect = 'none';
+    if (!panning) setCursorState('grab');
+    // If we took over from a text input, remove the space character that
+    // may have been typed before the threshold fired.
+    if (spaceWasInInput) {
+      const el = document.activeElement;
+      if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') && el.value.endsWith(' ')) {
+        el.value = el.value.slice(0, -1);
+      }
+      el && el.blur && el.blur();
+    }
+  }
+
+  function onKeyDown(e) {
+    if (!active) return;
+    // Cmd+Esc or Cmd+0 resets zoom & pan to 100%
+    if (((e.key === 'Escape' || e.key === '0') && (e.metaKey || e.ctrlKey)) && scale !== 1) {
+      e.preventDefault();
+      e.stopPropagation();
+      resetTransform();
+      return;
+    }
+    // Cmd+- / Cmd+= : reset canvas transform and let browser zoom through
+    if ((e.key === '-' || e.key === '=' || e.key === '+') && (e.metaKey || e.ctrlKey) && scale !== 1) {
+      resetTransform();
+      // Don't preventDefault — let the browser handle its native zoom
+      return;
+    }
+    if (e.key !== ' ') return;
+    // Hand tool is gated behind the canvas-zoom experiment
+    if (!isExperimentEnabled('canvas-zoom')) return;
+    if (e.repeat) {
+      // If already in hand mode from threshold, suppress repeats
+      if (spaceHeld) { e.preventDefault(); e.stopImmediatePropagation(); }
+      return;
+    }
+
+    const inInput = isTypingTarget(e.target) || (e.target.closest && e.target.closest('[data-dt-bubble]') && !e.target.readOnly);
+    spaceWasInInput = inInput;
+
+    if (!inInput) {
+      // Not in a text field — activate immediately
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      activateHandTool();
+    } else {
+      spaceHoldTimer = setTimeout(() => {
+        spaceHoldTimer = null;
+        activateHandTool();
+      }, SPACE_HOLD_MS);
+    }
+  }
+
+  function onKeyUp(e) {
+    if (!active) return;
+    if (e.key !== ' ') return;
+
+    // Clear hold timer if it hasn't fired yet (was a quick tap in input)
+    if (spaceHoldTimer) {
+      clearTimeout(spaceHoldTimer);
+      spaceHoldTimer = null;
+      // Let the space character stay — it was just a normal keystroke
+      return;
+    }
+
+    if (!spaceHeld) return;
+
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    spaceHeld = false;
+    state.handToolActive = false;
+    spaceWasInInput = false;
+    document.documentElement.style.userSelect = '';
+    document.documentElement.style.webkitUserSelect = '';
+    if (panning) {
+      endPan();
+    }
+    setCursorState(null);
+  }
+
+  function onMouseDown(e) {
+    if (!active || !spaceHeld) return;
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    panning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panStartPanX = panX;
+    panStartPanY = panY;
+    setCursorState('grabbing');
+  }
+
+  function onMouseMove(e) {
+    if (!active || !panning) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const dx = e.clientX - panStartX;
+    const dy = e.clientY - panStartY;
+
+    if (scale === 1) {
+      // At 1x zoom, scroll the page (hand-tool feel)
+      window.scrollBy(panStartX - e.clientX, panStartY - e.clientY);
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+    } else {
+      // When zoomed, pan the canvas via translate
+      panX = panStartPanX + dx;
+      panY = panStartPanY + dy;
+      applyTransform();
+    }
+  }
+
+  function onMouseUp(e) {
+    if (!active || !panning) return;
+    e.preventDefault();
+    e.stopPropagation();
+    endPan();
+  }
+
+  function endPan() {
+    panning = false;
+    setCursorState(spaceHeld ? 'grab' : null);
+  }
+
+  function onKeyPress(e) {
+    if (!active) return;
+    if (spaceHeld && e.key === ' ') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }
+
+  function onWindowBlur() {
+    spaceHeld = false;
+    state.handToolActive = false;
+    document.documentElement.style.userSelect = '';
+    document.documentElement.style.webkitUserSelect = '';
+    if (panning) endPan();
+    setCursorState(null);
+  }
+
+  // Don't hijack spacebar when the user is typing
+  function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (el.isContentEditable) return true;
+    return false;
+  }
+
+  var canvasZoom = {
+    id: 'canvas-zoom',
+    label: 'Canvas Zoom',
+    enabledByDefault: true,
+
+    init() {
+      active = true;
+      ensureCursorStyles();
+      if (isExperimentEnabled('canvas-zoom')) ensureWrapper();
+
+      // Wheel must be passive:false to allow preventDefault on Cmd+Scroll
+      document.addEventListener('wheel', onWheel, { passive: false, capture: true });
+      document.addEventListener('keydown', onKeyDown, true);
+      document.addEventListener('keypress', onKeyPress, true);
+      document.addEventListener('keyup', onKeyUp, true);
+      document.addEventListener('mousedown', onMouseDown, true);
+      document.addEventListener('mousemove', onMouseMove, true);
+      document.addEventListener('mouseup', onMouseUp, true);
+      window.addEventListener('blur', onWindowBlur);
+    },
+
+    enable() { active = true; },
+    disable() {
+      active = false;
+      resetTransform();
+      setCursorState(null);
+      spaceHeld = false;
+      panning = false;
+    },
+
+    // Expose for other modules if needed
+    getScale() { return scale; },
+    reset() { resetTransform(); },
+  };
+
+  /**
    * DOM-Tools (minimal)
    * Drop <script src="dom-tools.js"></script> before </body> in any HTML file.
    * Activate by adding ?dom-tools to the page URL, OR by double-tapping Esc.
@@ -4405,6 +5173,7 @@
     register(editMode);
     register(camera);
     register(copySelector);
+    register(canvasZoom);
     if (isExperimentEnabled('terminal')) register(terminal);
     if (isExperimentEnabled('move')) register(move);
     if (isExperimentEnabled('duplicate')) register(duplicate);

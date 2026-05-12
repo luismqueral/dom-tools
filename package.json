@@ -1,7 +1,11 @@
 {
   "name": "dom-tools",
   "version": "1.0.0",
-  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/luismqueral/dom-tools.git"
+  },
   "scripts": {
     "build": "rollup -c build/rollup.config.mjs",
     "dev": "rollup -c build/rollup.config.mjs --watch",
