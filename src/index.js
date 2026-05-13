@@ -8,6 +8,7 @@ import { register, boot, registerLate, onLateRegister } from './core/registry.js
 import { initHelpers } from './core/helpers.js';
 import { renderToolbar, toolbar, setActiveButton, appendButton } from './toolbar.js';
 import { initKeyboard } from './keyboard.js';
+import { initBeforeUnload } from './core/lifecycle.js';
 import { initSettings, isExperimentEnabled } from './settings.js';
 import { initCopyAll } from './features/copy-all.js';
 import { pluginAPI } from './core/plugin-api.js';
@@ -36,7 +37,7 @@ function bootDomTools() {
   register(draw);
   register(styleModifier);
   register(editMode);
-  if (isExperimentEnabled('camera')) register(camera);
+  register(camera);
   register(copySelector);
   register(canvasZoom);
   if (isExperimentEnabled('move')) register(move);
@@ -47,6 +48,7 @@ function bootDomTools() {
   boot();
   initCopyAll();
   initKeyboard();
+  initBeforeUnload();
 
   styleModifier.activate();
   setActiveButton('style-modifier');

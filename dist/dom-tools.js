@@ -706,7 +706,7 @@
       },
     },
     { id: 'duplicate', label: 'Duplicate element', category: 'tools', description: 'Hold Shift and click-drag any element to duplicate it.', default: false },
-    { id: 'camera', label: 'Full-page screenshot', category: 'tools', description: 'Capture the entire scrollable page as PNG.', default: false },
+    { id: 'camera', label: 'Full-page screenshot', category: 'tools', description: 'Capture the entire scrollable page as PNG.', default: true },
     // Plugins
     { id: 'dom-xray', label: 'DOM X-Ray', category: 'plugins', description: 'Visualize box model — content, padding, border, and margin as colored overlays.', default: false },
     { id: 'spacing-debugger', label: 'Spacing Debugger', category: 'plugins', description: 'Show all margins and paddings across the page simultaneously.', default: false },
@@ -2308,6 +2308,17 @@
     updateCopyBadge(count);
   }
 
+  function hasChanges() {
+    let count = 0;
+    noteAnnotations.forEach(a => {
+      if (!a.transient && a.note && a.note.trim()) count++;
+    });
+    textEdits.forEach((e, el) => {
+      if (el.innerText !== e.originalText || el.className !== e.originalClasses) count++;
+    });
+    return count > 0;
+  }
+
   // ---- Unified list for copy-all ----
   function getAnnotations() {
     const items = [];
@@ -2743,6 +2754,45 @@
       src.stop(ctx.currentTime + 0.2);
       setTimeout(() => ctx.close(), 300);
     } catch (_) {}
+  }
+
+  // --- Navigation guard ---
+  function initBeforeUnload() {
+    // Standard beforeunload (tab close, hard navigation, URL bar change)
+    window.addEventListener('beforeunload', (e) => {
+      if (hasChanges()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+
+    // SPA navigation (pushState/replaceState) — monkey-patch History API
+    // to intercept client-side route changes that don't trigger beforeunload.
+    const origPush = history.pushState.bind(history);
+    const origReplace = history.replaceState.bind(history);
+
+    function guardNavigation(orig, args) {
+      if (hasChanges()) {
+        const leave = confirm('You have unsaved DOM-Tools changes. Leave this page?');
+        if (!leave) return;
+      }
+      orig.apply(history, args);
+    }
+
+    history.pushState = function(...args) { guardNavigation(origPush, args); };
+    history.replaceState = function(...args) { guardNavigation(origReplace, args); };
+
+    // Back/forward button (popstate fires after the navigation, so we
+    // listen and push back if the user cancels)
+    window.addEventListener('popstate', () => {
+      if (hasChanges()) {
+        const leave = confirm('You have unsaved DOM-Tools changes. Leave this page?');
+        if (!leave) {
+          // Push current state back to undo the back/forward
+          history.pushState(null, '', window.location.href);
+        }
+      }
+    });
   }
 
   const HOME_MOD_ID = 'style-modifier';
@@ -5447,7 +5497,7 @@
     register(draw);
     register(moduleSpec);
     register(editMode);
-    if (isExperimentEnabled('camera')) register(camera);
+    register(camera);
     register(copySelector);
     register(canvasZoom);
     if (isExperimentEnabled('move')) register(move);
@@ -5458,6 +5508,7 @@
     boot();
     initCopyAll();
     initKeyboard();
+    initBeforeUnload();
 
     moduleSpec.activate();
     setActiveButton('style-modifier');

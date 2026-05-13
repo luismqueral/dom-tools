@@ -14,7 +14,7 @@ import { Z } from './constants.js';
 import { getModules, activateModule } from './registry.js';
 import { setActiveButton } from '../toolbar.js';
 import { showToast } from './helpers.js';
-import { clearAnnotations, closeEditor } from '../features/annotations.js';
+import { clearAnnotations, closeEditor, hasChanges } from '../features/annotations.js';
 import { isExperimentEnabled } from '../settings.js';
 
 const HOME_ID = 'style-modifier';
@@ -217,4 +217,43 @@ function playBoom() {
     src.stop(ctx.currentTime + 0.2);
     setTimeout(() => ctx.close(), 300);
   } catch (_) {}
+}
+
+// --- Navigation guard ---
+export function initBeforeUnload() {
+  // Standard beforeunload (tab close, hard navigation, URL bar change)
+  window.addEventListener('beforeunload', (e) => {
+    if (hasChanges()) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
+  // SPA navigation (pushState/replaceState) — monkey-patch History API
+  // to intercept client-side route changes that don't trigger beforeunload.
+  const origPush = history.pushState.bind(history);
+  const origReplace = history.replaceState.bind(history);
+
+  function guardNavigation(orig, args) {
+    if (hasChanges()) {
+      const leave = confirm('You have unsaved DOM-Tools changes. Leave this page?');
+      if (!leave) return;
+    }
+    orig.apply(history, args);
+  }
+
+  history.pushState = function(...args) { guardNavigation(origPush, args); };
+  history.replaceState = function(...args) { guardNavigation(origReplace, args); };
+
+  // Back/forward button (popstate fires after the navigation, so we
+  // listen and push back if the user cancels)
+  window.addEventListener('popstate', () => {
+    if (hasChanges()) {
+      const leave = confirm('You have unsaved DOM-Tools changes. Leave this page?');
+      if (!leave) {
+        // Push current state back to undo the back/forward
+        history.pushState(null, '', window.location.href);
+      }
+    }
+  });
 }

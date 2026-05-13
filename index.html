@@ -86,7 +86,7 @@
   <h1>DOM-Tools</h1>
   <img src="header.png" alt="">
   <div class="install">
-    <h3>Add to any project:</h3>
+    <h3>Install with this prompt:</h3>
     <div class="box" data-dt-ignore>
       <pre id="install-snippet">Loading…</pre>
       <button id="install-copy">Copy</button>
@@ -97,7 +97,7 @@
 
 <h2>What is this?</h2>
 <p>A tiny floating toolbar for describing interface changes to LLMs.</p>
-<p>Point at any element, write what you'd change in a popover, edit text inline, then hit copy to send all your changes to your model of choice. No Tailwind dependency.</p>
+<p>Point at any element, write what you'd change in a popover, edit text inline, then hit copy to send all your changes to your model of choice.</p>
 <video autoplay muted loop playsinline>
   <source src="dom-tools.mp4" type="video/mp4">
 </video>
@@ -108,38 +108,39 @@
 <div class="grid">
   <div class="card">
     <strong>Hover</strong>
-    <span>Move your cursor around. Elements outline pink so you can see their boundaries.</span>
+    <span>Move your cursor over any element. A pink outline shows its boundaries.</span>
   </div>
   <div class="card">
     <strong>Click</strong>
-    <span>Selects the element and opens a small popover. Type the change you want.</span>
+    <span>Selects the element and opens a popover. Type what you'd change.</span>
   </div>
   <div class="card">
     <strong>Edit text</strong>
-    <span>Click an already-selected text element again to drop the caret in. Edits are tracked alongside your notes.</span>
+    <span>Click a selected text element again to edit it directly. Changes are tracked alongside your notes.</span>
   </div>
   <div class="card">
-    <strong>Esc / blur</strong>
-    <span>Closes the popover. Your note stays visible as a pink bubble anchored to the element.</span>
+    <strong>Draw</strong>
+    <span>Free-hand annotation mode for sketching directly on the page. Toggle from the toolbar.</span>
   </div>
   <div class="card">
-    <strong>Annotate</strong>
-    <span>Free-hand draw mode for sketching directly on the page. Toggle from the toolbar or hit A.</span>
+    <strong>Copy all</strong>
+    <span>Copies every annotation, text edit, and drawing as structured Markdown — ready to paste into an LLM.</span>
   </div>
   <div class="card">
-    <strong>Full page screenshot</strong>
-    <span>Capture the entire scrollable page as PNG. Cmd+Shift+S or click the camera button.</span>
+    <strong>Screenshot</strong>
+    <span>Capture the entire scrollable page as a PNG. Cmd+Shift+S or the camera button.</span>
   </div>
 </div>
 
 
-<h2>What are the shortcuts?</h2>
+<h2>Shortcuts</h2>
 <div class="shortcuts">
-  <p><kbd>Cmd+Shift+K</kbd> / <kbd>Ctrl+Shift+K</kbd> toggle inspector</p>
-  <p><kbd>Esc</kbd> <kbd>Esc</kbd> (double-tap) re-focus the cursor tool</p>
+  <p><kbd>Esc</kbd> return to default tool / close popover</p>
+  <p><kbd>Esc</kbd> <kbd>Esc</kbd> (double-tap) toggle DOM-Tools on/off</p>
+  <p><kbd>Shift+Esc</kbd> clear all changes</p>
+  <p><kbd>Shift+C</kbd> copy all changes as Markdown</p>
+  <p><kbd>Shift+T</kbd> activate Edit Text mode</p>
   <p><kbd>Cmd+Shift+S</kbd> / <kbd>Ctrl+Shift+S</kbd> full page screenshot</p>
-  <p><kbd>Esc</kbd> exit the current popover or tool mode</p>
-  <p>Camera and Annotate modes are toggled via the toolbar buttons.</p>
 </div>
 
 <footer>
@@ -158,7 +159,7 @@
     const pre = document.getElementById('install-snippet');
     const btn = document.getElementById('install-copy');
     const CDN_URL = 'https://queral.studio/dom-tools.min.js';
-    const snippet = 'Add this script tag to my project before <\/body>: <script src="' + CDN_URL + '"><\/script>';
+    const snippet = 'Install this design tool in the <head> of this project: <script src="' + CDN_URL + '"><\/script>';
 
     pre.textContent = '<script src="' + CDN_URL + '"><\/script>';
 

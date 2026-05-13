@@ -577,6 +577,17 @@ function updateBadgeCount() {
   updateCopyBadge(count);
 }
 
+export function hasChanges() {
+  let count = 0;
+  noteAnnotations.forEach(a => {
+    if (!a.transient && a.note && a.note.trim()) count++;
+  });
+  textEdits.forEach((e, el) => {
+    if (el.innerText !== e.originalText || el.className !== e.originalClasses) count++;
+  });
+  return count > 0;
+}
+
 // ---- Unified list for copy-all ----
 export function getAnnotations() {
   const items = [];
