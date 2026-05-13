@@ -388,7 +388,13 @@ let originalDocBg = null;
 
 function snapshotDocBg() {
   if (originalDocBg !== null) return;
-  const isTransparent = (c) => !c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent';
+  const isTransparent = (c) => {
+    if (!c || c === 'transparent') return true;
+    const m = c.match(/rgba?\(\s*[\d.]+,\s*[\d.]+,\s*[\d.]+(?:,\s*([\d.]+))?\)/);
+    if (m && m[1] !== undefined && parseFloat(m[1]) === 0) return true;
+    if (c === 'rgba(0, 0, 0, 0)') return true;
+    return false;
+  };
   const bodyBg = window.getComputedStyle(document.body).backgroundColor;
   const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
   originalDocBg = !isTransparent(bodyBg) ? bodyBg : !isTransparent(htmlBg) ? htmlBg : '#fff';
@@ -406,7 +412,7 @@ function applyTransform() {
       snapshotDocBg();
       wrapper.style.background = originalDocBg;
       wrapper.style.borderRadius = '4px';
-      wrapper.style.boxShadow = '0 0 0 1px #d1d5db, 0 2px 12px rgba(0,0,0,0.08)';
+      wrapper.style.boxShadow = '0 0 0 16px ' + computeCanvasBg(originalDocBg) + ', 0 0 0 17px #d1d5db, 0 4px 24px rgba(0,0,0,0.12)';
       wrapper.dataset.dtBgSet = '1';
     }
     document.body.style.background = computeCanvasBg(originalDocBg);

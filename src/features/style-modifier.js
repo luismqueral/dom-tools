@@ -343,8 +343,8 @@ function clearHover() {
 
 function onMove(e) {
   if (!activeMode) return;
-  // Suppress hover while hand tool or inline editing is active
-  if (state.handToolActive || editingEl) {
+  // Suppress hover while hand tool, inline editing, or modifier key (zoom) is active
+  if (state.handToolActive || editingEl || e.metaKey || e.ctrlKey) {
     if (hoveredEl) clearHover();
     return;
   }
