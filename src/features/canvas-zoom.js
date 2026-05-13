@@ -405,18 +405,14 @@ function applyTransform() {
     if (!wrapper.dataset.dtBgSet) {
       snapshotDocBg();
       wrapper.style.background = originalDocBg;
-      wrapper.style.padding = '16px';
-      wrapper.style.border = '1px solid #d1d5db';
       wrapper.style.borderRadius = '4px';
-      wrapper.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)';
+      wrapper.style.boxShadow = '0 0 0 1px #d1d5db, 0 2px 12px rgba(0,0,0,0.08)';
       wrapper.dataset.dtBgSet = '1';
     }
     document.body.style.background = computeCanvasBg(originalDocBg);
   } else {
     document.body.style.background = '';
     wrapper.style.background = '';
-    wrapper.style.padding = '';
-    wrapper.style.border = '';
     wrapper.style.borderRadius = '';
     wrapper.style.boxShadow = '';
     delete wrapper.dataset.dtBgSet;
@@ -431,8 +427,6 @@ function resetTransform() {
   if (wrapper) {
     wrapper.style.transform = '';
     wrapper.style.background = '';
-    wrapper.style.padding = '';
-    wrapper.style.border = '';
     wrapper.style.borderRadius = '';
     wrapper.style.boxShadow = '';
     delete wrapper.dataset.dtBgSet;
