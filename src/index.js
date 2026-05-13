@@ -4,12 +4,13 @@
  * Activate by adding ?dom-tools to the page URL, OR by double-tapping Esc.
  */
 
-import { register, boot } from './core/registry.js';
+import { register, boot, registerLate, onLateRegister } from './core/registry.js';
 import { initHelpers } from './core/helpers.js';
-import { renderToolbar, toolbar, setActiveButton } from './toolbar.js';
+import { renderToolbar, toolbar, setActiveButton, appendButton } from './toolbar.js';
 import { initKeyboard } from './keyboard.js';
 import { initSettings, isExperimentEnabled } from './settings.js';
 import { initCopyAll } from './features/copy-all.js';
+import { pluginAPI } from './core/plugin-api.js';
 import styleModifier from './features/style-modifier.js';
 import annotations from './features/annotations.js';
 import camera from './features/camera.js';
@@ -19,6 +20,9 @@ import move from './features/move.js';
 import duplicate from './features/duplicate.js';
 import copySelector from './features/copy-selector.js';
 import canvasZoom from './features/canvas-zoom.js';
+
+// --- Plugin namespace (available before boot for early-loading plugins) ---
+window.DomTools = window.DomTools || { _pendingPlugins: [] };
 
 let booted = false;
 
@@ -46,7 +50,34 @@ function bootDomTools() {
 
   styleModifier.activate();
   setActiveButton('style-modifier');
+
+  // Wire up late-register callback (for plugins loaded after boot)
+  onLateRegister((mod) => appendButton(mod));
+
+  // Drain any plugins that loaded before boot
+  drainPluginQueue();
 }
+
+function drainPluginQueue() {
+  const pending = window.DomTools._pendingPlugins || [];
+  pending.forEach(plugin => registerLate(plugin, pluginAPI));
+  window.DomTools._pendingPlugins = [];
+}
+
+// Public plugin registration (works before or after boot)
+window.DomTools.registerPlugin = function(plugin) {
+  if (booted) {
+    registerLate(plugin, pluginAPI);
+  } else {
+    window.DomTools._pendingPlugins.push(plugin);
+  }
+};
+
+// Expose API for plugins that want to access it after registration
+window.DomTools.api = pluginAPI;
+
+// Expose for SPA integration (call window.bootDomTools() from JS)
+window.bootDomTools = bootDomTools;
 
 if (new URLSearchParams(window.location.search).has('dom-tools')) {
   bootDomTools();

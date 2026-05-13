@@ -35,6 +35,17 @@
     });
   }
 
+  // Register a module after boot (for plugins loaded late).
+  // Calls init() immediately and notifies toolbar to add button.
+  let _lateCallback = null;
+  function onLateRegister(fn) { _lateCallback = fn; }
+
+  function registerLate(mod, api) {
+    modules.push(mod);
+    if (isEnabled(mod.id) && mod.init) mod.init(api);
+    if (_lateCallback) _lateCallback(mod);
+  }
+
   const state = {
     active: true,
     enabled: true,     // global DOM-Tools on/off (toggled via double-Esc)
@@ -46,6 +57,7 @@
     cameraMode: false,
     annotateMode: false,
     annotateSub: 'sticky', // 'pen' | 'sticky'
+    stickyMode: false,
     styleModActive: false,
     handToolActive: false,
   };
@@ -56,7 +68,15 @@
   // Colors
   const COLORS = {
     selector: '#0066ff',
-    camera: '#cc3300'};
+    edit: '#e67e00',
+    camera: '#cc3300',
+    annotate: '#7c3aed',
+    stickyBg: '#fef08a',
+    stickyBorder: '#facc15',
+    pen: '#dc2626',
+  };
+
+  '2px solid ' + COLORS.selector;
   const SEL_OUTLINE = '2px solid ' + COLORS.selector;
   const SEL_BG = 'rgba(0, 102, 255, 0.12)';
   const CAM_OUTLINE = '2px solid ' + COLORS.camera;
@@ -251,6 +271,14 @@
       cur = cur.parentElement;
     }
     return path.join(' > ');
+  }
+
+  function getContext(el) {
+    const sel = getSelector(el);
+    const text = el.textContent.trim().substring(0, 80);
+    let desc = sel;
+    if (text) desc += ' | "' + text + (el.textContent.trim().length > 80 ? '...' : '') + '"';
+    return desc;
   }
 
   // Elements dom-tools should leave alone. Two ways in:
@@ -626,6 +654,15 @@
       }
     }
     window.addEventListener('resize', compensateZoom);
+  }
+
+  // Dynamically append a button for a late-registered plugin (inserted before copy button).
+  function appendButton(mod) {
+    if (!mod.button || !isEnabled(mod.id)) return;
+    const btn = createButton(mod);
+    if (copyBtn) toolbar.insertBefore(btn, copyBtn);
+    else toolbar.appendChild(btn);
+    inspectorUI.add(btn);
   }
 
   /**
@@ -2567,6 +2604,125 @@
       }
     });
   }
+
+  /**
+   * Plugin API — the public surface plugins receive in their init(api) call.
+   * Plugins are standalone scripts with no module imports, so this object
+   * gives them access to the internals they need without bundler coupling.
+   */
+
+
+  /**
+   * createPanel — reusable draggable floating panel factory.
+   * Used by draw.js internally and available to plugins.
+   */
+  function createPanel({ title = '', position = { top: '16px', right: '16px' }, width = 'auto' } = {}) {
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+      position: 'fixed',
+      top: position.top || '',
+      right: position.right || '',
+      left: position.left || '',
+      bottom: position.bottom || '',
+      width,
+      background: 'rgba(30,30,30,0.92)',
+      borderRadius: '10px',
+      padding: '0',
+      zIndex: String(Z.toolbar + 1),
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontSize: '12px',
+      color: '#fff',
+      userSelect: 'none',
+      display: 'none',
+    });
+
+    // Header with drag handle
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px',
+      padding: '8px 12px',
+      cursor: 'grab',
+      borderBottom: '1px solid rgba(255,255,255,0.1)',
+    });
+
+    const grip = document.createElement('span');
+    grip.textContent = '\u2837';
+    Object.assign(grip.style, { color: 'rgba(255,255,255,0.35)', fontSize: '12px' });
+
+    const titleEl = document.createElement('span');
+    titleEl.textContent = title;
+    Object.assign(titleEl.style, { fontWeight: '600', fontSize: '11px', letterSpacing: '0.3px' });
+
+    header.appendChild(grip);
+    header.appendChild(titleEl);
+    panel.appendChild(header);
+
+    // Content area
+    const content = document.createElement('div');
+    Object.assign(content.style, { padding: '10px 12px' });
+    panel.appendChild(content);
+
+    // Drag logic
+    let dragging = false, dx = 0, dy = 0;
+    header.addEventListener('mousedown', (e) => {
+      dragging = true;
+      const r = panel.getBoundingClientRect();
+      dx = e.clientX - r.left;
+      dy = e.clientY - r.top;
+      header.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      let x = e.clientX - dx;
+      let y = e.clientY - dy;
+      x = Math.max(0, Math.min(x, window.innerWidth - panel.offsetWidth));
+      y = Math.max(0, Math.min(y, window.innerHeight - panel.offsetHeight));
+      panel.style.left = x + 'px';
+      panel.style.top = y + 'px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+    });
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      header.style.cursor = 'grab';
+    });
+
+    document.body.appendChild(panel);
+    inspectorUI.add(panel);
+
+    // Return panel + content ref for the plugin to populate
+    panel._content = content;
+    return panel;
+  }
+
+  const pluginAPI = {
+    state,
+    inspectorUI,
+    activateModule,
+    isEnabled,
+    showToast,
+    addTooltip,
+    nudge,
+    flashElement: flashElement$1,
+    copyText,
+    getSelector,
+    getContext,
+    isInspectorUI,
+    setActiveButton,
+    getSelectionColor,
+    withAlpha,
+    onColorChange,
+    createPanel,
+    Z,
+    COLORS,
+  };
 
   let selBox = null;
   function playShutter() {
@@ -4991,6 +5147,9 @@
    */
 
 
+  // --- Plugin namespace (available before boot for early-loading plugins) ---
+  window.DomTools = window.DomTools || { _pendingPlugins: [] };
+
   let booted = false;
 
   function bootDomTools() {
@@ -5017,7 +5176,34 @@
 
     moduleSpec.activate();
     setActiveButton('style-modifier');
+
+    // Wire up late-register callback (for plugins loaded after boot)
+    onLateRegister((mod) => appendButton(mod));
+
+    // Drain any plugins that loaded before boot
+    drainPluginQueue();
   }
+
+  function drainPluginQueue() {
+    const pending = window.DomTools._pendingPlugins || [];
+    pending.forEach(plugin => registerLate(plugin, pluginAPI));
+    window.DomTools._pendingPlugins = [];
+  }
+
+  // Public plugin registration (works before or after boot)
+  window.DomTools.registerPlugin = function(plugin) {
+    if (booted) {
+      registerLate(plugin, pluginAPI);
+    } else {
+      window.DomTools._pendingPlugins.push(plugin);
+    }
+  };
+
+  // Expose API for plugins that want to access it after registration
+  window.DomTools.api = pluginAPI;
+
+  // Expose for SPA integration (call window.bootDomTools() from JS)
+  window.bootDomTools = bootDomTools;
 
   if (new URLSearchParams(window.location.search).has('dom-tools')) {
     bootDomTools();

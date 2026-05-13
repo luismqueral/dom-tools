@@ -44,3 +44,14 @@ export function boot() {
     if (isEnabled(m.id) && m.init) m.init();
   });
 }
+
+// Register a module after boot (for plugins loaded late).
+// Calls init() immediately and notifies toolbar to add button.
+let _lateCallback = null;
+export function onLateRegister(fn) { _lateCallback = fn; }
+
+export function registerLate(mod, api) {
+  modules.push(mod);
+  if (isEnabled(mod.id) && mod.init) mod.init(api);
+  if (_lateCallback) _lateCallback(mod);
+}

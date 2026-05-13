@@ -286,4 +286,13 @@ export function renderToolbar() {
   window.addEventListener('resize', compensateZoom);
 }
 
+// Dynamically append a button for a late-registered plugin (inserted before copy button).
+export function appendButton(mod) {
+  if (!mod.button || !isEnabled(mod.id)) return;
+  const btn = createButton(mod);
+  if (copyBtn) toolbar.insertBefore(btn, copyBtn);
+  else toolbar.appendChild(btn);
+  inspectorUI.add(btn);
+}
+
 export { toolbar };
