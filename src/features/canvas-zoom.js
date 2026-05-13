@@ -412,7 +412,7 @@ function applyTransform() {
       snapshotDocBg();
       wrapper.style.background = originalDocBg;
       wrapper.style.borderRadius = '4px';
-      wrapper.style.boxShadow = '0 0 0 16px ' + computeCanvasBg(originalDocBg) + ', 0 0 0 17px #d1d5db, 0 4px 24px rgba(0,0,0,0.12)';
+      wrapper.style.boxShadow = '0 0 0 16px ' + originalDocBg + ', 0 0 0 17px #d1d5db, 0 4px 24px rgba(0,0,0,0.12)';
       wrapper.dataset.dtBgSet = '1';
     }
     document.body.style.background = computeCanvasBg(originalDocBg);
@@ -695,6 +695,16 @@ export default {
     document.addEventListener('mousemove', onMouseMove, true);
     document.addEventListener('mouseup', onMouseUp, true);
     window.addEventListener('blur', onWindowBlur);
+
+    // Re-center content when window resizes while zoomed
+    window.addEventListener('resize', () => {
+      if (!wrapper || scale === 1) return;
+      const contentW = wrapper.scrollWidth * scale;
+      if (contentW < window.innerWidth) {
+        panX = (window.innerWidth - contentW) / 2;
+      }
+      applyTransform();
+    });
   },
 
   enable() { active = true; },

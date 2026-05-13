@@ -611,12 +611,11 @@
 
     // Counter-scale toolbar against browser zoom so it stays a fixed
     // physical size regardless of Cmd+/- zoom level.
-    // We detect zoom by comparing window.innerWidth to the initial value.
-    const baseInnerWidth = window.innerWidth;
+    // devicePixelRatio changes ONLY on browser zoom (Cmd+/-), NOT on
+    // window resize, so it's the reliable signal.
+    const baseDPR = window.devicePixelRatio;
     function compensateZoom() {
-      // Browser zoom changes innerWidth (viewport shrinks when zoomed in).
-      // Ratio > 1 means zoomed in, < 1 means zoomed out.
-      const zoomFactor = baseInnerWidth / window.innerWidth;
+      const zoomFactor = window.devicePixelRatio / baseDPR;
       if (Math.abs(zoomFactor - 1) > 0.05) {
         toolbar.style.zoom = 1 / zoomFactor;
       } else {
@@ -4929,7 +4928,7 @@
         snapshotDocBg();
         wrapper.style.background = originalDocBg;
         wrapper.style.borderRadius = '4px';
-        wrapper.style.boxShadow = '0 0 0 16px ' + computeCanvasBg(originalDocBg) + ', 0 0 0 17px #d1d5db, 0 4px 24px rgba(0,0,0,0.12)';
+        wrapper.style.boxShadow = '0 0 0 16px ' + originalDocBg + ', 0 0 0 17px #d1d5db, 0 4px 24px rgba(0,0,0,0.12)';
         wrapper.dataset.dtBgSet = '1';
       }
       document.body.style.background = computeCanvasBg(originalDocBg);
@@ -5208,6 +5207,16 @@
       document.addEventListener('mousemove', onMouseMove, true);
       document.addEventListener('mouseup', onMouseUp, true);
       window.addEventListener('blur', onWindowBlur);
+
+      // Re-center content when window resizes while zoomed
+      window.addEventListener('resize', () => {
+        if (!wrapper || scale === 1) return;
+        const contentW = wrapper.scrollWidth * scale;
+        if (contentW < window.innerWidth) {
+          panX = (window.innerWidth - contentW) / 2;
+        }
+        applyTransform();
+      });
     },
 
     enable() { active = true; },

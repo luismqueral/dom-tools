@@ -272,12 +272,11 @@ export function renderToolbar() {
 
   // Counter-scale toolbar against browser zoom so it stays a fixed
   // physical size regardless of Cmd+/- zoom level.
-  // We detect zoom by comparing window.innerWidth to the initial value.
-  const baseInnerWidth = window.innerWidth;
+  // devicePixelRatio changes ONLY on browser zoom (Cmd+/-), NOT on
+  // window resize, so it's the reliable signal.
+  const baseDPR = window.devicePixelRatio;
   function compensateZoom() {
-    // Browser zoom changes innerWidth (viewport shrinks when zoomed in).
-    // Ratio > 1 means zoomed in, < 1 means zoomed out.
-    const zoomFactor = baseInnerWidth / window.innerWidth;
+    const zoomFactor = window.devicePixelRatio / baseDPR;
     if (Math.abs(zoomFactor - 1) > 0.05) {
       toolbar.style.zoom = 1 / zoomFactor;
     } else {
