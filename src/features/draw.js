@@ -3,6 +3,9 @@ import { Z } from '../core/constants.js';
 import { showToast } from '../core/helpers.js';
 import { getSelectionColor, onColorChange } from '../core/theme.js';
 
+// Pencil cursor — same icon as the toolbar button, white fill, 20x20 with hotspot at bottom-left tip
+const PENCIL_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'%3E%3Cpath d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z' fill='%23fff' stroke='%23000' stroke-width='0.5'/%3E%3C/svg%3E") 2 18, crosshair`;
+
 let drawCanvas = null;
 let isDrawing = false;
 let drawPanel = null;
@@ -48,23 +51,20 @@ function createDrawPanel() {
   const panel = document.createElement('div');
   panel.setAttribute('data-dt-ignore', '');
   Object.assign(panel.style, {
-    position: 'fixed', top: '16px', right: '16px', zIndex: String(Z.toolbar + 1),
-    background: '#fff', borderRadius: '12px', padding: '12px',
-    boxShadow: '0 2px 16px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.06)',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    position: 'fixed', bottom: '72px', left: '50%', transform: 'translateX(-50%)',
+    zIndex: String(Z.toolbar + 1),
+    background: 'rgba(30,30,30,0.85)', borderRadius: '10px', padding: '10px 14px',
+    backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+    fontFamily: 'system-ui, sans-serif',
     fontSize: '11px', userSelect: 'none', WebkitUserSelect: 'none',
-    display: 'none', minWidth: '148px',
+    display: 'none',
   });
   inspectorUI.add(panel);
 
   // Color swatches
-  const colorLabel = document.createElement('div');
-  colorLabel.textContent = 'Color';
-  Object.assign(colorLabel.style, { fontSize: '10px', fontWeight: '600', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' });
-  panel.appendChild(colorLabel);
-
   const colorRow = document.createElement('div');
-  Object.assign(colorRow.style, { display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '12px' });
+  Object.assign(colorRow.style, { display: 'flex', gap: '6px', alignItems: 'center' });
   panel.appendChild(colorRow);
 
   DRAW_COLORS.forEach(c => {
@@ -87,28 +87,26 @@ function createDrawPanel() {
     colorRow.appendChild(swatch);
   });
 
-  // Size options
-  const sizeLabel = document.createElement('div');
-  sizeLabel.textContent = 'Size';
-  Object.assign(sizeLabel.style, { fontSize: '10px', fontWeight: '600', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' });
-  panel.appendChild(sizeLabel);
+  // Divider
+  const divider = document.createElement('div');
+  Object.assign(divider.style, { width: '1px', height: '20px', background: 'rgba(255,255,255,0.12)', margin: '0 4px' });
+  colorRow.appendChild(divider);
 
-  const sizeRow = document.createElement('div');
-  Object.assign(sizeRow.style, { display: 'flex', gap: '6px', alignItems: 'center' });
-  panel.appendChild(sizeRow);
+  // Size options (inline with colors, separated by divider)
+  const sizeRow = colorRow; // same row
 
   DRAW_SIZES.forEach(s => {
     const btn = document.createElement('button');
     btn.dataset.sizeId = s.id;
-    const dotSize = Math.max(6, s.width * 2.2);
+    const dotSize = Math.max(4, s.width * 2);
     Object.assign(btn.style, {
-      width: '32px', height: '28px', borderRadius: '6px', border: '1.5px solid #e5e7eb',
-      background: '#fff', cursor: 'pointer', padding: '0',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'border-color 0.1s, background 0.1s',
+      width: '26px', height: '26px', borderRadius: '50%', border: '2px solid transparent',
+      background: 'rgba(255,255,255,0.08)', cursor: 'pointer', padding: '0',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'border-color 0.12s',
     });
     const dot = document.createElement('span');
     Object.assign(dot.style, {
-      width: dotSize + 'px', height: dotSize + 'px', borderRadius: '50%', background: '#374151', display: 'block',
+      width: dotSize + 'px', height: dotSize + 'px', borderRadius: '50%', background: '#fff', display: 'block',
     });
     btn.appendChild(dot);
     btn.addEventListener('click', () => {
@@ -138,15 +136,28 @@ function renderPanelState() {
   // Update size buttons
   drawPanel.querySelectorAll('[data-size-id]').forEach(btn => {
     const isActive = btn.dataset.sizeId === activeSizeId;
-    btn.style.borderColor = isActive ? getSelectionColor() : '#e5e7eb';
-    btn.style.background = isActive ? getSelectionColor() + '12' : '#fff';
+    btn.style.borderColor = isActive ? 'rgba(255,255,255,0.5)' : 'transparent';
+    btn.style.background = isActive ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)';
   });
+}
+
+// Convert a mouse event to canvas-local coordinates, accounting for
+// any CSS transform on the parent wrapper (canvas-zoom).
+function canvasCoords(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+  const scaleX = drawCanvas.clientWidth / rect.width;
+  const scaleY = drawCanvas.clientHeight / rect.height;
+  return {
+    x: (e.clientX - rect.left) * scaleX,
+    y: (e.clientY - rect.top) * scaleY,
+  };
 }
 
 function resizeDrawCanvas() {
   const dpr = window.devicePixelRatio || 1;
-  const pageW = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth);
-  const pageH = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+  const container = drawCanvas.parentElement || document.body;
+  const pageW = Math.max(container.scrollWidth, document.documentElement.scrollWidth);
+  const pageH = Math.max(container.scrollHeight, document.documentElement.scrollHeight);
   const oldData = drawCanvas.width > 0 ? drawCanvas.getContext('2d').getImageData(0, 0, drawCanvas.width, drawCanvas.height) : null;
   drawCanvas.width = pageW * dpr;
   drawCanvas.height = pageH * dpr;
@@ -174,11 +185,14 @@ export default {
 
   init() {
     drawCanvas = document.createElement('canvas');
+    drawCanvas.setAttribute('data-dt-ignore', '');
     Object.assign(drawCanvas.style, {
       position: 'absolute', top: '0', left: '0', zIndex: String(Z.overlay), pointerEvents: 'none'
     });
     document.body.appendChild(drawCanvas);
-    inspectorUI.add(drawCanvas);
+    // NOTE: drawCanvas is intentionally NOT added to inspectorUI so that
+    // canvas-zoom's ensureWrapper() moves it into #dt-canvas-wrapper.
+    // This makes drawings scale with the page when zooming.
     resizeDrawCanvas();
     window.addEventListener('resize', resizeDrawCanvas);
     // Theme swap → re-arm the context so the next stroke uses the new
@@ -194,6 +208,7 @@ export default {
       display: 'none', zIndex: '100003', background: 'rgba(255,255,255,0.3)'
     });
     document.body.appendChild(eraserCursor);
+    inspectorUI.add(eraserCursor);
     let isErasing = false;
 
     // Prevent context menu on canvas
@@ -203,18 +218,16 @@ export default {
 
     drawCanvas.addEventListener('mousedown', (e) => {
       if (!state.annotateMode || state.annotateSub !== 'pen') return;
+      const pos = canvasCoords(e);
       if (e.button === 2) {
         // Right-click: erase mode
         isErasing = true;
         eraserCursor.style.display = 'block';
         const ctx = drawCanvas.getContext('2d');
-        const dpr = window.devicePixelRatio || 1;
-        const x = (e.clientX + window.scrollX) * dpr;
-        const y = (e.clientY + window.scrollY) * dpr;
         ctx.save();
         ctx.globalCompositeOperation = 'destination-out';
         ctx.beginPath();
-        ctx.arc(x / dpr, y / dpr, ERASER_SIZE / 2, 0, Math.PI * 2);
+        ctx.arc(pos.x, pos.y, ERASER_SIZE / 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
         eraserCursor.style.left = (e.clientX - ERASER_SIZE / 2) + 'px';
@@ -224,24 +237,26 @@ export default {
       isDrawing = true;
       const ctx = drawCanvas.getContext('2d');
       ctx.beginPath();
-      ctx.moveTo(e.clientX + window.scrollX, e.clientY + window.scrollY);
+      ctx.moveTo(pos.x, pos.y);
     });
     drawCanvas.addEventListener('mousemove', (e) => {
       if (isErasing) {
         eraserCursor.style.left = (e.clientX - ERASER_SIZE / 2) + 'px';
         eraserCursor.style.top = (e.clientY - ERASER_SIZE / 2) + 'px';
+        const pos = canvasCoords(e);
         const ctx = drawCanvas.getContext('2d');
         ctx.save();
         ctx.globalCompositeOperation = 'destination-out';
         ctx.beginPath();
-        ctx.arc(e.clientX + window.scrollX, e.clientY + window.scrollY, ERASER_SIZE / 2, 0, Math.PI * 2);
+        ctx.arc(pos.x, pos.y, ERASER_SIZE / 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
         return;
       }
       if (!isDrawing) return;
+      const pos = canvasCoords(e);
       const ctx = drawCanvas.getContext('2d');
-      ctx.lineTo(e.clientX + window.scrollX, e.clientY + window.scrollY);
+      ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
     });
     drawCanvas.addEventListener('mouseup', () => { isDrawing = false; isErasing = false; eraserCursor.style.display = 'none'; });
@@ -252,8 +267,8 @@ export default {
     state.annotateMode = true;
     state.annotateSub = 'pen';
     drawCanvas.style.pointerEvents = 'auto';
-    document.body.style.cursor = 'crosshair';
-    drawCanvas.style.cursor = 'crosshair';
+    document.body.style.cursor = PENCIL_CURSOR;
+    drawCanvas.style.cursor = PENCIL_CURSOR;
     if (!drawPanel) drawPanel = createDrawPanel();
     drawPanel.style.display = 'block';
     renderPanelState();
