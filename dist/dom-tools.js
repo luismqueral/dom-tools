@@ -666,11 +666,11 @@
   }
 
   /**
-   * Settings popover, anchored above the toolbar's settings button.
+   * Settings panel — full-screen modal with tabbed sections.
    *
-   * Self-contained for the minimal build — doesn't depend on a side panel.
-   * Click the gear → small dark popover floats just above the gear with the
-   * feature toggles. Click the gear again or activate any tool → closes.
+   * Tabs: General | Tools | Plugins | About
+   * Each experiment has a `category` that determines which tab it appears in.
+   * Click the gear → modal with tabs. Esc or backdrop click closes.
    */
 
 
@@ -683,10 +683,16 @@
   try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (e) {}
 
   const EXPERIMENT_DEFS = [
-    { id: 'dock', label: 'Edge snap', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
+    // General
+    { id: 'dock', label: 'Edge snap', category: 'general', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
+    { id: 'canvas-zoom', label: 'Canvas zoom & pan', category: 'general', description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.', default: true },
+    { id: 'dblclick-edit', label: 'Double-click to edit text', category: 'general', description: 'Double-click a text element in Select mode to edit it inline.', default: true },
+    { id: 'kidpix-clear', label: 'Kid Pix clear', category: 'general', description: 'Dramatic animated screen wipe when clearing all changes (Shift+Esc).', default: false },
+    // Tools
     {
       id: 'move',
       label: 'Move elements',
+      category: 'tools',
       description: 'Hold Cmd to grab and rearrange elements.',
       default: false,
       options: {
@@ -699,30 +705,11 @@
         default: 'dom-reorder',
       },
     },
-    {
-      id: 'duplicate',
-      label: 'Duplicate element',
-      description: 'Hold Shift and click-drag any element to duplicate it.',
-      default: false,
-    },
-    {
-      id: 'camera',
-      label: 'Full-page screenshot',
-      description: 'Capture the entire scrollable page as PNG.',
-      default: false,
-    },
-    {
-      id: 'canvas-zoom',
-      label: 'Canvas zoom & pan',
-      description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.',
-      default: true,
-    },
-    {
-      id: 'dblclick-edit',
-      label: 'Double-click to edit text',
-      description: 'Double-click a text element in Select mode to edit it inline.',
-      default: true,
-    },
+    { id: 'duplicate', label: 'Duplicate element', category: 'tools', description: 'Hold Shift and click-drag any element to duplicate it.', default: false },
+    { id: 'camera', label: 'Full-page screenshot', category: 'tools', description: 'Capture the entire scrollable page as PNG.', default: false },
+    // Plugins
+    { id: 'dom-xray', label: 'DOM X-Ray', category: 'plugins', description: 'Visualize box model — content, padding, border, and margin as colored overlays.', default: false },
+    { id: 'spacing-debugger', label: 'Spacing Debugger', category: 'plugins', description: 'Show all margins and paddings across the page simultaneously.', default: false },
   ];
 
   function isExperimentEnabled(id) {
@@ -749,49 +736,227 @@
     localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
   }
 
+  // --- UI Helpers ---
+  function el(tag, styles, text) {
+    const e = document.createElement(tag);
+    if (styles) Object.assign(e.style, styles);
+    if (text) e.textContent = text;
+    return e;
+  }
+
   let _refreshHint = null;
   function showRefreshHint(container) {
     if (_refreshHint) return;
-    _refreshHint = document.createElement('div');
-    _refreshHint.textContent = 'Refresh page for changes to take effect';
-    Object.assign(_refreshHint.style, {
-      marginTop: '16px',
-      padding: '8px 12px',
+    _refreshHint = el('div', {
+      marginTop: '16px', padding: '8px 12px',
       background: 'rgba(255,255,255,0.06)',
       border: '1px solid rgba(255,255,255,0.1)',
-      borderRadius: '6px',
-      fontSize: '11px',
-      color: '#aaa',
-      textAlign: 'center',
-    });
+      borderRadius: '6px', fontSize: '11px', color: '#aaa', textAlign: 'center',
+    }, 'Refresh page for changes to take effect');
     container.appendChild(_refreshHint);
   }
 
-  function sectionTitle(text, opts = {}) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    Object.assign(div.style, {
-      color: '#fff', fontSize: '11px', fontWeight: '600',
-      textTransform: 'uppercase', letterSpacing: '1px',
-      marginTop: opts.first ? '0' : '24px',
-      marginBottom: '12px',
-      paddingTop: opts.first ? '0' : '18px',
-      borderTop: opts.first ? 'none' : '1px solid rgba(255,255,255,0.08)',
-      color: '#888',
+  // --- Experiment toggle row (reused across tabs) ---
+  function buildExperimentRow(exp, hintContainer) {
+    const wrap = el('div', { marginBottom: '10px' });
+    const row = el('label', {
+      display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
+      color: '#ddd', fontSize: '13px', cursor: 'pointer',
     });
-    return div;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = isExperimentEnabled(exp.id);
+    checkbox.style.accentColor = getSelectionColor();
+    checkbox.style.marginTop = '3px';
+    const labelWrap = el('div');
+    labelWrap.appendChild(el('span', { display: 'block', fontWeight: '500' }, exp.label));
+    labelWrap.appendChild(el('span', { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' }, exp.description));
+    row.appendChild(checkbox);
+    row.appendChild(labelWrap);
+    wrap.appendChild(row);
+
+    let optionsBlock = null;
+    if (exp.options) {
+      optionsBlock = buildExperimentOptions(exp);
+      optionsBlock.style.display = isExperimentEnabled(exp.id) ? 'block' : 'none';
+      wrap.appendChild(optionsBlock);
+    }
+
+    checkbox.addEventListener('change', () => {
+      setExperiment(exp.id, checkbox.checked);
+      if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
+      showRefreshHint(hintContainer);
+    });
+
+    return wrap;
   }
 
-  function buildColorSwatches() {
-    const wrap = document.createElement('div');
-    Object.assign(wrap.style, {
-      display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 0',
+  function buildExperimentOptions(exp) {
+    const block = el('div', {
+      marginLeft: '24px', marginTop: '4px', marginBottom: '6px',
+      paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.08)',
     });
+    block.appendChild(el('div', {
+      color: '#aaa', fontSize: '10px', marginBottom: '4px',
+      textTransform: 'uppercase', letterSpacing: '0.4px',
+    }, exp.options.label));
+
+    const groupName = `dt-exp-${exp.id}-${exp.options.id}`;
+    exp.options.choices.forEach(choice => {
+      const row = el('label', {
+        display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0',
+        color: '#ddd', fontSize: '11px', cursor: 'pointer',
+      });
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = groupName;
+      radio.value = choice.value;
+      radio.checked = getExperimentOption(exp.id, exp.options.id) === choice.value;
+      radio.style.accentColor = getSelectionColor();
+      radio.addEventListener('change', () => {
+        if (radio.checked) setExperimentOption(exp.id, exp.options.id, choice.value);
+      });
+      row.appendChild(radio);
+      row.appendChild(el('span', {}, choice.label));
+      block.appendChild(row);
+    });
+    return block;
+  }
+
+  // --- Tab: General ---
+  function buildGeneralTab(container) {
+    // Color swatches
+    container.appendChild(el('div', {
+      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#888', marginBottom: '10px',
+    }, 'Selection color'));
+    container.appendChild(buildColorSwatches());
+
+    // General experiments
+    container.appendChild(el('div', {
+      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#888', marginTop: '20px', marginBottom: '12px',
+      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    }, 'Behavior'));
+
+    EXPERIMENT_DEFS.filter(e => e.category === 'general').forEach(exp => {
+      container.appendChild(buildExperimentRow(exp, container));
+    });
+  }
+
+  // --- Tab: Tools ---
+  function buildToolsTab(container) {
+    container.appendChild(el('div', {
+      fontSize: '11px', color: '#666', marginBottom: '16px',
+    }, 'Additional tools that add new capabilities to the toolbar.'));
+
+    EXPERIMENT_DEFS.filter(e => e.category === 'tools').forEach(exp => {
+      container.appendChild(buildExperimentRow(exp, container));
+    });
+  }
+
+  // --- Tab: Plugins ---
+  function buildPluginsTab(container) {
+    container.appendChild(el('div', {
+      fontSize: '11px', color: '#666', marginBottom: '16px',
+    }, 'External plugins loaded alongside DOM-Tools. Enable to show their toolbar button.'));
+
+    EXPERIMENT_DEFS.filter(e => e.category === 'plugins').forEach(exp => {
+      container.appendChild(buildExperimentRow(exp, container));
+    });
+  }
+
+  // --- Tab: About ---
+  function buildAboutTab(container) {
+    // Version
+    const version = el('div', { marginBottom: '20px' });
+    version.appendChild(el('div', { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }, 'DOM-Tools'));
+    version.appendChild(el('div', { fontSize: '11px', color: '#888' }, 'v1.0.0'));
+    container.appendChild(version);
+
+    // Shortcuts
+    container.appendChild(el('div', {
+      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#888', marginBottom: '12px',
+      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    }, 'Keyboard shortcuts'));
+
+    const shortcuts = [
+      ['Cmd+Shift+K / Ctrl+Shift+K', 'Toggle inspector'],
+      ['Esc Esc (double-tap)', 'Re-focus cursor tool'],
+      ['Cmd+Shift+S / Ctrl+Shift+S', 'Full page screenshot'],
+      ['Esc', 'Exit current popover or tool'],
+      ['A', 'Toggle annotate/draw mode'],
+      ['Shift+Esc', 'Clear all changes'],
+    ];
+    shortcuts.forEach(([key, desc]) => {
+      const row = el('div', { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px' });
+      row.appendChild(el('span', { color: '#bbb', fontFamily: 'monospace', fontSize: '10px' }, key));
+      row.appendChild(el('span', { color: '#888' }, desc));
+      container.appendChild(row);
+    });
+
+    // Links
+    container.appendChild(el('div', {
+      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#888', marginTop: '20px', marginBottom: '12px',
+      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    }, 'Links'));
+
+    const links = [
+      ['GitHub', 'https://github.com/luismqueral/dom-tools'],
+      ['Documentation', 'https://queral.studio/notes/dom-tools'],
+    ];
+    links.forEach(([label, href]) => {
+      const a = document.createElement('a');
+      a.href = href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = label;
+      Object.assign(a.style, {
+        display: 'block', fontSize: '12px', color: getSelectionColor(),
+        textDecoration: 'none', padding: '4px 0',
+      });
+      a.addEventListener('mouseenter', () => { a.style.textDecoration = 'underline'; });
+      a.addEventListener('mouseleave', () => { a.style.textDecoration = 'none'; });
+      container.appendChild(a);
+    });
+
+    // Reset
+    container.appendChild(el('div', {
+      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#888', marginTop: '20px', marginBottom: '12px',
+      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    }, 'Data'));
+
+    const resetBtn = el('button', {
+      padding: '8px 16px', fontSize: '11px', fontWeight: '600',
+      background: 'rgba(239,68,68,0.15)', color: '#ef4444',
+      border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px',
+      cursor: 'pointer', fontFamily: 'inherit',
+    }, 'Reset all settings');
+    resetBtn.addEventListener('click', () => {
+      if (confirm('Reset all DOM-Tools settings to defaults?')) {
+        localStorage.removeItem(EXP_KEY);
+        localStorage.removeItem('dom-tools-selection-color');
+        localStorage.removeItem('dom-tools-features');
+        experiments = {};
+        location.reload();
+      }
+    });
+    resetBtn.addEventListener('mouseenter', () => { resetBtn.style.background = 'rgba(239,68,68,0.25)'; });
+    resetBtn.addEventListener('mouseleave', () => { resetBtn.style.background = 'rgba(239,68,68,0.15)'; });
+    container.appendChild(resetBtn);
+  }
+
+  // --- Color swatches ---
+  function buildColorSwatches() {
+    const wrap = el('div', { display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 0' });
     const swatchEls = [];
     function refresh() {
       const active = getSelectionColor();
-      swatchEls.forEach(({ el, value }) => {
-        el.style.boxShadow = value === active
+      swatchEls.forEach(({ el: sw, value }) => {
+        sw.style.boxShadow = value === active
           ? '0 0 0 2px #181818, 0 0 0 4px ' + value
           : 'none';
       });
@@ -819,111 +984,84 @@
     return wrap;
   }
 
+  // --- Tabbed panel ---
+  const TABS = [
+    { id: 'general', label: 'General', build: buildGeneralTab },
+    { id: 'tools', label: 'Tools', build: buildToolsTab },
+    { id: 'plugins', label: 'Plugins', build: buildPluginsTab },
+    { id: 'about', label: 'About', build: buildAboutTab },
+  ];
+
   function buildSettingsPanel() {
-    const container = document.createElement('div');
+    const outer = el('div');
+    let activeTab = 'general';
 
-    const colorTitle = sectionTitle('Selection color', { first: true });
-    container.appendChild(colorTitle);
-    container.appendChild(buildColorSwatches());
-
-    const expTitle = sectionTitle('Experiments');
-    container.appendChild(expTitle);
-
-    EXPERIMENT_DEFS.forEach(exp => {
-      const wrap = document.createElement('div');
-      wrap.style.marginBottom = '10px';
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
-        color: '#ddd', fontSize: '13px', cursor: 'pointer'
-      });
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = isExperimentEnabled(exp.id);
-      checkbox.style.accentColor = getSelectionColor();
-      checkbox.style.marginTop = '3px';
-      const labelWrap = document.createElement('div');
-      const labelText = document.createElement('span');
-      labelText.textContent = exp.label;
-      Object.assign(labelText.style, { display: 'block', fontWeight: '500' });
-      const desc = document.createElement('span');
-      desc.textContent = exp.description;
-      Object.assign(desc.style, { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' });
-      labelWrap.appendChild(labelText);
-      labelWrap.appendChild(desc);
-      row.appendChild(checkbox);
-      row.appendChild(labelWrap);
-      wrap.appendChild(row);
-
-      let optionsBlock = null;
-      if (exp.options) {
-        optionsBlock = buildExperimentOptions(exp);
-        optionsBlock.style.display = isExperimentEnabled(exp.id) ? 'block' : 'none';
-        wrap.appendChild(optionsBlock);
-      }
-
-      checkbox.addEventListener('change', () => {
-        setExperiment(exp.id, checkbox.checked);
-        if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
-        showRefreshHint(container);
-      });
-
-      container.appendChild(wrap);
+    // Tab bar
+    const tabBar = el('div', {
+      display: 'flex', gap: '4px', marginBottom: '20px',
+      paddingBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.06)',
     });
 
-    return container;
+    // Tab content area
+    const contentArea = el('div', { minHeight: '200px' });
+
+    const tabBtns = {};
+
+    function switchTab(id) {
+      activeTab = id;
+      // Update button styles
+      Object.entries(tabBtns).forEach(([key, btn]) => {
+        if (key === id) {
+          btn.style.background = getSelectionColor();
+          btn.style.color = '#fff';
+        } else {
+          btn.style.background = 'transparent';
+          btn.style.color = '#888';
+        }
+      });
+      // Rebuild content
+      contentArea.innerHTML = '';
+      _refreshHint = null;
+      const tab = TABS.find(t => t.id === id);
+      if (tab) tab.build(contentArea);
+    }
+
+    TABS.forEach(tab => {
+      const btn = el('button', {
+        padding: '5px 12px', fontSize: '10px', fontWeight: '600',
+        textTransform: 'uppercase', letterSpacing: '0.5px',
+        border: 'none', borderRadius: '4px', cursor: 'pointer',
+        fontFamily: 'inherit', transition: 'background 0.15s, color 0.15s',
+        background: tab.id === activeTab ? getSelectionColor() : 'transparent',
+        color: tab.id === activeTab ? '#fff' : '#888',
+      });
+      btn.textContent = tab.label;
+      btn.addEventListener('click', () => switchTab(tab.id));
+      btn.addEventListener('mouseenter', () => {
+        if (tab.id !== activeTab) btn.style.color = '#ccc';
+      });
+      btn.addEventListener('mouseleave', () => {
+        if (tab.id !== activeTab) btn.style.color = '#888';
+      });
+      tabBtns[tab.id] = btn;
+      tabBar.appendChild(btn);
+    });
+
+    outer.appendChild(tabBar);
+    outer.appendChild(contentArea);
+
+    // Initial render
+    switchTab(activeTab);
+
+    return outer;
   }
 
-  // Inline radio group rendered just under an experiment when it has
-  // nested options. Only the "move" experiment uses this so far; the
-  // renderer is generic for future ones.
-  function buildExperimentOptions(exp) {
-    const block = document.createElement('div');
-    Object.assign(block.style, {
-      marginLeft: '24px', marginTop: '4px', marginBottom: '6px',
-      paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.08)',
-    });
-    const optLabel = document.createElement('div');
-    optLabel.textContent = exp.options.label;
-    Object.assign(optLabel.style, {
-      color: '#aaa', fontSize: '10px', marginBottom: '4px',
-      textTransform: 'uppercase', letterSpacing: '0.4px',
-    });
-    block.appendChild(optLabel);
-
-    const groupName = `dt-exp-${exp.id}-${exp.options.id}`;
-    exp.options.choices.forEach(choice => {
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0',
-        color: '#ddd', fontSize: '11px', cursor: 'pointer',
-      });
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = groupName;
-      radio.value = choice.value;
-      radio.checked = getExperimentOption(exp.id, exp.options.id) === choice.value;
-      radio.style.accentColor = getSelectionColor();
-      radio.addEventListener('change', () => {
-        if (radio.checked) setExperimentOption(exp.id, exp.options.id, choice.value);
-      });
-      const text = document.createElement('span');
-      text.textContent = choice.label;
-      row.appendChild(radio);
-      row.appendChild(text);
-      block.appendChild(row);
-    });
-    return block;
-  }
-
+  // --- Popover (modal) ---
   function onPopoverKeyDown(e) {
     if (e.key === 'Escape') closeSettings();
   }
 
   function showPopover() {
-    // Full-screen overlay: a dimmed/blurred backdrop covering the whole
-    // viewport, with a centered card holding the settings UI. Clicking
-    // the backdrop or pressing Esc closes the panel.
     _popover = document.createElement('div');
     _popover.setAttribute('data-dt-settings', '');
     Object.assign(_popover.style, {
@@ -936,8 +1074,7 @@
       boxSizing: 'border-box', padding: '40px',
     });
 
-    const card = document.createElement('div');
-    Object.assign(card.style, {
+    const card = el('div', {
       width: 'min(560px, 100%)',
       maxHeight: '100%',
       background: 'rgba(24,24,24,0.96)',
@@ -950,16 +1087,15 @@
       position: 'relative',
     });
 
-    const header = document.createElement('div');
-    Object.assign(header.style, {
+    // Header
+    const header = el('div', {
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       marginBottom: '18px',
     });
-    const title = document.createElement('div');
-    title.textContent = 'Settings';
-    Object.assign(title.style, {
+    header.appendChild(el('div', {
       fontSize: '18px', fontWeight: '600', color: '#fff', letterSpacing: '0.3px',
-    });
+    }, 'Settings'));
+
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.innerHTML = '&times;';
@@ -969,21 +1105,13 @@
       border: 'none', color: '#aaa', fontSize: '24px', lineHeight: '1',
       cursor: 'pointer', borderRadius: '6px', padding: '0',
     });
-    closeBtn.addEventListener('mouseenter', () => {
-      closeBtn.style.background = 'rgba(255,255,255,0.08)';
-      closeBtn.style.color = '#fff';
-    });
-    closeBtn.addEventListener('mouseleave', () => {
-      closeBtn.style.background = 'transparent';
-      closeBtn.style.color = '#aaa';
-    });
+    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(255,255,255,0.08)'; closeBtn.style.color = '#fff'; });
+    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'transparent'; closeBtn.style.color = '#aaa'; });
     closeBtn.addEventListener('click', () => closeSettings());
-
-    header.appendChild(title);
     header.appendChild(closeBtn);
+
     card.appendChild(header);
     card.appendChild(buildSettingsPanel());
-
     _popover.appendChild(card);
 
     _popover.addEventListener('click', (e) => {
@@ -1049,8 +1177,6 @@
     toolbar.appendChild(_settingsBtn);
     inspectorUI.add(_settingsBtn);
 
-    // Live theme: keep the gear's "active" background in sync if the
-    // user changes color while the popover is open.
     onColorChange((color) => {
       if (visible && _settingsBtn) _settingsBtn.style.background = color;
     });
@@ -2453,11 +2579,170 @@
   }
 
   function clearAllChanges() {
+    if (isExperimentEnabled('kidpix-clear')) {
+      kidPixClear(() => {
+        doClear();
+      });
+    } else {
+      doClear();
+    }
+  }
+
+  function doClear() {
     clearAnnotations();
-    // Clear freehand drawings too — "everything" includes the canvas.
     const drawMod = getModules().find(m => m.id === 'draw');
     if (drawMod && drawMod.clear) drawMod.clear();
     showToast('Cleared all changes');
+  }
+
+  // --- Kid Pix clear animation ---
+  // Picks a random wipe style: dynamite, firecracker, or dissolve.
+  function kidPixClear(onDone) {
+    const effects = [dynamiteWipe, firecrackerWipe, dissolveWipe];
+    const effect = effects[Math.floor(Math.random() * effects.length)];
+    effect(onDone);
+  }
+
+  function dynamiteWipe(onDone) {
+    // Flash white → shake → clear
+    const overlay = makeOverlay();
+    overlay.style.background = '#fff';
+    overlay.style.opacity = '0';
+
+    // Boom sound (short beep via oscillator)
+    playBoom();
+
+    // Shake the page
+    document.documentElement.animate([
+      { transform: 'translate(0,0)' },
+      { transform: 'translate(-8px, 4px)' },
+      { transform: 'translate(6px, -3px)' },
+      { transform: 'translate(-4px, 6px)' },
+      { transform: 'translate(5px, -2px)' },
+      { transform: 'translate(-3px, 3px)' },
+      { transform: 'translate(0,0)' },
+    ], { duration: 400, easing: 'ease-out' });
+
+    // Flash
+    overlay.animate([
+      { opacity: 0 },
+      { opacity: 0.9, offset: 0.1 },
+      { opacity: 0.9, offset: 0.3 },
+      { opacity: 0 },
+    ], { duration: 500 }).onfinish = () => {
+      overlay.remove();
+      inspectorUI.delete(overlay);
+      onDone();
+    };
+  }
+
+  function firecrackerWipe(onDone) {
+    // Sparks flying from random points
+    const overlay = makeOverlay();
+    overlay.style.background = 'transparent';
+    overlay.style.overflow = 'hidden';
+
+    playBoom();
+
+    const count = 40;
+    for (let i = 0; i < count; i++) {
+      const spark = document.createElement('div');
+      const x = Math.random() * 100;
+      const y = Math.random() * 100;
+      const hue = Math.random() * 360;
+      const size = 4 + Math.random() * 8;
+      Object.assign(spark.style, {
+        position: 'absolute',
+        left: x + '%', top: y + '%',
+        width: size + 'px', height: size + 'px',
+        borderRadius: '50%',
+        background: `hsl(${hue}, 100%, 60%)`,
+        boxShadow: `0 0 6px hsl(${hue}, 100%, 70%)`,
+      });
+      overlay.appendChild(spark);
+
+      const dx = (Math.random() - 0.5) * 200;
+      const dy = (Math.random() - 0.5) * 200;
+      spark.animate([
+        { transform: 'scale(1) translate(0,0)', opacity: 1 },
+        { transform: `scale(0) translate(${dx}px, ${dy}px)`, opacity: 0 },
+      ], { duration: 600 + Math.random() * 400, easing: 'ease-out' });
+    }
+
+    setTimeout(() => {
+      overlay.remove();
+      inspectorUI.delete(overlay);
+      onDone();
+    }, 700);
+  }
+
+  function dissolveWipe(onDone) {
+    // Tiles that flip away
+    const overlay = makeOverlay();
+    overlay.style.background = 'transparent';
+
+    playBoom();
+
+    const cols = 12, rows = 8;
+    const w = 100 / cols, h = 100 / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const tile = document.createElement('div');
+        Object.assign(tile.style, {
+          position: 'absolute',
+          left: (c * w) + '%', top: (r * h) + '%',
+          width: w + '%', height: h + '%',
+          background: '#111',
+          opacity: '0',
+        });
+        overlay.appendChild(tile);
+        const delay = (r + c) * 30 + Math.random() * 60;
+        tile.animate([
+          { opacity: 0, transform: 'scale(0.8) rotateX(0deg)' },
+          { opacity: 1, transform: 'scale(1) rotateX(0deg)', offset: 0.3 },
+          { opacity: 1, transform: 'scale(1) rotateX(0deg)', offset: 0.7 },
+          { opacity: 0, transform: 'scale(0.5) rotateX(90deg)' },
+        ], { duration: 600, delay, easing: 'ease-in-out' });
+      }
+    }
+
+    setTimeout(() => {
+      overlay.remove();
+      inspectorUI.delete(overlay);
+      onDone();
+    }, 900);
+  }
+
+  function makeOverlay() {
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+      position: 'fixed', inset: '0',
+      zIndex: String(Z.flash + 1),
+      pointerEvents: 'none',
+    });
+    document.body.appendChild(el);
+    inspectorUI.add(el);
+    return el;
+  }
+
+  function playBoom() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // White noise burst
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      src.connect(gain);
+      gain.connect(ctx.destination);
+      src.start();
+      src.stop(ctx.currentTime + 0.2);
+      setTimeout(() => ctx.close(), 300);
+    } catch (_) {}
   }
 
   const HOME_MOD_ID = 'style-modifier';
@@ -5186,13 +5471,17 @@
 
   function drainPluginQueue() {
     const pending = window.DomTools._pendingPlugins || [];
-    pending.forEach(plugin => registerLate(plugin, pluginAPI));
+    pending.forEach(plugin => {
+      if (!isExperimentEnabled(plugin.id)) return;
+      registerLate(plugin, pluginAPI);
+    });
     window.DomTools._pendingPlugins = [];
   }
 
   // Public plugin registration (works before or after boot)
   window.DomTools.registerPlugin = function(plugin) {
     if (booted) {
+      if (!isExperimentEnabled(plugin.id)) return;
       registerLate(plugin, pluginAPI);
     } else {
       window.DomTools._pendingPlugins.push(plugin);

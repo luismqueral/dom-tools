@@ -60,13 +60,17 @@ function bootDomTools() {
 
 function drainPluginQueue() {
   const pending = window.DomTools._pendingPlugins || [];
-  pending.forEach(plugin => registerLate(plugin, pluginAPI));
+  pending.forEach(plugin => {
+    if (!isExperimentEnabled(plugin.id)) return;
+    registerLate(plugin, pluginAPI);
+  });
   window.DomTools._pendingPlugins = [];
 }
 
 // Public plugin registration (works before or after boot)
 window.DomTools.registerPlugin = function(plugin) {
   if (booted) {
+    if (!isExperimentEnabled(plugin.id)) return;
     registerLate(plugin, pluginAPI);
   } else {
     window.DomTools._pendingPlugins.push(plugin);
