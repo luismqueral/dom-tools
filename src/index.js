@@ -15,7 +15,6 @@ import annotations from './features/annotations.js';
 import camera from './features/camera.js';
 import draw from './features/draw.js';
 import editMode from './features/edit-mode.js';
-import terminal from './features/terminal.js';
 import move from './features/move.js';
 import duplicate from './features/duplicate.js';
 import copySelector from './features/copy-selector.js';
@@ -36,7 +35,6 @@ function bootDomTools() {
   if (isExperimentEnabled('camera')) register(camera);
   register(copySelector);
   register(canvasZoom);
-  if (isExperimentEnabled('terminal')) register(terminal);
   if (isExperimentEnabled('move')) register(move);
   if (isExperimentEnabled('duplicate')) register(duplicate);
 

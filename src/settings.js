@@ -23,7 +23,6 @@ try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (
 
 const EXPERIMENT_DEFS = [
   { id: 'dock', label: 'Edge snap', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
-  { id: 'terminal', label: 'Terminal', description: 'Mock terminal overlay for experimentation.', default: false },
   {
     id: 'move',
     label: 'Move elements',
@@ -61,7 +60,7 @@ const EXPERIMENT_DEFS = [
     id: 'dblclick-edit',
     label: 'Double-click to edit text',
     description: 'Double-click a text element in Select mode to edit it inline.',
-    default: false,
+    default: true,
   },
 ];
 
