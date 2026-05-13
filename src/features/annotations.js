@@ -591,6 +591,8 @@ export function getAnnotations() {
   });
   textEdits.forEach((e, el) => {
     if (el.innerText === e.originalText && el.className === e.originalClasses) return;
+    // Skip structural containers (canvas wrapper) — only track leaf edits
+    if (el.id === 'dt-canvas-wrapper') return;
     items.push({
       kind: 'text',
       el,

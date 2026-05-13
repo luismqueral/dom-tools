@@ -265,6 +265,9 @@
     while (node) {
       if (inspectorUI.has(node)) return true;
       if (node.nodeType === 1 && node.hasAttribute && node.hasAttribute('data-dt-ignore')) return true;
+      // The canvas wrapper is a structural container — not selectable itself,
+      // but its children are normal page content (don't propagate further).
+      if (node.id === 'dt-canvas-wrapper' && node === el) return true;
       node = node.parentElement;
     }
     return false;
@@ -2156,6 +2159,8 @@
     });
     textEdits.forEach((e, el) => {
       if (el.innerText === e.originalText && el.className === e.originalClasses) return;
+      // Skip structural containers (canvas wrapper) — only track leaf edits
+      if (el.id === 'dt-canvas-wrapper') return;
       items.push({
         kind: 'text',
         el,
