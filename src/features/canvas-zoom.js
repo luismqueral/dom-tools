@@ -105,7 +105,8 @@ function ensureMinimap() {
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '8px',
     zIndex: String(Z.toolbar + 1),
-    pointerEvents: 'none',
+    pointerEvents: 'auto',
+    cursor: 'crosshair',
     opacity: '0',
     transition: 'opacity 0.2s ease',
     overflow: 'hidden',
@@ -136,8 +137,70 @@ function ensureMinimap() {
   });
   minimap.appendChild(minimapViewport);
 
+  // Click/drag to navigate
+  minimap.addEventListener('mousedown', onMinimapDown);
+  minimap.addEventListener('click', (e) => e.stopPropagation());
+
   document.body.appendChild(minimap);
   inspectorUI.add(minimap);
+
+  // Update viewport on scroll
+  window.addEventListener('scroll', () => { if (minimap) updateMinimap(); }, true);
+}
+
+// --- Minimap click-to-navigate ---
+// Convert a click position on the minimap to document coordinates and pan there.
+function minimapClickToPan(e) {
+  if (!wrapper) return;
+  const rect = minimap.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  const pad = MAP_PAD;
+  const innerW = MAP_W - pad * 2;
+  const innerH = MAP_H - pad * 2;
+  const docW = wrapper.scrollWidth;
+  const docH = wrapper.scrollHeight;
+
+  const docAspect = docW / docH;
+  const mapAspect = innerW / innerH;
+  let drawW, drawH;
+  if (docAspect > mapAspect) {
+    drawW = innerW;
+    drawH = innerW / docAspect;
+  } else {
+    drawH = innerH;
+    drawW = innerH * docAspect;
+  }
+  const offsetX = pad + (innerW - drawW) / 2;
+  const offsetY = pad + (innerH - drawH) / 2;
+  const s = drawW / docW;
+
+  // Target document position (center of viewport on this point)
+  const docX = (mx - offsetX) / s;
+  const docY = (my - offsetY) / s;
+
+  // Pan so this point is centered in the viewport
+  const vpW = window.innerWidth / scale;
+  const vpH = window.innerHeight / scale;
+  panX = -(docX - vpW / 2) * scale;
+  panY = -(docY - vpH / 2) * scale;
+
+  applyTransform();
+}
+
+function onMinimapDown(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  minimapClickToPan(e);
+
+  function onMove(ev) { minimapClickToPan(ev); }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 }
 
 // Render a lightweight thumbnail of the page by sampling visible elements
@@ -255,11 +318,11 @@ function updateMinimap() {
   const offsetY = pad + (innerH - drawH) / 2;
   const s = drawW / docW;
 
-  // Viewport in document coordinates
+  // Viewport in document coordinates (pan + scroll)
   const vpW = window.innerWidth / scale;
   const vpH = window.innerHeight / scale;
-  const vpX = -panX / scale;
-  const vpY = -panY / scale;
+  const vpX = -panX / scale + window.scrollX;
+  const vpY = -panY / scale + window.scrollY;
 
   Object.assign(minimapViewport.style, {
     left: (offsetX + vpX * s) + 'px',

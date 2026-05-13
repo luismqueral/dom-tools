@@ -269,6 +269,22 @@ export function renderToolbar() {
   inspectorUI.add(tbHandle);
 
   setActiveButton('style-modifier');
+
+  // Counter-scale toolbar against browser zoom so it stays a fixed
+  // physical size regardless of Cmd+/- zoom level.
+  // We detect zoom by comparing window.innerWidth to the initial value.
+  const baseInnerWidth = window.innerWidth;
+  function compensateZoom() {
+    // Browser zoom changes innerWidth (viewport shrinks when zoomed in).
+    // Ratio > 1 means zoomed in, < 1 means zoomed out.
+    const zoomFactor = baseInnerWidth / window.innerWidth;
+    if (Math.abs(zoomFactor - 1) > 0.05) {
+      toolbar.style.zoom = 1 / zoomFactor;
+    } else {
+      toolbar.style.zoom = '';
+    }
+  }
+  window.addEventListener('resize', compensateZoom);
 }
 
 export { toolbar };

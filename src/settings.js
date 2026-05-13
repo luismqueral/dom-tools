@@ -89,6 +89,24 @@ function setExperimentOption(id, optionId, value) {
   localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
 }
 
+let _refreshHint = null;
+function showRefreshHint(container) {
+  if (_refreshHint) return;
+  _refreshHint = document.createElement('div');
+  _refreshHint.textContent = 'Refresh page for changes to take effect';
+  Object.assign(_refreshHint.style, {
+    marginTop: '16px',
+    padding: '8px 12px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '6px',
+    fontSize: '11px',
+    color: '#aaa',
+    textAlign: 'center',
+  });
+  container.appendChild(_refreshHint);
+}
+
 function sectionTitle(text, opts = {}) {
   const div = document.createElement('div');
   div.textContent = text;
@@ -187,6 +205,7 @@ function buildSettingsPanel() {
     checkbox.addEventListener('change', () => {
       setExperiment(exp.id, checkbox.checked);
       if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
+      showRefreshHint(container);
     });
 
     container.appendChild(wrap);
