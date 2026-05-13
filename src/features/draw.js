@@ -46,12 +46,12 @@ function applyPenStyle() {
   ctx.lineJoin = 'round';
 }
 
-// --- Floating draw panel (top-right, tldraw-style) ---
+// --- Floating draw panel (draggable window) ---
 function createDrawPanel() {
   const panel = document.createElement('div');
   panel.setAttribute('data-dt-ignore', '');
   Object.assign(panel.style, {
-    position: 'fixed', bottom: '72px', left: '50%', transform: 'translateX(-50%)',
+    position: 'fixed', top: '16px', right: '16px',
     zIndex: String(Z.toolbar + 1),
     background: 'rgba(30,30,30,0.85)', borderRadius: '10px', padding: '10px 14px',
     backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
@@ -61,6 +61,55 @@ function createDrawPanel() {
     display: 'none',
   });
   inspectorUI.add(panel);
+
+  // --- Drag handle header ---
+  const header = document.createElement('div');
+  Object.assign(header.style, {
+    display: 'flex', alignItems: 'center', gap: '6px',
+    marginBottom: '8px', cursor: 'grab',
+  });
+  const grip = document.createElement('span');
+  grip.textContent = '\u2837';
+  Object.assign(grip.style, {
+    color: 'rgba(255,255,255,0.35)', fontSize: '14px', lineHeight: '1',
+  });
+  const label = document.createElement('span');
+  label.textContent = 'Brush';
+  Object.assign(label.style, {
+    color: 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: '600',
+    letterSpacing: '0.5px', textTransform: 'uppercase',
+  });
+  header.appendChild(grip);
+  header.appendChild(label);
+  panel.appendChild(header);
+
+  // Drag logic
+  let dragging = false, dx = 0, dy = 0;
+  header.addEventListener('mousedown', (e) => {
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    dx = e.clientX - rect.left;
+    dy = e.clientY - rect.top;
+    header.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    let x = e.clientX - dx;
+    let y = e.clientY - dy;
+    // Clamp to viewport
+    const pw = panel.offsetWidth, ph = panel.offsetHeight;
+    x = Math.max(0, Math.min(window.innerWidth - pw, x));
+    y = Math.max(0, Math.min(window.innerHeight - ph, y));
+    panel.style.left = x + 'px';
+    panel.style.top = y + 'px';
+    panel.style.right = 'auto';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    header.style.cursor = 'grab';
+  });
 
   // Color swatches
   const colorRow = document.createElement('div');

@@ -415,9 +415,12 @@ function applyTransform() {
       wrapper.style.boxShadow = '0 0 0 16px ' + originalDocBg + ', 0 0 0 17px #d1d5db, 0 4px 24px rgba(0,0,0,0.12)';
       wrapper.dataset.dtBgSet = '1';
     }
-    document.body.style.background = computeCanvasBg(originalDocBg);
+    const canvasBg = computeCanvasBg(originalDocBg);
+    document.body.style.background = canvasBg;
+    document.documentElement.style.background = canvasBg;
   } else {
     document.body.style.background = '';
+    document.documentElement.style.background = '';
     wrapper.style.background = '';
     wrapper.style.borderRadius = '';
     wrapper.style.boxShadow = '';
@@ -438,6 +441,7 @@ function resetTransform() {
     delete wrapper.dataset.dtBgSet;
   }
   document.body.style.background = '';
+  document.documentElement.style.background = '';
   updateMinimap();
   showZoomLevel();
 }
