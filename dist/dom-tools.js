@@ -4898,16 +4898,18 @@
 
     e.preventDefault();
 
-    // Cursor position in content coordinates (before transform)
-    const cursorX = (e.clientX - panX) / scale;
-    const cursorY = (e.clientY - panY) / scale;
+    // With CSS zoom, getBoundingClientRect() returns the zoomed rect.
+    // The cursor position in unzoomed content space:
+    const rect = wrapper.getBoundingClientRect();
+    const cursorX = (e.clientX - rect.left) / scale;
+    const cursorY = (e.clientY - rect.top) / scale;
 
     const delta = -e.deltaY * ZOOM_SPEED;
     const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * (1 + delta)));
 
-    // Adjust pan so the point under the cursor stays fixed
-    panX = e.clientX - cursorX * newScale;
-    panY = e.clientY - cursorY * newScale;
+    // Keep the point under the cursor fixed after scale change.
+    panX += cursorX * (scale - newScale);
+    panY += cursorY * (scale - newScale);
     scale = newScale;
 
     applyTransform();
