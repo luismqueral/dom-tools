@@ -3348,7 +3348,7 @@
   };
 
   // Pencil cursor — same icon as the toolbar button, white fill, 20x20 with hotspot at bottom-left tip
-  const PENCIL_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'%3E%3Cpath d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z' fill='%23fff' stroke='%23000' stroke-width='0.5'/%3E%3C/svg%3E") 2 18, crosshair`;
+  const PENCIL_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'%3E%3Cpath d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z' fill='%23fff' stroke='%23000' stroke-width='1.5'/%3E%3C/svg%3E") 2 18, crosshair`;
 
   let drawCanvas = null;
   let isDrawing = false;
@@ -3457,7 +3457,7 @@
 
     // Color swatches
     const colorRow = document.createElement('div');
-    Object.assign(colorRow.style, { display: 'flex', gap: '4px', alignItems: 'center' });
+    Object.assign(colorRow.style, { display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' });
     panel.appendChild(colorRow);
 
     DRAW_COLORS.forEach(c => {
@@ -3469,7 +3469,6 @@
         background: fill, cursor: 'pointer', padding: '0', transition: 'border-color 0.1s, transform 0.1s',
       });
       if (c.id === 'theme') {
-        // Gradient ring to indicate "theme" swatch
         swatch.style.background = getSelectionColor();
       }
       swatch.addEventListener('click', () => {
@@ -3480,13 +3479,10 @@
       colorRow.appendChild(swatch);
     });
 
-    // Divider
-    const divider = document.createElement('div');
-    Object.assign(divider.style, { width: '1px', height: '16px', background: 'rgba(255,255,255,0.12)', margin: '0 3px' });
-    colorRow.appendChild(divider);
-
-    // Size options (inline with colors, separated by divider)
-    const sizeRow = colorRow; // same row
+    // Size options (second row)
+    const sizeRow = document.createElement('div');
+    Object.assign(sizeRow.style, { display: 'flex', gap: '4px', alignItems: 'center', marginTop: '6px' });
+    panel.appendChild(sizeRow);
 
     DRAW_SIZES.forEach(s => {
       const btn = document.createElement('button');
