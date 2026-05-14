@@ -45,7 +45,25 @@ const EXPERIMENT_DEFS = [
     },
   },
   { id: 'duplicate', label: 'Duplicate element', category: 'tools', description: 'Hold Shift and click-drag any element to duplicate it.', default: false },
-  { id: 'camera', label: 'Full-page screenshot', category: 'tools', description: 'Capture the entire scrollable page as PNG.', default: true },
+  {
+    id: 'camera',
+    label: 'Screenshot resolution',
+    category: 'general',
+    description: 'Quality for screenshots (Cmd+Shift+S and camera tool).',
+    default: true,
+    noToggle: true,
+    options: {
+      id: 'resolution',
+      label: 'Scale',
+      choices: [
+        { value: '1', label: '1x (fast, small file)' },
+        { value: '2', label: '2x' },
+        { value: '3', label: '3x (high-res)' },
+        { value: 'auto', label: 'Auto (device pixel ratio)' },
+      ],
+      default: '3',
+    },
+  },
   // Plugins
   { id: 'dom-xray', label: 'DOM X-Ray', category: 'plugins', description: 'Visualize box model — content, padding, border, and margin as colored overlays.', default: false, beta: true },
   { id: 'spacing-debugger', label: 'Spacing Debugger', category: 'plugins', description: 'Show all margins and paddings across the page simultaneously.', default: false, beta: true },
@@ -99,6 +117,19 @@ function showRefreshHint(container) {
 // --- Experiment toggle row (reused across tabs) ---
 function buildExperimentRow(exp, hintContainer) {
   const wrap = el('div', { marginBottom: '10px' });
+
+  // noToggle: just show label + options, no checkbox
+  if (exp.noToggle) {
+    const labelWrap = el('div', { padding: '6px 0' });
+    const labelRow = el('span', { display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500', color: '#ddd', fontSize: '13px' });
+    labelRow.textContent = exp.label;
+    labelWrap.appendChild(labelRow);
+    labelWrap.appendChild(el('span', { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' }, exp.description));
+    wrap.appendChild(labelWrap);
+    if (exp.options) wrap.appendChild(buildExperimentOptions(exp));
+    return wrap;
+  }
+
   const row = el('label', {
     display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
     color: '#ddd', fontSize: '13px', cursor: 'pointer',
@@ -175,18 +206,17 @@ function buildExperimentOptions(exp) {
 
 // --- Tab: General ---
 function buildGeneralTab(container) {
-  // Color swatches
-  container.appendChild(el('div', {
-    fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
-    letterSpacing: '1px', color: '#888', marginBottom: '10px',
-  }, 'Selection color'));
-  container.appendChild(buildColorSwatches());
+  // // Color swatches (disabled — buggy)
+  // container.appendChild(el('div', {
+  //   fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+  //   letterSpacing: '1px', color: '#888', marginBottom: '10px',
+  // }, 'Selection color'));
+  // container.appendChild(buildColorSwatches());
 
   // General experiments
   container.appendChild(el('div', {
     fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
-    letterSpacing: '1px', color: '#888', marginTop: '20px', marginBottom: '12px',
-    paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    letterSpacing: '1px', color: '#888', marginBottom: '12px',
   }, 'Behavior'));
 
   EXPERIMENT_DEFS.filter(e => e.category === 'general').forEach(exp => {

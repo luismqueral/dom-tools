@@ -1,6 +1,7 @@
 import { state, inspectorUI } from '../core/state.js';
 import { COLORS, CAM_OUTLINE, CAM_BG, Z } from '../core/constants.js';
 import { showToast, nudge, flashElement, isInspectorUI, clearHover } from '../core/helpers.js';
+import { getExperimentOption } from '../settings.js';
 
 let selBox = null;
 function playShutter() {
@@ -74,7 +75,7 @@ async function captureElement(el) {
   el.style.backgroundColor = el._origBg || '';
   showToast('Capturing...');
   try {
-    const canvas = await html2canvas(el, { backgroundColor: null, scale: 2, logging: false });
+    const canvas = await html2canvas(el, { backgroundColor: null, scale: getIdealScale(), logging: false });
     await saveCapture(canvas, el);
   } catch (e) { showToast('Capture failed'); }
   el.style.outline = oo;
@@ -85,12 +86,14 @@ async function captureRegion(x, y, w, h) {
   await loadH2C();
   showToast('Capturing...');
   try {
-    const scale = 2;
+    const pageW = document.documentElement.scrollWidth;
+    const pageH = document.documentElement.scrollHeight;
+    const scale = safeScale(pageW, pageH);
     const full = await html2canvas(document.documentElement, {
       backgroundColor: '#fff', scale, logging: false,
       scrollX: 0, scrollY: 0,
-      windowWidth: document.documentElement.scrollWidth,
-      windowHeight: document.documentElement.scrollHeight
+      windowWidth: pageW,
+      windowHeight: pageH
     });
     const sx = (x + window.scrollX) * scale;
     const sy = (y + window.scrollY) * scale;
@@ -103,20 +106,40 @@ async function captureRegion(x, y, w, h) {
   } catch (e) { showToast('Capture failed'); }
 }
 
+// Browsers cap canvas dimensions (16384px in Chrome/Safari, 32767 in Firefox).
+// Use 16384 as the safe cross-browser limit.
+const MAX_CANVAS_DIM = 16384;
+
+function getIdealScale() {
+  const setting = getExperimentOption('camera', 'resolution') || '3';
+  if (setting === 'auto') return window.devicePixelRatio || 2;
+  return Number(setting);
+}
+
+function safeScale(width, height) {
+  const ideal = getIdealScale();
+  const maxByWidth = MAX_CANVAS_DIM / width;
+  const maxByHeight = MAX_CANVAS_DIM / height;
+  return Math.min(ideal, maxByWidth, maxByHeight);
+}
+
 async function captureFullPage() {
   await loadH2C();
   showToast('Capturing full page...');
   try {
+    const w = document.documentElement.scrollWidth;
+    const h = document.documentElement.scrollHeight;
+    const scale = safeScale(w, h);
     const canvas = await html2canvas(document.documentElement, {
-      backgroundColor: '#fff', scale: 2, logging: false,
+      backgroundColor: '#fff', scale, logging: false,
       scrollX: 0, scrollY: 0,
-      windowWidth: document.documentElement.scrollWidth,
-      windowHeight: document.documentElement.scrollHeight,
-      width: document.documentElement.scrollWidth,
-      height: document.documentElement.scrollHeight,
+      windowWidth: w,
+      windowHeight: h,
+      width: w,
+      height: h,
       ignoreElements: (el) => inspectorUI.has(el)
     });
-    await saveCapture(canvas, 'full-page-screenshot.png');
+    await saveCapture(canvas, null, 'full-page-screenshot.png');
   } catch (e) { showToast('Full page capture failed'); }
 }
 

@@ -380,13 +380,6 @@
   }
   syncCssVars(current);
 
-  function setSelectionColor(hex) {
-    current = hex;
-    try { localStorage.setItem(KEY, hex); } catch (e) {}
-    syncCssVars(hex);
-    subscribers.forEach(fn => { try { fn(hex); } catch (_) {} });
-  }
-
   function onColorChange(fn) {
     subscribers.add(fn);
     return () => subscribers.delete(fn);
@@ -718,7 +711,25 @@
       },
     },
     { id: 'duplicate', label: 'Duplicate element', category: 'tools', description: 'Hold Shift and click-drag any element to duplicate it.', default: false },
-    { id: 'camera', label: 'Full-page screenshot', category: 'tools', description: 'Capture the entire scrollable page as PNG.', default: true },
+    {
+      id: 'camera',
+      label: 'Screenshot resolution',
+      category: 'general',
+      description: 'Quality for screenshots (Cmd+Shift+S and camera tool).',
+      default: true,
+      noToggle: true,
+      options: {
+        id: 'resolution',
+        label: 'Scale',
+        choices: [
+          { value: '1', label: '1x (fast, small file)' },
+          { value: '2', label: '2x' },
+          { value: '3', label: '3x (high-res)' },
+          { value: 'auto', label: 'Auto (device pixel ratio)' },
+        ],
+        default: '3',
+      },
+    },
     // Plugins
     { id: 'dom-xray', label: 'DOM X-Ray', category: 'plugins', description: 'Visualize box model — content, padding, border, and margin as colored overlays.', default: false, beta: true },
     { id: 'spacing-debugger', label: 'Spacing Debugger', category: 'plugins', description: 'Show all margins and paddings across the page simultaneously.', default: false, beta: true },
@@ -772,6 +783,19 @@
   // --- Experiment toggle row (reused across tabs) ---
   function buildExperimentRow(exp, hintContainer) {
     const wrap = el('div', { marginBottom: '10px' });
+
+    // noToggle: just show label + options, no checkbox
+    if (exp.noToggle) {
+      const labelWrap = el('div', { padding: '6px 0' });
+      const labelRow = el('span', { display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500', color: '#ddd', fontSize: '13px' });
+      labelRow.textContent = exp.label;
+      labelWrap.appendChild(labelRow);
+      labelWrap.appendChild(el('span', { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' }, exp.description));
+      wrap.appendChild(labelWrap);
+      if (exp.options) wrap.appendChild(buildExperimentOptions(exp));
+      return wrap;
+    }
+
     const row = el('label', {
       display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
       color: '#ddd', fontSize: '13px', cursor: 'pointer',
@@ -848,18 +872,17 @@
 
   // --- Tab: General ---
   function buildGeneralTab(container) {
-    // Color swatches
-    container.appendChild(el('div', {
-      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
-      letterSpacing: '1px', color: '#888', marginBottom: '10px',
-    }, 'Selection color'));
-    container.appendChild(buildColorSwatches());
+    // // Color swatches (disabled — buggy)
+    // container.appendChild(el('div', {
+    //   fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+    //   letterSpacing: '1px', color: '#888', marginBottom: '10px',
+    // }, 'Selection color'));
+    // container.appendChild(buildColorSwatches());
 
     // General experiments
     container.appendChild(el('div', {
       fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
-      letterSpacing: '1px', color: '#888', marginTop: '20px', marginBottom: '12px',
-      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
+      letterSpacing: '1px', color: '#888', marginBottom: '12px',
     }, 'Behavior'));
 
     EXPERIMENT_DEFS.filter(e => e.category === 'general').forEach(exp => {
@@ -970,41 +993,6 @@
     resetBtn.addEventListener('mouseenter', () => { resetBtn.style.background = 'rgba(239,68,68,0.25)'; });
     resetBtn.addEventListener('mouseleave', () => { resetBtn.style.background = 'rgba(239,68,68,0.15)'; });
     container.appendChild(resetBtn);
-  }
-
-  // --- Color swatches ---
-  function buildColorSwatches() {
-    const wrap = el('div', { display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 0' });
-    const swatchEls = [];
-    function refresh() {
-      const active = getSelectionColor();
-      swatchEls.forEach(({ el: sw, value }) => {
-        sw.style.boxShadow = value === active
-          ? '0 0 0 2px #181818, 0 0 0 4px ' + value
-          : 'none';
-      });
-    }
-    COLOR_OPTIONS.forEach(opt => {
-      const sw = document.createElement('button');
-      sw.type = 'button';
-      sw.title = opt.label;
-      sw.setAttribute('aria-label', opt.label);
-      Object.assign(sw.style, {
-        width: '22px', height: '22px', borderRadius: '50%',
-        background: opt.value, border: 'none', padding: '0',
-        cursor: 'pointer', flexShrink: '0', outline: 'none',
-        transition: 'box-shadow 0.12s',
-      });
-      sw.addEventListener('click', (e) => {
-        e.stopPropagation();
-        setSelectionColor(opt.value);
-        refresh();
-      });
-      swatchEls.push({ el: sw, value: opt.value });
-      wrap.appendChild(sw);
-    });
-    refresh();
-    return wrap;
   }
 
   // --- Tabbed panel ---
@@ -3154,7 +3142,7 @@
     el.style.backgroundColor = el._origBg || '';
     showToast('Capturing...');
     try {
-      const canvas = await html2canvas(el, { backgroundColor: null, scale: 2, logging: false });
+      const canvas = await html2canvas(el, { backgroundColor: null, scale: getIdealScale(), logging: false });
       await saveCapture(canvas, el);
     } catch (e) { showToast('Capture failed'); }
     el.style.outline = oo;
@@ -3165,12 +3153,14 @@
     await loadH2C();
     showToast('Capturing...');
     try {
-      const scale = 2;
+      const pageW = document.documentElement.scrollWidth;
+      const pageH = document.documentElement.scrollHeight;
+      const scale = safeScale(pageW, pageH);
       const full = await html2canvas(document.documentElement, {
         backgroundColor: '#fff', scale, logging: false,
         scrollX: 0, scrollY: 0,
-        windowWidth: document.documentElement.scrollWidth,
-        windowHeight: document.documentElement.scrollHeight
+        windowWidth: pageW,
+        windowHeight: pageH
       });
       const sx = (x + window.scrollX) * scale;
       const sy = (y + window.scrollY) * scale;
@@ -3183,20 +3173,40 @@
     } catch (e) { showToast('Capture failed'); }
   }
 
+  // Browsers cap canvas dimensions (16384px in Chrome/Safari, 32767 in Firefox).
+  // Use 16384 as the safe cross-browser limit.
+  const MAX_CANVAS_DIM = 16384;
+
+  function getIdealScale() {
+    const setting = getExperimentOption('camera', 'resolution') || '3';
+    if (setting === 'auto') return window.devicePixelRatio || 2;
+    return Number(setting);
+  }
+
+  function safeScale(width, height) {
+    const ideal = getIdealScale();
+    const maxByWidth = MAX_CANVAS_DIM / width;
+    const maxByHeight = MAX_CANVAS_DIM / height;
+    return Math.min(ideal, maxByWidth, maxByHeight);
+  }
+
   async function captureFullPage() {
     await loadH2C();
     showToast('Capturing full page...');
     try {
+      const w = document.documentElement.scrollWidth;
+      const h = document.documentElement.scrollHeight;
+      const scale = safeScale(w, h);
       const canvas = await html2canvas(document.documentElement, {
-        backgroundColor: '#fff', scale: 2, logging: false,
+        backgroundColor: '#fff', scale, logging: false,
         scrollX: 0, scrollY: 0,
-        windowWidth: document.documentElement.scrollWidth,
-        windowHeight: document.documentElement.scrollHeight,
-        width: document.documentElement.scrollWidth,
-        height: document.documentElement.scrollHeight,
+        windowWidth: w,
+        windowHeight: h,
+        width: w,
+        height: h,
         ignoreElements: (el) => inspectorUI.has(el)
       });
-      await saveCapture(canvas, 'full-page-screenshot.png');
+      await saveCapture(canvas, null, 'full-page-screenshot.png');
     } catch (e) { showToast('Full page capture failed'); }
   }
 
