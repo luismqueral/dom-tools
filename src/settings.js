@@ -49,7 +49,7 @@ const EXPERIMENT_DEFS = [
   // Plugins
   { id: 'dom-xray', label: 'DOM X-Ray', category: 'plugins', description: 'Visualize box model — content, padding, border, and margin as colored overlays.', default: false, beta: true },
   { id: 'spacing-debugger', label: 'Spacing Debugger', category: 'plugins', description: 'Show all margins and paddings across the page simultaneously.', default: false, beta: true },
-  { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false, beta: true },
+  { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false },
 ];
 
 export function isExperimentEnabled(id) {
