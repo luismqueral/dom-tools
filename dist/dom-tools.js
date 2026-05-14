@@ -5565,8 +5565,13 @@
   // Expose for SPA integration (call window.bootDomTools() from JS)
   window.bootDomTools = bootDomTools;
 
+  function ready(fn) {
+    if (document.body) fn();
+    else document.addEventListener('DOMContentLoaded', fn);
+  }
+
   if (new URLSearchParams(window.location.search).has('dom-tools')) {
-    bootDomTools();
+    ready(bootDomTools);
   } else {
     // Pre-boot keyboard listener: until DOM-Tools is alive, watch for a
     // double-tap of Escape and bring it up. Capture-phase so page-level
@@ -5579,7 +5584,7 @@
       if (now - lastEsc < 400) {
         e.preventDefault();
         document.removeEventListener('keydown', preBootEsc, true);
-        bootDomTools();
+        ready(bootDomTools);
         lastEsc = 0;
         return;
       }
