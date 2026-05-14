@@ -47,9 +47,9 @@ const EXPERIMENT_DEFS = [
   { id: 'duplicate', label: 'Duplicate element', category: 'tools', description: 'Hold Shift and click-drag any element to duplicate it.', default: false },
   { id: 'camera', label: 'Full-page screenshot', category: 'tools', description: 'Capture the entire scrollable page as PNG.', default: true },
   // Plugins
-  { id: 'dom-xray', label: 'DOM X-Ray', category: 'plugins', description: 'Visualize box model — content, padding, border, and margin as colored overlays.', default: false },
-  { id: 'spacing-debugger', label: 'Spacing Debugger', category: 'plugins', description: 'Show all margins and paddings across the page simultaneously.', default: false },
-  { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false },
+  { id: 'dom-xray', label: 'DOM X-Ray', category: 'plugins', description: 'Visualize box model — content, padding, border, and margin as colored overlays.', default: false, beta: true },
+  { id: 'spacing-debugger', label: 'Spacing Debugger', category: 'plugins', description: 'Show all margins and paddings across the page simultaneously.', default: false, beta: true },
+  { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false, beta: true },
 ];
 
 export function isExperimentEnabled(id) {
@@ -109,7 +109,17 @@ function buildExperimentRow(exp, hintContainer) {
   checkbox.style.accentColor = getSelectionColor();
   checkbox.style.marginTop = '3px';
   const labelWrap = el('div');
-  labelWrap.appendChild(el('span', { display: 'block', fontWeight: '500' }, exp.label));
+  const labelRow = el('span', { display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500' });
+  labelRow.textContent = exp.label;
+  if (exp.beta) {
+    const badge = el('span', {
+      fontSize: '9px', fontWeight: '700', textTransform: 'uppercase',
+      letterSpacing: '0.5px', padding: '1px 5px', borderRadius: '3px',
+      background: 'rgba(251,191,36,0.15)', color: '#fbbf24', lineHeight: '1.4',
+    }, 'Beta');
+    labelRow.appendChild(badge);
+  }
+  labelWrap.appendChild(labelRow);
   labelWrap.appendChild(el('span', { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' }, exp.description));
   row.appendChild(checkbox);
   row.appendChild(labelWrap);
