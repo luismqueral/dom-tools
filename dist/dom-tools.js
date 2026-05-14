@@ -422,7 +422,7 @@
   const tbHandle = document.createElement('div');
   tbHandle.innerHTML = '\u283F';
   Object.assign(tbHandle.style, {
-    color: 'rgba(255,255,255,0.35)', fontSize: '14px', cursor: 'grab',
+    color: 'rgba(255,255,255,0.35)', fontSize: '16px', cursor: 'grab',
     userSelect: 'none', padding: '0 4px 0 2px', lineHeight: '1', letterSpacing: '1px'
   });
   toolbar.appendChild(tbHandle);
@@ -3006,7 +3006,7 @@
 
     const grip = document.createElement('span');
     grip.textContent = '\u283F';
-    Object.assign(grip.style, { color: 'rgba(255,255,255,0.35)', fontSize: '12px' });
+    Object.assign(grip.style, { color: 'rgba(255,255,255,0.35)', fontSize: '16px' });
 
     const titleEl = document.createElement('span');
     titleEl.textContent = title;
@@ -3415,7 +3415,7 @@
     const grip = document.createElement('span');
     grip.textContent = '\u283F';
     Object.assign(grip.style, {
-      color: 'rgba(255,255,255,0.35)', fontSize: '14px', lineHeight: '1',
+      color: 'rgba(255,255,255,0.35)', fontSize: '16px', lineHeight: '1',
     });
     const label = document.createElement('span');
     label.textContent = 'Brush';

@@ -71,7 +71,7 @@ function createDrawPanel() {
   const grip = document.createElement('span');
   grip.textContent = '\u283F';
   Object.assign(grip.style, {
-    color: 'rgba(255,255,255,0.35)', fontSize: '14px', lineHeight: '1',
+    color: 'rgba(255,255,255,0.35)', fontSize: '16px', lineHeight: '1',
   });
   const label = document.createElement('span');
   label.textContent = 'Brush';
