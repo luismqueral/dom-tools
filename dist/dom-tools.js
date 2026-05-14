@@ -3397,7 +3397,7 @@
     Object.assign(panel.style, {
       position: 'fixed', top: '16px', right: '16px',
       zIndex: String(Z.toolbar + 1),
-      background: 'rgba(30,30,30,0.85)', borderRadius: '10px', padding: '10px 14px',
+      background: 'rgba(30,30,30,0.85)', borderRadius: '10px', padding: '8px 10px',
       backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
       boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
       fontFamily: 'system-ui, sans-serif',
@@ -3409,8 +3409,8 @@
     // --- Drag handle header ---
     const header = document.createElement('div');
     Object.assign(header.style, {
-      display: 'flex', alignItems: 'center', gap: '6px',
-      marginBottom: '8px', cursor: 'grab',
+      display: 'flex', alignItems: 'center', gap: '5px',
+      marginBottom: '6px', cursor: 'grab',
     });
     const grip = document.createElement('span');
     grip.textContent = '\u283F';
@@ -3457,7 +3457,7 @@
 
     // Color swatches
     const colorRow = document.createElement('div');
-    Object.assign(colorRow.style, { display: 'flex', gap: '6px', alignItems: 'center' });
+    Object.assign(colorRow.style, { display: 'flex', gap: '4px', alignItems: 'center' });
     panel.appendChild(colorRow);
 
     DRAW_COLORS.forEach(c => {
@@ -3465,7 +3465,7 @@
       swatch.dataset.colorId = c.id;
       const fill = c.value || getSelectionColor();
       Object.assign(swatch.style, {
-        width: '22px', height: '22px', borderRadius: '50%', border: '2px solid transparent',
+        width: '20px', height: '20px', borderRadius: '50%', border: '2px solid transparent',
         background: fill, cursor: 'pointer', padding: '0', transition: 'border-color 0.1s, transform 0.1s',
       });
       if (c.id === 'theme') {
@@ -3482,7 +3482,7 @@
 
     // Divider
     const divider = document.createElement('div');
-    Object.assign(divider.style, { width: '1px', height: '20px', background: 'rgba(255,255,255,0.12)', margin: '0 4px' });
+    Object.assign(divider.style, { width: '1px', height: '16px', background: 'rgba(255,255,255,0.12)', margin: '0 3px' });
     colorRow.appendChild(divider);
 
     // Size options (inline with colors, separated by divider)
@@ -3493,7 +3493,7 @@
       btn.dataset.sizeId = s.id;
       const dotSize = Math.max(4, s.width * 2);
       Object.assign(btn.style, {
-        width: '26px', height: '26px', borderRadius: '50%', border: '2px solid transparent',
+        width: '22px', height: '22px', borderRadius: '50%', border: '2px solid transparent',
         background: 'rgba(255,255,255,0.08)', cursor: 'pointer', padding: '0',
         display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'border-color 0.12s',
       });
