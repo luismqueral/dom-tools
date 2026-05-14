@@ -1,7 +1,7 @@
 import terser from '@rollup/plugin-terser';
 
 const banner = `/**
- * DOM-Tools v1.0.0
+ * DOM-Tools v1.1.0
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */`;
