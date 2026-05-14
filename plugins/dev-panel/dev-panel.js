@@ -213,27 +213,18 @@
   }
 
   // --- Plugin Definition ---
+  // Dev panel is persistent — it auto-activates on init and stays visible
+  // regardless of which tool is active. No toolbar button.
   const plugin = {
     id: 'dev-panel',
     label: 'Dev Panel',
-    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
 
-    toggle() {
-      if (active) {
-        this.deactivate();
-        return false;
-      } else {
-        this.activate(this._api);
-        return true;
-      }
-    },
-
-    activate(_api) {
+    init(_api) {
+      // Auto-activate immediately on registration
       if (active) return;
       active = true;
-      if (_api) api = _api;
+      api = _api;
 
-      // Use the createPanel helper from the plugin API
       panel = api.createPanel({ title: 'Dev Panel', position: { top: '16px', right: '16px' }, width: '260px' });
       panel.style.display = 'block';
 
@@ -252,33 +243,9 @@
       startToastObserver();
     },
 
-    deactivate() {
-      if (!active) return;
-      active = false;
-
-      // Stop polling
-      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-
-      // Remove keydown listener
-      document.removeEventListener('keydown', onKeyDown, true);
-
-      // Unpatch animate
-      unpatchAnimate();
-
-      // Stop toast observer
-      stopToastObserver();
-
-      // Remove panel
-      if (panel) {
-        panel.style.display = 'none';
-        panel.remove();
-        panel = null;
-      }
-
-      stateGrid = null;
-      keyLog = null;
-      animLog = null;
-    },
+    // No-op: dev panel should never be deactivated by tool switches
+    activate() {},
+    deactivate() {},
   };
 
   if (window.DomTools) {
