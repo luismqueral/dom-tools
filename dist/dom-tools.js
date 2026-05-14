@@ -420,7 +420,7 @@
   });
 
   const tbHandle = document.createElement('div');
-  tbHandle.innerHTML = '\u2837';
+  tbHandle.innerHTML = '\u283F';
   Object.assign(tbHandle.style, {
     color: 'rgba(255,255,255,0.35)', fontSize: '14px', cursor: 'grab',
     userSelect: 'none', padding: '0 4px 0 2px', lineHeight: '1', letterSpacing: '1px'
@@ -3005,7 +3005,7 @@
     });
 
     const grip = document.createElement('span');
-    grip.textContent = '\u2837';
+    grip.textContent = '\u283F';
     Object.assign(grip.style, { color: 'rgba(255,255,255,0.35)', fontSize: '12px' });
 
     const titleEl = document.createElement('span');
@@ -3413,7 +3413,7 @@
       marginBottom: '8px', cursor: 'grab',
     });
     const grip = document.createElement('span');
-    grip.textContent = '\u2837';
+    grip.textContent = '\u283F';
     Object.assign(grip.style, {
       color: 'rgba(255,255,255,0.35)', fontSize: '14px', lineHeight: '1',
     });

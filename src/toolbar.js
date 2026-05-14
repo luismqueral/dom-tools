@@ -36,7 +36,7 @@ Object.assign(toolbar.style, {
 });
 
 const tbHandle = document.createElement('div');
-tbHandle.innerHTML = '\u2837';
+tbHandle.innerHTML = '\u283F';
 Object.assign(tbHandle.style, {
   color: 'rgba(255,255,255,0.35)', fontSize: '14px', cursor: 'grab',
   userSelect: 'none', padding: '0 4px 0 2px', lineHeight: '1', letterSpacing: '1px'
