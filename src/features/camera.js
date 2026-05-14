@@ -51,20 +51,29 @@ async function loadH2C() {
 async function saveCapture(canvas, el, filename) {
   playShutter();
   flashElement(el || document.documentElement);
+
+  // Get blob first — toDataURL fails on large canvases
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+  if (!blob) { showToast('Capture failed — canvas too large'); return; }
+
+  // Try clipboard (requires secure context + user gesture may have expired)
   try {
-    const blobPromise = new Promise(r => canvas.toBlob(r, 'image/png'));
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })]);
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
     showToast('Copied to clipboard');
-  } catch (err) {
-    try {
-      const link = document.createElement('a');
-      link.download = filename || 'screenshot.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      showToast('Downloaded screenshot');
-    } catch (e2) {
-      showToast('Clipboard failed — requires HTTPS or localhost');
-    }
+    return;
+  } catch (_) {}
+
+  // Fallback: download via object URL
+  try {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = filename || 'screenshot.png';
+    link.href = url;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('Downloaded screenshot');
+  } catch (_) {
+    showToast('Capture failed');
   }
 }
 
