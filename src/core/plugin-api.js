@@ -51,7 +51,7 @@ export function createPanel({ title = '', position = { top: '16px', right: '16px
 
   const grip = document.createElement('span');
   grip.textContent = '\u283F';
-  Object.assign(grip.style, { color: 'rgba(255,255,255,0.35)', fontSize: '16px' });
+  Object.assign(grip.style, { color: 'rgba(255,255,255,0.35)', fontSize: '18px' });
 
   const titleEl = document.createElement('span');
   titleEl.textContent = title;
