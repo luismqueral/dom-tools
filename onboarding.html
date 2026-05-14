@@ -13,178 +13,219 @@
     line-height: 1.6;
   }
 
-  /* --- Progress bar --- */
-  .progress-bar {
-    position: fixed; top: 0; left: 0; right: 0; height: 4px;
-    background: #e5e7eb; z-index: 99999;
+  .page { max-width: 720px; margin: 0 auto; padding: 48px 24px 120px; }
+
+  h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+  .subtitle { font-size: 16px; color: #6b7280; margin-bottom: 48px; }
+
+  /* --- Sections --- */
+  .section {
+    margin-bottom: 56px;
+    padding-bottom: 56px;
+    border-bottom: 1px solid #e5e7eb;
   }
-  .progress-fill {
-    height: 100%; background: #2563eb; width: 0%;
-    transition: width 0.4s ease;
+  .section:last-child { border-bottom: none; }
+
+  .section-number {
+    display: inline-block; width: 28px; height: 28px; line-height: 28px;
+    background: #2563eb; color: #fff; border-radius: 50%;
+    font-size: 14px; font-weight: 700; text-align: center;
+    margin-bottom: 12px;
+  }
+  .section h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+  .section > p { font-size: 15px; color: #4b5563; margin-bottom: 16px; }
+
+  kbd {
+    display: inline-block; padding: 3px 8px; background: #f3f4f6;
+    border: 1px solid #d1d5db; border-radius: 5px;
+    font-family: monospace; font-size: 13px; font-weight: 600;
   }
 
-  /* --- Step indicator --- */
-  .step-indicator {
-    position: fixed; top: 16px; right: 16px; z-index: 99998;
-    background: #1f2937; color: #fff; padding: 8px 14px;
-    border-radius: 8px; font-size: 13px; font-weight: 600;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  /* --- Practice areas --- */
+  .practice {
+    background: #fff; border: 2px dashed #d1d5db; border-radius: 12px;
+    padding: 24px; margin-top: 12px; position: relative;
+  }
+  .practice-label {
+    position: absolute; top: -10px; left: 16px;
+    background: #fafafa; padding: 0 8px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: #9ca3af;
   }
 
-  /* --- Coach mark --- */
-  .coach {
-    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    z-index: 99998; background: #1f2937; color: #fff;
-    padding: 16px 24px; border-radius: 12px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.2);
-    max-width: 420px; width: calc(100% - 48px);
-    font-size: 15px; line-height: 1.5;
-    transition: opacity 0.3s ease, transform 0.3s ease;
-  }
-  .coach.hidden { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
-  .coach h3 { font-size: 14px; font-weight: 700; color: #93c5fd; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .coach p { margin: 0; color: #e5e7eb; }
-  .coach kbd {
-    display: inline-block; padding: 2px 7px; background: rgba(255,255,255,0.15);
-    border: 1px solid rgba(255,255,255,0.25); border-radius: 4px;
-    font-family: monospace; font-size: 13px;
-  }
-  .coach .skip-btn {
-    display: inline-block; margin-top: 10px; padding: 4px 10px;
-    background: rgba(255,255,255,0.1); border: none; color: #9ca3af;
-    border-radius: 6px; font-size: 12px; cursor: pointer;
-  }
-  .coach .skip-btn:hover { color: #fff; background: rgba(255,255,255,0.18); }
-
-  /* --- Celebration --- */
-  .celebration {
-    position: fixed; inset: 0; z-index: 99999;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
-    opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
-  }
-  .celebration.visible { opacity: 1; pointer-events: auto; }
-  .celebration-card {
-    background: #fff; border-radius: 16px; padding: 48px 40px;
-    text-align: center; max-width: 400px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-  }
-  .celebration-card h2 { font-size: 28px; margin-bottom: 12px; }
-  .celebration-card p { color: #6b7280; font-size: 16px; margin-bottom: 24px; }
-  .celebration-card a {
-    display: inline-block; padding: 10px 20px; background: #2563eb; color: #fff;
-    border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;
-  }
-  .celebration-card a:hover { background: #1d4ed8; }
-
-  /* --- Sandbox content --- */
-  .sandbox {
-    max-width: 800px; margin: 80px auto; padding: 0 24px;
-  }
-  .sandbox-header {
-    text-align: center; margin-bottom: 48px;
-  }
-  .sandbox-header h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
-  .sandbox-header p { font-size: 16px; color: #6b7280; }
-
-  .sample-card {
-    background: #fff; border-radius: 12px; padding: 32px;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 24px;
-  }
-  .sample-card h2 { font-size: 22px; margin-bottom: 8px; }
-  .sample-card p { color: #4b5563; font-size: 15px; }
-
-  .sample-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;
-  }
-  .sample-item {
-    background: #fff; border-radius: 10px; padding: 24px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-  }
-  .sample-item h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-  .sample-item p { font-size: 14px; color: #6b7280; }
-
-  .sample-button {
-    display: inline-block; padding: 12px 24px;
+  /* Practice content */
+  .practice h3 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+  .practice p { font-size: 14px; color: #4b5563; }
+  .practice .btn {
+    display: inline-block; margin-top: 12px; padding: 10px 20px;
     background: #2563eb; color: #fff; border: none; border-radius: 8px;
-    font-size: 15px; font-weight: 600; cursor: pointer;
+    font-size: 14px; font-weight: 600; cursor: pointer;
   }
-  .sample-nav {
-    display: flex; gap: 12px; padding: 16px 0;
-    border-bottom: 1px solid #e5e7eb; margin-bottom: 24px;
+  .practice .card-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;
   }
-  .sample-nav span {
-    font-size: 14px; font-weight: 500; color: #6b7280; cursor: pointer;
-    padding: 4px 0; border-bottom: 2px solid transparent;
+  .practice .mini-card {
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px;
   }
-  .sample-nav span:first-child { color: #1a1a1a; border-color: #2563eb; }
+  .practice .mini-card strong { display: block; font-size: 14px; margin-bottom: 2px; }
+  .practice .mini-card span { font-size: 13px; color: #6b7280; }
+
+  /* Text editing practice */
+  .practice .editable-text {
+    font-size: 20px; font-weight: 600; margin-bottom: 8px;
+  }
+  .practice .editable-sub {
+    font-size: 14px; color: #6b7280;
+  }
+
+  /* --- Validation feedback --- */
+  .validation {
+    margin-top: 16px; padding: 12px 16px;
+    border-radius: 8px; font-size: 14px; font-weight: 500;
+    display: flex; align-items: center; gap: 8px;
+    transition: all 0.3s ease;
+  }
+  .validation.waiting {
+    background: #f3f4f6; color: #6b7280;
+    border: 1px solid #e5e7eb;
+  }
+  .validation.success {
+    background: #ecfdf5; color: #065f46;
+    border: 1px solid #a7f3d0;
+  }
+  .validation .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .validation.waiting .dot { background: #d1d5db; }
+  .validation.success .dot { background: #10b981; }
+
+  /* --- Nav sample for draw section --- */
+  .practice .sample-nav {
+    display: flex; gap: 16px; padding: 12px 0;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .practice .sample-nav span {
+    font-size: 14px; color: #6b7280; cursor: default;
+  }
+  .practice .sample-nav span:first-child { font-weight: 600; color: #1a1a1a; }
 </style>
 </head>
 <body>
 
-<!-- Progress bar -->
-<div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+<div class="page">
+  <h1>Learn DOM-Tools</h1>
+  <p class="subtitle">Work through each section below. DOM-Tools is active on this page — try each interaction in the practice areas.</p>
 
-<!-- Step counter -->
-<div class="step-indicator" id="step-indicator">Step 1 / 5</div>
+  <!-- Section 1: Select elements -->
+  <div class="section">
+    <div class="section-number">1</div>
+    <h2>Select elements</h2>
+    <p>Hover over any element to see it highlighted. Click to select it — a popover appears where you can type what you'd change about that element.</p>
+    <p>Try selecting <strong>at least two elements</strong> in the area below and writing a note for each.</p>
 
-<!-- Coach mark -->
-<div class="coach" id="coach">
-  <h3 id="coach-title">Welcome</h3>
-  <p id="coach-body">Loading...</p>
-  <button class="skip-btn" id="skip-btn">Skip tutorial</button>
+    <div class="practice">
+      <span class="practice-label">Practice area</span>
+      <h3>Project Dashboard</h3>
+      <p>Your team shipped 4 features this week across 2 projects.</p>
+      <div class="card-row">
+        <div class="mini-card">
+          <strong>Homepage</strong>
+          <span>3 updates pending review</span>
+        </div>
+        <div class="mini-card">
+          <strong>Settings</strong>
+          <span>Deployed Monday</span>
+        </div>
+      </div>
+      <button class="btn">View all projects</button>
+    </div>
+
+    <div class="validation waiting" id="v-select">
+      <span class="dot"></span>
+      <span class="msg">Waiting — select 2 or more elements and add notes</span>
+    </div>
+  </div>
+
+  <!-- Section 2: Edit text -->
+  <div class="section">
+    <div class="section-number">2</div>
+    <h2>Edit text directly</h2>
+    <p>After selecting a text element, click it again to enter edit mode. The text becomes editable — change it to whatever you want. DOM-Tools tracks both the original and new text.</p>
+    <p>Try editing the heading or paragraph below.</p>
+
+    <div class="practice">
+      <span class="practice-label">Practice area</span>
+      <div class="editable-text">This headline needs work</div>
+      <div class="editable-sub">And this subtext could be more descriptive. Try clicking to select, then click again to edit.</div>
+    </div>
+
+    <div class="validation waiting" id="v-edit">
+      <span class="dot"></span>
+      <span class="msg">Waiting — edit some text in the area above</span>
+    </div>
+  </div>
+
+  <!-- Section 3: Draw annotations -->
+  <div class="section">
+    <div class="section-number">3</div>
+    <h2>Draw on the page</h2>
+    <p>Click the pencil icon in the toolbar (or press <kbd>D</kbd> when a tool is active) to enter draw mode. Sketch arrows, circles, or underlines to mark up the design. Press <kbd>Esc</kbd> to exit draw mode.</p>
+    <p>Try drawing something on the area below.</p>
+
+    <div class="practice" style="min-height: 120px;">
+      <span class="practice-label">Practice area</span>
+      <div class="sample-nav">
+        <span>Home</span>
+        <span>Products</span>
+        <span>Pricing</span>
+        <span>About</span>
+      </div>
+      <p style="margin-top: 12px;">Draw an arrow or circle to indicate what should change here.</p>
+    </div>
+
+    <div class="validation waiting" id="v-draw">
+      <span class="dot"></span>
+      <span class="msg">Waiting — draw something on the page</span>
+    </div>
+  </div>
+
+  <!-- Section 4: Copy all -->
+  <div class="section">
+    <div class="section-number">4</div>
+    <h2>Copy your changes</h2>
+    <p>When you're done annotating, press <kbd>Shift</kbd>+<kbd>C</kbd> or click the copy button in the toolbar. This bundles all your selections, text edits, and drawings into structured Markdown you can paste straight into an LLM (ChatGPT, Claude, etc).</p>
+    <p>Try it now — copy your changes and paste them somewhere to see the output.</p>
+
+    <div class="validation waiting" id="v-copy">
+      <span class="dot"></span>
+      <span class="msg">Waiting — press Shift+C or click the copy button</span>
+    </div>
+  </div>
+
+  <!-- Section 5: Shortcuts -->
+  <div class="section">
+    <div class="section-number">5</div>
+    <h2>Useful shortcuts</h2>
+    <p>A few more things to know:</p>
+    <div style="margin-top: 12px; line-height: 2.2; font-size: 15px;">
+      <p><kbd>Esc</kbd> — return to default tool / deselect</p>
+      <p><kbd>Esc</kbd> <kbd>Esc</kbd> — toggle DOM-Tools on/off</p>
+      <p><kbd>Shift</kbd>+<kbd>Esc</kbd> — clear all annotations</p>
+      <p><kbd>Shift</kbd>+<kbd>C</kbd> — copy all changes</p>
+      <p><kbd>Shift</kbd>+<kbd>T</kbd> — enter text edit mode</p>
+      <p><kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> — full-page screenshot</p>
+    </div>
+
+    <p style="margin-top: 20px;">Try clearing all your changes with <kbd>Shift</kbd>+<kbd>Esc</kbd> to reset the page.</p>
+
+    <div class="validation waiting" id="v-clear">
+      <span class="dot"></span>
+      <span class="msg">Waiting — press Shift+Esc to clear everything</span>
+    </div>
+  </div>
 </div>
 
-<!-- Celebration overlay -->
-<div class="celebration" id="celebration">
-  <div class="celebration-card">
-    <h2>You're all set!</h2>
-    <p>You now know the basics: hover, click, annotate, and copy. Use DOM-Tools on any page to describe changes to your LLM.</p>
-    <a href="index.html">Back to DOM-Tools</a>
-  </div>
-</div>
-
-<!-- Sandbox page content (practice target) -->
-<div class="sandbox">
-  <div class="sandbox-header">
-    <h1>Sample Page</h1>
-    <p>This is a practice page. Follow the steps below to learn DOM-Tools.</p>
-  </div>
-
-  <div class="sample-nav">
-    <span>Dashboard</span>
-    <span>Analytics</span>
-    <span>Settings</span>
-    <span>Help</span>
-  </div>
-
-  <div class="sample-card" id="target-card">
-    <h2>Welcome back, designer</h2>
-    <p>You have 3 pending reviews and 1 new comment. Click on any element to start annotating.</p>
-    <button class="sample-button" id="target-button">View projects</button>
-  </div>
-
-  <div class="sample-grid">
-    <div class="sample-item">
-      <h3>Recent work</h3>
-      <p>Homepage redesign, navigation update, color system refresh</p>
-    </div>
-    <div class="sample-item">
-      <h3>Team activity</h3>
-      <p>4 members active today across 2 projects</p>
-    </div>
-    <div class="sample-item">
-      <h3>Feedback</h3>
-      <p>12 annotations resolved this week</p>
-    </div>
-    <div class="sample-item">
-      <h3>Shipped</h3>
-      <p>Settings page went live Monday</p>
-    </div>
-  </div>
-</div>
-
-<!-- Load DOM-Tools (auto-activate via ?dom-tools param) -->
+<!-- Load DOM-Tools -->
 <script>
   if (!new URLSearchParams(window.location.search).has('dom-tools')) {
     const sep = window.location.search ? '&' : '?';
@@ -193,80 +234,77 @@
 </script>
 <script src="dist/dom-tools.js"></script>
 
-<!-- Onboarding logic -->
+<!-- Validation logic -->
 <script>
 (() => {
   'use strict';
 
-  const steps = [
-    {
-      title: 'Step 1: Hover',
-      body: 'Move your cursor over the <strong>"Welcome back, designer"</strong> card above. You\'ll see a pink outline appear around elements as you move.',
-      check: () => document.querySelector('.dt-outline, [data-dt-hover]') || document.documentElement.classList.contains('dt-comment-active'),
-    },
-    {
-      title: 'Step 2: Click to annotate',
-      body: 'Now <strong>click</strong> on any element to select it. A popover will appear where you can type a note — try writing something like "make this bigger".',
-      check: () => document.querySelectorAll('[data-dt-bubble]').length > 0,
-    },
-    {
-      title: 'Step 3: Edit text directly',
-      body: 'Click the <strong>"View projects"</strong> button text (or any text) once more after selecting it. You can edit the text directly on the page. Try changing the button label.',
-      check: () => document.documentElement.classList.contains('dt-inline-editing') || document.querySelector('[contenteditable="true"]'),
-    },
-    {
-      title: 'Step 4: Copy your changes',
-      body: 'Press <kbd>Shift+C</kbd> or click the copy button in the toolbar. This copies all your annotations as Markdown — ready to paste into ChatGPT, Claude, or any LLM.',
-      check: () => window.__onboardingCopied === true,
-    },
-    {
-      title: 'Step 5: Clear & reset',
-      body: 'Press <kbd>Shift+Esc</kbd> to clear all annotations and start fresh. That\'s the full workflow!',
-      check: () => document.querySelectorAll('[data-dt-bubble]').length === 0 && window.__onboardingCopied,
-    },
-  ];
+  function markSuccess(id, msg) {
+    const el = document.getElementById(id);
+    if (el.classList.contains('success')) return;
+    el.classList.remove('waiting');
+    el.classList.add('success');
+    el.querySelector('.msg').textContent = msg;
+  }
 
-  let currentStep = 0;
-  const coachEl = document.getElementById('coach');
-  const titleEl = document.getElementById('coach-title');
-  const bodyEl = document.getElementById('coach-body');
-  const progressEl = document.getElementById('progress-fill');
-  const indicatorEl = document.getElementById('step-indicator');
-  const celebrationEl = document.getElementById('celebration');
-  const skipBtn = document.getElementById('skip-btn');
-
-  function showStep(i) {
-    currentStep = i;
-    if (i >= steps.length) {
-      complete();
-      return;
+  // --- 1. Select: detect 2+ bubbles ---
+  let selectPassed = false;
+  setInterval(() => {
+    if (selectPassed) return;
+    const bubbles = document.querySelectorAll('[data-dt-bubble]');
+    if (bubbles.length >= 2) {
+      selectPassed = true;
+      markSuccess('v-select', 'Nice! You selected ' + bubbles.length + ' elements.');
     }
-    const step = steps[i];
-    titleEl.textContent = step.title;
-    bodyEl.innerHTML = step.body;
-    progressEl.style.width = ((i / steps.length) * 100) + '%';
-    indicatorEl.textContent = `Step ${i + 1} / ${steps.length}`;
-    coachEl.classList.remove('hidden');
-  }
+  }, 400);
 
-  function complete() {
-    coachEl.classList.add('hidden');
-    indicatorEl.style.display = 'none';
-    progressEl.style.width = '100%';
-    celebrationEl.classList.add('visible');
-  }
+  // --- 2. Edit text: detect inline editing or contenteditable ---
+  let editPassed = false;
+  setInterval(() => {
+    if (editPassed) return;
+    if (document.documentElement.classList.contains('dt-inline-editing') ||
+        document.querySelector('[contenteditable="true"]')) {
+      editPassed = true;
+      markSuccess('v-edit', 'Text edited! Your changes are tracked automatically.');
+    }
+  }, 400);
 
-  // Listen for copy events to detect step 4
+  // --- 3. Draw: detect canvas with strokes ---
+  let drawPassed = false;
+  setInterval(() => {
+    if (drawPassed) return;
+    const canvas = document.querySelector('canvas[data-dt-ignore]');
+    if (canvas) {
+      // Check if canvas has any non-transparent pixels (i.e., user drew something)
+      try {
+        const ctx = canvas.getContext('2d');
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let i = 3; i < data.length; i += 4) {
+          if (data[i] > 0) { drawPassed = true; break; }
+        }
+      } catch (e) { /* cross-origin or other issue, skip */ }
+      if (drawPassed) {
+        markSuccess('v-draw', 'Drawing detected! It will be included in your copy output.');
+      }
+    }
+  }, 600);
+
+  // --- 4. Copy: detect toast or clipboard event ---
+  let copyPassed = false;
   document.addEventListener('copy', () => {
-    window.__onboardingCopied = true;
+    if (!copyPassed) {
+      copyPassed = true;
+      markSuccess('v-copy', 'Copied! Paste into your LLM to see the structured Markdown.');
+    }
   });
-  // Also watch for the toast that DOM-Tools shows on copy
   const obs = new MutationObserver((mutations) => {
+    if (copyPassed) return;
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (node.nodeType === 1 && node.hasAttribute && node.hasAttribute('data-dt-toast')) {
           if ((node.textContent || '').toLowerCase().includes('copied')) {
-            window.__onboardingCopied = true;
+            copyPassed = true;
+            markSuccess('v-copy', 'Copied! Paste into your LLM to see the structured Markdown.');
           }
         }
       }
@@ -274,20 +312,19 @@
   });
   obs.observe(document.body, { childList: true, subtree: true });
 
-  // Poll for step completion
-  let checkInterval = setInterval(() => {
-    if (currentStep >= steps.length) { clearInterval(checkInterval); return; }
-    const step = steps[currentStep];
-    if (step.check()) {
-      setTimeout(() => showStep(currentStep + 1), 600);
+  // --- 5. Clear: detect all bubbles gone after at least one was created ---
+  let hadBubbles = false;
+  let clearPassed = false;
+  setInterval(() => {
+    if (clearPassed) return;
+    const bubbles = document.querySelectorAll('[data-dt-bubble]');
+    if (bubbles.length > 0) hadBubbles = true;
+    if (hadBubbles && bubbles.length === 0) {
+      clearPassed = true;
+      markSuccess('v-clear', 'All clear! You now know the full DOM-Tools workflow.');
     }
-  }, 300);
+  }, 400);
 
-  // Skip button
-  skipBtn.addEventListener('click', complete);
-
-  // Start
-  showStep(0);
 })();
 </script>
 
