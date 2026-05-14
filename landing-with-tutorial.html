@@ -153,8 +153,8 @@
 
 <!-- ============ INTRO ============ -->
 <h2>What is this?</h2>
-<p>A tiny floating toolbar for describing interface changes to LLMs.</p>
-<p>Point at any element, write what you'd change in a popover, edit text inline, then hit copy to send all your changes to your model of choice.</p>
+<p>A tiny floating toolbar for <em>describing</em> interface changes — not making them. You point at elements, write what should change, and DOM-Tools packages those instructions as structured Markdown. Paste it into an LLM (Claude, ChatGPT, etc.) and the model applies the changes to your code.</p>
+<p>Think of it as a design brief generator: you articulate the intent, your LLM executes it.</p>
 <video autoplay muted loop playsinline>
   <source src="dom-tools.mp4" type="video/mp4">
 </video>
@@ -218,7 +218,7 @@
       <div class="step-num" id="sn-3">3</div>
       <h3>Copy your changes</h3>
     </div>
-    <p>Press <kbd>Shift</kbd>+<kbd>C</kbd> or click the copy button. Everything — annotations, text edits, drawings — becomes Markdown you can paste into any LLM.</p>
+    <p>Press <kbd>Shift</kbd>+<kbd>C</kbd> or click the copy button. Everything becomes structured Markdown — paste it into your LLM and it will know exactly what to change in your code.</p>
     <div class="validation waiting" id="v-copy">
       <span class="dot"></span>
       <span class="msg">Press Shift+C or use the toolbar copy button</span>
