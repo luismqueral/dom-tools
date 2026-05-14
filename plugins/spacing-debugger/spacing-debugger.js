@@ -186,8 +186,13 @@
     label: 'Spacing',
     icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3H3v18h18V3z"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>`,
 
+    toggle() {
+      if (active) { this.deactivate(); return false; }
+      else { this.activate(this._api); return true; }
+    },
+
     activate(_api) {
-      api = _api;
+      if (_api) api = _api;
       active = true;
       createContainer();
       createPanel();

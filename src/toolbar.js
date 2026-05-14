@@ -288,6 +288,10 @@ export function renderToolbar() {
 
 // Dynamically append a button for a late-registered plugin (inserted before copy button).
 export function appendButton(mod) {
+  // Normalize plugin shape: plugins use top-level icon/label, core uses mod.button
+  if (!mod.button && mod.icon) {
+    mod.button = { icon: mod.icon, tooltip: mod.label || mod.id, color: '#2563eb' };
+  }
   if (!mod.button || !isEnabled(mod.id)) return;
   const btn = createButton(mod);
   if (copyBtn) toolbar.insertBefore(btn, copyBtn);

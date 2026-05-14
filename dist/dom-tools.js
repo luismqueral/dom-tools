@@ -41,8 +41,12 @@
   function onLateRegister(fn) { _lateCallback = fn; }
 
   function registerLate(mod, api) {
+    // Stash api so activate() can access it on subsequent calls
+    mod._api = api;
     modules.push(mod);
-    if (isEnabled(mod.id) && mod.init) mod.init(api);
+    if (isEnabled(mod.id)) {
+      if (mod.init) mod.init(api);
+    }
     if (_lateCallback) _lateCallback(mod);
   }
 
@@ -658,6 +662,10 @@
 
   // Dynamically append a button for a late-registered plugin (inserted before copy button).
   function appendButton(mod) {
+    // Normalize plugin shape: plugins use top-level icon/label, core uses mod.button
+    if (!mod.button && mod.icon) {
+      mod.button = { icon: mod.icon, tooltip: mod.label || mod.id, color: '#2563eb' };
+    }
     if (!mod.button || !isEnabled(mod.id)) return;
     const btn = createButton(mod);
     if (copyBtn) toolbar.insertBefore(btn, copyBtn);

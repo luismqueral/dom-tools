@@ -51,7 +51,11 @@ let _lateCallback = null;
 export function onLateRegister(fn) { _lateCallback = fn; }
 
 export function registerLate(mod, api) {
+  // Stash api so activate() can access it on subsequent calls
+  mod._api = api;
   modules.push(mod);
-  if (isEnabled(mod.id) && mod.init) mod.init(api);
+  if (isEnabled(mod.id)) {
+    if (mod.init) mod.init(api);
+  }
   if (_lateCallback) _lateCallback(mod);
 }

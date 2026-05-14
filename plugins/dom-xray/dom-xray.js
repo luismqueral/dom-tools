@@ -180,8 +180,13 @@
     label: 'X-Ray',
     icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10" rx="1"/><rect x="10" y="10" width="4" height="4"/></svg>`,
 
+    toggle() {
+      if (active) { this.deactivate(); return false; }
+      else { this.activate(this._api); return true; }
+    },
+
     activate(_api) {
-      api = _api;
+      if (_api) api = _api;
       active = true;
       createOverlayContainer();
       createTooltip();
