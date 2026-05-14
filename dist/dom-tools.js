@@ -1,3 +1,8 @@
+/**
+ * DOM-Tools v1.0.0
+ * Drop-in design toolbar for any webpage.
+ * https://github.com/luismqueral/dom-tools
+ */
 (function () {
   'use strict';
 
