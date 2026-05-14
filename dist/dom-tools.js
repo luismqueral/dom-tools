@@ -488,8 +488,6 @@
     borderRadius: '8px', zIndex: String(Z.toolbar - 1), display: 'none', pointerEvents: 'none',
     transition: 'all 0.15s ease'
   });
-  document.body.appendChild(snapIndicator);
-
   function showSnapPreview(edge) {
     const pad = 4;
     snapIndicator.style.display = 'block';
@@ -644,6 +642,7 @@
     inspectorUI.add(cBtn);
 
     document.body.appendChild(toolbar);
+    document.body.appendChild(snapIndicator);
     inspectorUI.add(toolbar);
     inspectorUI.add(tbHandle);
 
