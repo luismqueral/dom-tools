@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOM-Tools</title>
+
+<meta property="og:title" content="DOM-Tools">
+<meta property="og:description" content="Point at any element on a page and write what you'd change. Plain JS, no Tailwind.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DOM-Tools">
+
+<style>
+  @font-face { font-family: 'nyt-franklin'; src: url(fonts/franklin-normal-500.woff2) format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+  @font-face { font-family: 'nyt-franklin'; src: url(fonts/_franklin_600.woff2) format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+  @font-face { font-family: 'nyt-franklin'; src: url(fonts/_franklin_700.woff2) format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+  @keyframes gradient-shift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'nyt-franklin', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-weight: 500;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 32px;
+    color: #111827;
+    line-height: 1.6;
+  }
+
+  .hero {
+    text-align: center; margin-bottom: 48px; padding: 64px 40px 40px;
+    border-radius: 16px;
+    background: linear-gradient(to right, #dbeafe, #ede9fe, #fef3c7, #fee2e2);
+    background-size: 300% 300%;
+    animation: gradient-shift 8s ease infinite;
+  }
+  .hero h1 { font-size: 72px; font-weight: 700; margin: 0 0 8px; }
+  .hero img { display: inline-block; width: 300px; height: auto; margin-top: 16px; image-rendering: pixelated; }
+  .install { margin-top: 24px; text-align: left; max-width: 520px; margin-left: auto; margin-right: auto; }
+  .install h3 { font-size: 15px; color: #4b5563; margin: 0 0 10px; font-weight: 600; }
+  .install .box { position: relative; }
+  .install pre {
+    white-space: normal; word-break: break-all;
+    padding: 14px 80px 14px 16px;
+    font-size: 13px; background: rgba(0,0,0,0.06);
+    border-radius: 8px; font-family: monospace; color: #374151; margin: 0;
+  }
+  .install button {
+    position: absolute; top: 8px; right: 8px;
+    padding: 6px 14px; background: #1f2937; color: #fff; border: 0;
+    border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  .install button:hover { background: #000; }
+
+  h2 { font-size: 28px; font-weight: 700; margin: 48px 0 20px; color: #374151; }
+  p { font-size: 16px; color: #4b5563; margin: 12px 0; }
+  video { width: 100%; border-radius: 12px; margin-top: 16px; }
+  kbd {
+    display: inline-block; padding: 4px 10px; background: #e5e7eb;
+    border: 1px solid #d1d5db; border-radius: 6px; font-family: monospace;
+    font-size: 14px; font-weight: 600; color: inherit;
+  }
+
+  /* --- Try it section --- */
+  .try-it {
+    margin-top: 56px; padding-top: 56px;
+    border-top: 1px solid #e5e7eb;
+  }
+  .try-it > p { margin-bottom: 24px; }
+
+  .tutorial-step {
+    margin-bottom: 40px;
+  }
+  .tutorial-step .step-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+  }
+  .step-num {
+    width: 24px; height: 24px; line-height: 24px;
+    background: #2563eb; color: #fff; border-radius: 50%;
+    font-size: 12px; font-weight: 700; text-align: center; flex-shrink: 0;
+  }
+  .step-num.done { background: #10b981; }
+  .tutorial-step h3 { font-size: 18px; font-weight: 700; margin: 0; }
+  .tutorial-step > p { font-size: 15px; color: #4b5563; margin: 0 0 12px; padding-left: 34px; }
+
+  .practice {
+    background: #fff; border: 2px dashed #d1d5db; border-radius: 12px;
+    padding: 24px; position: relative; margin-left: 34px;
+  }
+  .practice-label {
+    position: absolute; top: -10px; left: 16px;
+    background: #f9fafb; padding: 0 8px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: #9ca3af;
+  }
+  .practice h4 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+  .practice p { font-size: 14px; color: #4b5563; margin: 0; }
+  .practice .card-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;
+  }
+  .practice .mini-card {
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px;
+  }
+  .practice .mini-card strong { display: block; font-size: 14px; margin-bottom: 2px; }
+  .practice .mini-card span { font-size: 13px; color: #6b7280; }
+  .practice .btn {
+    display: inline-block; margin-top: 12px; padding: 10px 20px;
+    background: #2563eb; color: #fff; border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .practice .editable-text { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+  .practice .editable-sub { font-size: 14px; color: #6b7280; }
+
+  .validation {
+    margin-top: 12px; margin-left: 34px; padding: 10px 14px;
+    border-radius: 8px; font-size: 13px; font-weight: 500;
+    display: flex; align-items: center; gap: 8px;
+    transition: all 0.3s ease;
+  }
+  .validation.waiting { background: #f3f4f6; color: #9ca3af; border: 1px solid #e5e7eb; }
+  .validation.success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+  .validation .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .validation.waiting .dot { background: #d1d5db; }
+  .validation.success .dot { background: #10b981; }
+
+  /* --- Shortcuts --- */
+  .shortcuts {
+    background: #f3f4f6; border-radius: 12px; padding: 24px;
+    font-size: 16px; color: #4b5563; margin-top: 24px; line-height: 2;
+  }
+  .shortcuts p { margin: 8px 0; }
+
+  footer { font-size: 16px; color: #374151; margin-top: 64px; text-align: center; }
+  footer a { color: #374151; text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<div class="hero">
+  <h1>DOM-Tools</h1>
+  <img src="header.png" alt="">
+  <div class="install">
+    <h3>Install with this prompt:</h3>
+    <div class="box" data-dt-ignore>
+      <pre id="install-snippet">Loading…</pre>
+      <button id="install-copy">Copy</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ INTRO ============ -->
+<h2>What is this?</h2>
+<p>A tiny floating toolbar for describing interface changes to LLMs.</p>
+<p>Point at any element, write what you'd change in a popover, edit text inline, then hit copy to send all your changes to your model of choice.</p>
+<video autoplay muted loop playsinline>
+  <source src="dom-tools.mp4" type="video/mp4">
+</video>
+
+
+<!-- ============ TRY IT (INTERACTIVE TUTORIAL) ============ -->
+<div class="try-it">
+  <h2>Try it yourself</h2>
+  <p>DOM-Tools is active on this page right now. Work through the steps below to learn the workflow.</p>
+
+  <!-- Step 1: Select -->
+  <div class="tutorial-step">
+    <div class="step-header">
+      <div class="step-num" id="sn-1">1</div>
+      <h3>Select elements</h3>
+    </div>
+    <p>Hover to highlight, click to select. A popover appears — type what you'd change. Select at least 2 elements below.</p>
+    <div class="practice">
+      <span class="practice-label">Try here</span>
+      <h4>Project Dashboard</h4>
+      <p>Your team shipped 4 features this week.</p>
+      <div class="card-row">
+        <div class="mini-card">
+          <strong>Homepage</strong>
+          <span>3 updates pending</span>
+        </div>
+        <div class="mini-card">
+          <strong>Settings</strong>
+          <span>Deployed Monday</span>
+        </div>
+      </div>
+      <button class="btn">View all projects</button>
+    </div>
+    <div class="validation waiting" id="v-select">
+      <span class="dot"></span>
+      <span class="msg">Select 2+ elements and add notes</span>
+    </div>
+  </div>
+
+  <!-- Step 2: Edit text -->
+  <div class="tutorial-step">
+    <div class="step-header">
+      <div class="step-num" id="sn-2">2</div>
+      <h3>Edit text directly</h3>
+    </div>
+    <p>After selecting text, click again to make it editable. Change the headline below.</p>
+    <div class="practice">
+      <span class="practice-label">Try here</span>
+      <div class="editable-text">This headline needs work</div>
+      <div class="editable-sub">And this subtext could be more compelling.</div>
+    </div>
+    <div class="validation waiting" id="v-edit">
+      <span class="dot"></span>
+      <span class="msg">Edit some text above</span>
+    </div>
+  </div>
+
+  <!-- Step 3: Copy -->
+  <div class="tutorial-step">
+    <div class="step-header">
+      <div class="step-num" id="sn-3">3</div>
+      <h3>Copy your changes</h3>
+    </div>
+    <p>Press <kbd>Shift</kbd>+<kbd>C</kbd> or click the copy button. Everything — annotations, text edits, drawings — becomes Markdown you can paste into any LLM.</p>
+    <div class="validation waiting" id="v-copy">
+      <span class="dot"></span>
+      <span class="msg">Press Shift+C or use the toolbar copy button</span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ SHORTCUTS ============ -->
+<h2>Shortcuts</h2>
+<div class="shortcuts">
+  <p><kbd>Esc</kbd> return to default tool / close popover</p>
+  <p><kbd>Esc</kbd> <kbd>Esc</kbd> (double-tap) toggle DOM-Tools on/off</p>
+  <p><kbd>Shift+Esc</kbd> clear all changes</p>
+  <p><kbd>Shift+C</kbd> copy all changes as Markdown</p>
+  <p><kbd>Shift+T</kbd> activate Edit Text mode</p>
+  <p><kbd>Cmd+Shift+S</kbd> / <kbd>Ctrl+Shift+S</kbd> full page screenshot</p>
+</div>
+
+<footer>
+  a project by <a href="https://github.com/luismqueral">Luis Queral</a>
+</footer>
+
+<!-- DOM-Tools auto-activate -->
+<script>
+  if (!new URLSearchParams(window.location.search).has('dom-tools')) {
+    const sep = window.location.search ? '&' : '?';
+    history.replaceState(null, '', window.location.pathname + window.location.search + sep + 'dom-tools' + window.location.hash);
+  }
+</script>
+
+<script>
+  (() => {
+    const pre = document.getElementById('install-snippet');
+    const btn = document.getElementById('install-copy');
+    const CDN_URL = 'https://queral.studio/dom-tools.min.js';
+    const snippet = 'Install this design tool in the <head> of this project: <script src="' + CDN_URL + '"><\/script>';
+
+    pre.textContent = '<script src="' + CDN_URL + '"><\/script>';
+
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(snippet);
+      } catch (_) {
+        const ta = document.createElement('textarea');
+        ta.value = snippet;
+        ta.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        ta.remove();
+      }
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    });
+  })();
+</script>
+
+<script src="dist/dom-tools.js"></script>
+
+<!-- Tutorial validation -->
+<script>
+(() => {
+  'use strict';
+
+  function markSuccess(validationId, stepNumId, msg) {
+    const el = document.getElementById(validationId);
+    if (el.classList.contains('success')) return;
+    el.classList.remove('waiting');
+    el.classList.add('success');
+    el.querySelector('.msg').textContent = msg;
+    document.getElementById(stepNumId).classList.add('done');
+  }
+
+  // 1. Select: 2+ bubbles
+  let selectDone = false;
+  setInterval(() => {
+    if (selectDone) return;
+    if (document.querySelectorAll('[data-dt-bubble]').length >= 2) {
+      selectDone = true;
+      markSuccess('v-select', 'sn-1', 'Nice! Elements selected.');
+    }
+  }, 400);
+
+  // 2. Edit text
+  let editDone = false;
+  setInterval(() => {
+    if (editDone) return;
+    if (document.documentElement.classList.contains('dt-inline-editing') ||
+        document.querySelector('[contenteditable="true"]')) {
+      editDone = true;
+      markSuccess('v-edit', 'sn-2', 'Text edited — changes tracked automatically.');
+    }
+  }, 400);
+
+  // 3. Copy
+  let copyDone = false;
+  document.addEventListener('copy', () => {
+    if (!copyDone) { copyDone = true; markSuccess('v-copy', 'sn-3', 'Copied! Paste it into your LLM.'); }
+  });
+  const obs = new MutationObserver((mutations) => {
+    if (copyDone) return;
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType === 1 && node.hasAttribute && node.hasAttribute('data-dt-toast')) {
+          if ((node.textContent || '').toLowerCase().includes('copied')) {
+            copyDone = true;
+            markSuccess('v-copy', 'sn-3', 'Copied! Paste it into your LLM.');
+          }
+        }
+      }
+    }
+  });
+  obs.observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+
+</body>
+</html>
