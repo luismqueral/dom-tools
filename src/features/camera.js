@@ -133,14 +133,27 @@ function safeScale(width, height) {
 }
 
 async function captureFullPage() {
+  const w = document.documentElement.scrollWidth;
+  const h = document.documentElement.scrollHeight;
+  const scale = getIdealScale();
+
+  // Delegate to HD Capture plugin if page exceeds single-canvas limits
+  if (window.DomTools && window.DomTools._hdCapture && window.DomTools._hdCaptureNeeded &&
+      window.DomTools._hdCaptureNeeded(w, h, scale)) {
+    showToast('HD capture...');
+    try {
+      await window.DomTools._hdCapture(w, h, scale);
+    } catch (e) { showToast('HD capture failed'); }
+    return;
+  }
+
+  // Standard single-canvas path (with safe scale)
   await loadH2C();
   showToast('Capturing full page...');
   try {
-    const w = document.documentElement.scrollWidth;
-    const h = document.documentElement.scrollHeight;
-    const scale = safeScale(w, h);
+    const cappedScale = safeScale(w, h);
     const canvas = await html2canvas(document.documentElement, {
-      backgroundColor: '#fff', scale, logging: false,
+      backgroundColor: '#fff', scale: cappedScale, logging: false,
       scrollX: 0, scrollY: 0,
       windowWidth: w,
       windowHeight: h,

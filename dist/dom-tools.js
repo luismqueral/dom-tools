@@ -731,6 +731,7 @@
       },
     },
     // Plugins
+    { id: 'hd-capture', label: 'HD Capture', category: 'plugins', description: 'Tiled rendering for sharp full-page screenshots on very tall pages.', default: true },
     { id: 'dom-xray', label: 'DOM X-Ray', category: 'plugins', description: 'Visualize box model — content, padding, border, and margin as colored overlays.', default: false, beta: true },
     { id: 'spacing-debugger', label: 'Spacing Debugger', category: 'plugins', description: 'Show all margins and paddings across the page simultaneously.', default: false, beta: true },
     { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false },
@@ -3200,14 +3201,27 @@
   }
 
   async function captureFullPage() {
+    const w = document.documentElement.scrollWidth;
+    const h = document.documentElement.scrollHeight;
+    const scale = getIdealScale();
+
+    // Delegate to HD Capture plugin if page exceeds single-canvas limits
+    if (window.DomTools && window.DomTools._hdCapture && window.DomTools._hdCaptureNeeded &&
+        window.DomTools._hdCaptureNeeded(w, h, scale)) {
+      showToast('HD capture...');
+      try {
+        await window.DomTools._hdCapture(w, h, scale);
+      } catch (e) { showToast('HD capture failed'); }
+      return;
+    }
+
+    // Standard single-canvas path (with safe scale)
     await loadH2C();
     showToast('Capturing full page...');
     try {
-      const w = document.documentElement.scrollWidth;
-      const h = document.documentElement.scrollHeight;
-      const scale = safeScale(w, h);
+      const cappedScale = safeScale(w, h);
       const canvas = await html2canvas(document.documentElement, {
-        backgroundColor: '#fff', scale, logging: false,
+        backgroundColor: '#fff', scale: cappedScale, logging: false,
         scrollX: 0, scrollY: 0,
         windowWidth: w,
         windowHeight: h,
