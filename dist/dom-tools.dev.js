@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-15T04:11:55.937Z
+ * Built: 2026-05-15T04:34:09.944Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -1242,6 +1242,10 @@
   let activeMode$1 = false;
   let selected = [];
 
+  // --- Drag-to-select state ---
+  let dragActive = false, dragStartX = 0, dragStartY = 0, didDrag = false;
+  let marqueeBox = null;
+
   function getSelected() { return selected; }
 
   // --- One-time stylesheet: kills native text selection page-wide while
@@ -1277,6 +1281,9 @@
     }
     html.dt-comment-active [data-dt-bubble] textarea {
       cursor: text !important;
+    }
+    html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
+      cursor: grab !important;
     }
     html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
       cursor: grab !important;
@@ -1515,6 +1522,7 @@
   function clearSelection() {
     deselectAll();
     closeEditor();
+    refreshTagLabels();
   }
 
   // Public: re-select a previously-saved group from outside (annotation
@@ -1552,8 +1560,8 @@
 
   function onMove$1(e) {
     if (!activeMode$1) return;
-    // Suppress hover while hand tool, inline editing, or modifier key (zoom) is active
-    if (state.handToolActive || editingEl || e.metaKey || e.ctrlKey) {
+    // Suppress hover while hand tool, inline editing, dragging, or modifier key (zoom) is active
+    if (state.handToolActive || editingEl || didDrag || e.metaKey || e.ctrlKey) {
       if (hoveredEl$1) clearHover$1();
       return;
     }
@@ -1579,23 +1587,129 @@
     refreshTagLabels();
   }
 
-  // --- Click handler -------------------------------------------------------
-  function onClick$1(e) {
+  // --- Drag-to-select (marquee) --------------------------------------------
+  function initMarquee() {
+    marqueeBox = document.createElement('div');
+    Object.assign(marqueeBox.style, {
+      position: 'fixed', pointerEvents: 'none', display: 'none',
+      border: '2px dashed ' + getSelectionColor(),
+      background: withAlpha(getSelectionColor(), 0.06),
+      zIndex: String(Z.tooltip), borderRadius: '2px',
+    });
+    document.body.appendChild(marqueeBox);
+    inspectorUI.add(marqueeBox);
+  }
+
+  function getElementsInRect(rect) {
+    const els = [];
+    for (const el of document.querySelectorAll('*')) {
+      if (isInspectorUI(el) || el === document.body || el === document.documentElement) continue;
+      if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      if (r.right > rect.left && r.left < rect.right &&
+          r.bottom > rect.top && r.top < rect.bottom) {
+        els.push(el);
+      }
+    }
+    // Keep only leaf elements — remove any el that contains another match
+    return els.filter(el => !els.some(other => other !== el && el.contains(other)));
+  }
+
+  function onMouseDown$3(e) {
     if (!activeMode$1) return;
     if (state.handToolActive) return;
-    const el = e.target;
-    if (isInspectorUI(el)) return;
+    if (isInspectorUI(e.target)) return;
+    if (editingEl && (e.target === editingEl || editingEl.contains(e.target))) return;
+    if (e.button !== 0) return;
 
-    // Don't interfere with inline editing
-    if (editingEl && (el === editingEl || editingEl.contains(el))) return;
+    dragActive = true;
+    didDrag = false;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+  }
 
-    if (el === document.body || el === document.documentElement) {
-      if (isActiveNoteEmpty() && selected.length) {
-        clearSelection();
+  let dragPreviewEls = [];
+
+  function onDragMove(e) {
+    if (!dragActive) return;
+    const dx = Math.abs(e.clientX - dragStartX);
+    const dy = Math.abs(e.clientY - dragStartY);
+    if (dx > 4 || dy > 4) {
+      didDrag = true;
+      clearHover$1();
+      const x = Math.min(e.clientX, dragStartX);
+      const y = Math.min(e.clientY, dragStartY);
+      Object.assign(marqueeBox.style, {
+        display: 'block', left: x + 'px', top: y + 'px',
+        width: dx + 'px', height: dy + 'px',
+      });
+      // Live preview: highlight elements inside the marquee
+      const rect = { left: x, top: y, right: x + dx, bottom: y + dy };
+      const nowInside = getElementsInRect(rect);
+      // Remove highlight from elements no longer in rect
+      for (const el of dragPreviewEls) {
+        if (!nowInside.includes(el) && !selected.some(s => s.el === el)) {
+          el.style.outline = getOrigOutline(el);
+          el.style.backgroundColor = getOrigBackground(el);
+        }
       }
+      // Add highlight to new elements in rect
+      const color = getSelectionColor();
+      for (const el of nowInside) {
+        if (!selected.some(s => s.el === el)) {
+          ensureOrig(el);
+          el.style.outline = '2px solid ' + color;
+          el.style.backgroundColor = withAlpha(color, 0.05);
+        }
+      }
+      dragPreviewEls = nowInside;
+    }
+  }
+
+  function onMouseUp$3(e) {
+    if (!dragActive) return;
+    dragActive = false;
+
+    if (didDrag) {
+      // Clear live preview highlights
+      for (const el of dragPreviewEls) {
+        if (!selected.some(s => s.el === el)) {
+          el.style.outline = getOrigOutline(el);
+          el.style.backgroundColor = getOrigBackground(el);
+        }
+      }
+      dragPreviewEls = [];
+
+      const rect = {
+        left: Math.min(e.clientX, dragStartX),
+        top: Math.min(e.clientY, dragStartY),
+        right: Math.max(e.clientX, dragStartX),
+        bottom: Math.max(e.clientY, dragStartY),
+      };
+      marqueeBox.style.display = 'none';
+      const els = getElementsInRect(rect);
+      if (els.length) {
+        if (!e.shiftKey) deselectAll();
+        for (const el of els) {
+          if (selected.some(s => s.el === el)) continue;
+          selected.push(buildEntry(el));
+          applyOutline(el);
+        }
+        syncEditor();
+      }
+      didDrag = false;
       return;
     }
 
+    // No drag — treat as click
+    didDrag = false;
+    const el = e.target;
+    if (isInspectorUI(el)) return;
+    if (el === document.body || el === document.documentElement) {
+      if (selected.length) clearSelection();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     clearHover$1();
@@ -1701,7 +1815,7 @@
 
     button: {
       icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20.5056 10.7754C21.1225 10.5355 21.431 10.4155 21.5176 10.2459C21.5926 10.099 21.5903 9.92446 21.5115 9.77954C21.4205 9.61226 21.109 9.50044 20.486 9.2768L4.59629 3.5728C4.0866 3.38983 3.83175 3.29835 3.66514 3.35605C3.52029 3.40621 3.40645 3.52004 3.35629 3.6649C3.29859 3.8315 3.39008 4.08635 3.57304 4.59605L9.277 20.4858C9.50064 21.1088 9.61246 21.4203 9.77973 21.5113C9.92465 21.5901 10.0991 21.5924 10.2461 21.5174C10.4157 21.4308 10.5356 21.1223 10.7756 20.5054L13.3724 13.8278C13.4194 13.707 13.4429 13.6466 13.4792 13.5957C13.5114 13.5506 13.5508 13.5112 13.5959 13.479C13.6468 13.4427 13.7072 13.4192 13.828 13.3722L20.5056 10.7754Z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-      tooltip: 'Select (shift+click for group)',
+      tooltip: 'Select (drag to group)',
       get color() { return getSelectionColor(); },
       order: 5,
     },
@@ -1711,9 +1825,11 @@
     init() {
       ensureSelectionStyles();
       ensurePlexMono();
-      document.addEventListener('click', onClick$1, true);
+      initMarquee();
+      document.addEventListener('mousedown', onMouseDown$3, true);
+      document.addEventListener('mousemove', (e) => { onDragMove(e); onMove$1(e); }, true);
+      document.addEventListener('mouseup', onMouseUp$3, true);
       document.addEventListener('dblclick', onDblClick, true);
-      document.addEventListener('mousemove', onMove$1, true);
       window.addEventListener('scroll', repositionAllTagLabels, true);
       window.addEventListener('resize', repositionAllTagLabels);
 
@@ -1724,6 +1840,10 @@
       onColorChange((color) => {
         selected.forEach(s => applyOutline(s.el));
         tagLabels.forEach((entry) => { entry.lbl.style.background = color; });
+        if (marqueeBox) {
+          marqueeBox.style.border = '2px dashed ' + color;
+          marqueeBox.style.background = withAlpha(color, 0.06);
+        }
         if (activeMode$1) setActiveButton('style-modifier');
       });
     },
@@ -1733,12 +1853,15 @@
       state.styleModActive = true;
       document.body.style.cursor = '';
       document.documentElement.classList.add('dt-comment-active');
-      showToast('Click to select, shift+click to group');
+      showToast('Click to select, drag to group');
     },
 
     deactivate() {
       activeMode$1 = false;
       state.styleModActive = false;
+      dragActive = false;
+      didDrag = false;
+      if (marqueeBox) marqueeBox.style.display = 'none';
       document.body.style.cursor = '';
       document.documentElement.classList.remove('dt-comment-active');
       clearHover$1();
@@ -1870,14 +1993,6 @@
 
   function findNoteAnnotationByEl(el) {
     return noteAnnotations.find(a => a.els.includes(el)) || null;
-  }
-
-  // True when the user has the editor open on a note that has no text
-  // yet — used by the click router to decide whether a body click
-  // should also drop the current selection.
-  function isActiveNoteEmpty() {
-    if (!activeAnnotation) return false;
-    return !activeAnnotation.note || !activeAnnotation.note.trim();
   }
 
   // ---- One-time stylesheet for placeholder color (white-ish on pink) ----
