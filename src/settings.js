@@ -26,6 +26,7 @@ const EXPERIMENT_DEFS = [
   { id: 'dock', label: 'Edge snap', category: 'general', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
   { id: 'canvas-zoom', label: 'Canvas zoom & pan', category: 'general', description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.', default: true },
   { id: 'dblclick-edit', label: 'Double-click to edit text', category: 'general', description: 'Double-click a text element in Select mode to edit it inline.', default: true },
+  { id: 'element-labels', label: 'Element labels', category: 'general', description: 'Show tag name labels above hovered and selected elements.', default: true },
   { id: 'kidpix-clear', label: 'Kid Pix clear', category: 'general', description: 'Dramatic animated screen wipe when clearing all changes (Shift+Esc).', default: false },
   // Tools
   {

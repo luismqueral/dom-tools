@@ -69,11 +69,20 @@ function ensureSelectionStyles() {
     html.dt-comment-active.dt-inline-editing body *:not([data-dt-allow-select]):not([data-dt-allow-select] *) {
       cursor: default !important;
     }
-    html.dt-comment-active [data-dt-bubble] textarea {
+    html.dt-comment-active [data-dt-bubble] textarea[readonly] {
+      cursor: grab !important;
+    }
+    html.dt-comment-active [data-dt-bubble] textarea:not([readonly]) {
       cursor: text !important;
     }
     html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
       cursor: grab !important;
+    }
+    html.dt-bubble-dragging,
+    html.dt-bubble-dragging *,
+    [data-dt-bubble].dt-dragging,
+    [data-dt-bubble].dt-dragging * {
+      cursor: grabbing !important;
     }
     html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
       cursor: grab !important;
@@ -187,13 +196,11 @@ function createTagLabel(el) {
 // always OUTSIDE the element bounds so the label never overlaps page
 // content. flipped=true flips to just below the bottom-left (cursor
 // avoidance, sticky once flipped — see avoidLabelsUnderCursor).
-function positionTagLabel(lbl, el, flipped) {
+function positionTagLabel(lbl, el) {
   const r = el.getBoundingClientRect();
   const labelH = lbl.offsetHeight || 14;
   const left = r.left + window.scrollX;
-  const top = flipped
-    ? r.top + window.scrollY + r.height + 2  // outside below
-    : r.top + window.scrollY - labelH - 2;   // outside above
+  const top = r.top + window.scrollY - labelH - 2;
   lbl.style.left = left + 'px';
   lbl.style.top = top + 'px';
 }
@@ -223,6 +230,10 @@ function desiredLabelEls() {
 }
 
 function refreshTagLabels() {
+  if (!isExperimentEnabled('element-labels')) {
+    hideTagLabels();
+    return;
+  }
   const want = desiredLabelEls();
   Array.from(tagLabels.keys()).forEach(el => {
     if (!want.has(el)) removeTagLabel(el);
@@ -231,40 +242,20 @@ function refreshTagLabels() {
   want.forEach(el => {
     let entry = tagLabels.get(el);
     if (!entry) {
-      entry = { lbl: createTagLabel(el), flipped: false };
+      entry = { lbl: createTagLabel(el) };
       tagLabels.set(el, entry);
     }
     entry.lbl.textContent = elementLabelText(el);
     entry.lbl.style.background = color;
-    positionTagLabel(entry.lbl, el, entry.flipped);
+    positionTagLabel(entry.lbl, el);
   });
 }
 
 function repositionAllTagLabels() {
-  tagLabels.forEach((entry, el) => positionTagLabel(entry.lbl, el, entry.flipped));
+  tagLabels.forEach((entry, el) => positionTagLabel(entry.lbl, el));
 }
 
-// On every mousemove in Comment mode, check whether the cursor is
-// inside any label's bounding rect and shove it out of the way if so.
-// Sticky: once a label has flipped, it stays flipped for the lifetime
-// of the entry. Snapping it back as soon as the cursor cleared the
-// flipped position caused a springy ping-pong, since the cursor would
-// then overlap the original (top) position and trigger another flip.
-// A new label (created next time the element gains a label) starts
-// fresh at flipped=false.
-function avoidLabelsUnderCursor(mx, my) {
-  tagLabels.forEach((entry, el) => {
-    if (entry.flipped) return;
-    const r = entry.lbl.getBoundingClientRect();
-    const margin = 6;
-    const overlap = mx >= r.left - margin && mx <= r.right + margin &&
-                    my >= r.top  - margin && my <= r.bottom + margin;
-    if (overlap) {
-      entry.flipped = true;
-      positionTagLabel(entry.lbl, el, true);
-    }
-  });
-}
+function avoidLabelsUnderCursor() {}
 
 // Plain click → reset selection to just `el` (or expand to its whole
 // group if it's part of one). Shift+click → toggle `el` in/out of the

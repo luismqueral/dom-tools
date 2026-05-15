@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-15T04:34:09.944Z
+ * Built: 2026-05-15T04:48:57.844Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -693,6 +693,7 @@
     { id: 'dock', label: 'Edge snap', category: 'general', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
     { id: 'canvas-zoom', label: 'Canvas zoom & pan', category: 'general', description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.', default: true },
     { id: 'dblclick-edit', label: 'Double-click to edit text', category: 'general', description: 'Double-click a text element in Select mode to edit it inline.', default: true },
+    { id: 'element-labels', label: 'Element labels', category: 'general', description: 'Show tag name labels above hovered and selected elements.', default: true },
     { id: 'kidpix-clear', label: 'Kid Pix clear', category: 'general', description: 'Dramatic animated screen wipe when clearing all changes (Shift+Esc).', default: false },
     // Tools
     {
@@ -1279,11 +1280,20 @@
     html.dt-comment-active.dt-inline-editing body *:not([data-dt-allow-select]):not([data-dt-allow-select] *) {
       cursor: default !important;
     }
-    html.dt-comment-active [data-dt-bubble] textarea {
+    html.dt-comment-active [data-dt-bubble] textarea[readonly] {
+      cursor: grab !important;
+    }
+    html.dt-comment-active [data-dt-bubble] textarea:not([readonly]) {
       cursor: text !important;
     }
     html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
       cursor: grab !important;
+    }
+    html.dt-bubble-dragging,
+    html.dt-bubble-dragging *,
+    [data-dt-bubble].dt-dragging,
+    [data-dt-bubble].dt-dragging * {
+      cursor: grabbing !important;
     }
     html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
       cursor: grab !important;
@@ -1397,13 +1407,11 @@
   // always OUTSIDE the element bounds so the label never overlaps page
   // content. flipped=true flips to just below the bottom-left (cursor
   // avoidance, sticky once flipped — see avoidLabelsUnderCursor).
-  function positionTagLabel(lbl, el, flipped) {
+  function positionTagLabel(lbl, el) {
     const r = el.getBoundingClientRect();
     const labelH = lbl.offsetHeight || 14;
     const left = r.left + window.scrollX;
-    const top = flipped
-      ? r.top + window.scrollY + r.height + 2  // outside below
-      : r.top + window.scrollY - labelH - 2;   // outside above
+    const top = r.top + window.scrollY - labelH - 2;
     lbl.style.left = left + 'px';
     lbl.style.top = top + 'px';
   }
@@ -1433,6 +1441,10 @@
   }
 
   function refreshTagLabels() {
+    if (!isExperimentEnabled('element-labels')) {
+      hideTagLabels();
+      return;
+    }
     const want = desiredLabelEls();
     Array.from(tagLabels.keys()).forEach(el => {
       if (!want.has(el)) removeTagLabel(el);
@@ -1441,40 +1453,20 @@
     want.forEach(el => {
       let entry = tagLabels.get(el);
       if (!entry) {
-        entry = { lbl: createTagLabel(), flipped: false };
+        entry = { lbl: createTagLabel() };
         tagLabels.set(el, entry);
       }
       entry.lbl.textContent = elementLabelText(el);
       entry.lbl.style.background = color;
-      positionTagLabel(entry.lbl, el, entry.flipped);
+      positionTagLabel(entry.lbl, el);
     });
   }
 
   function repositionAllTagLabels() {
-    tagLabels.forEach((entry, el) => positionTagLabel(entry.lbl, el, entry.flipped));
+    tagLabels.forEach((entry, el) => positionTagLabel(entry.lbl, el));
   }
 
-  // On every mousemove in Comment mode, check whether the cursor is
-  // inside any label's bounding rect and shove it out of the way if so.
-  // Sticky: once a label has flipped, it stays flipped for the lifetime
-  // of the entry. Snapping it back as soon as the cursor cleared the
-  // flipped position caused a springy ping-pong, since the cursor would
-  // then overlap the original (top) position and trigger another flip.
-  // A new label (created next time the element gains a label) starts
-  // fresh at flipped=false.
-  function avoidLabelsUnderCursor(mx, my) {
-    tagLabels.forEach((entry, el) => {
-      if (entry.flipped) return;
-      const r = entry.lbl.getBoundingClientRect();
-      const margin = 6;
-      const overlap = mx >= r.left - margin && mx <= r.right + margin &&
-                      my >= r.top  - margin && my <= r.bottom + margin;
-      if (overlap) {
-        entry.flipped = true;
-        positionTagLabel(entry.lbl, el, true);
-      }
-    });
-  }
+  function avoidLabelsUnderCursor() {}
 
   // Plain click → reset selection to just `el` (or expand to its whole
   // group if it's part of one). Shift+click → toggle `el` in/out of the
@@ -2046,19 +2038,21 @@
     const handle = document.createElement('div');
     handle.setAttribute('aria-label', 'Drag to move');
     handle.title = 'Drag to move';
-    handle.innerHTML = '<svg width="6" height="16" viewBox="0 0 6 16" xmlns="http://www.w3.org/2000/svg" fill="rgba(255,255,255,0.7)" aria-hidden="true">'
-      + '<circle cx="1.5" cy="3" r="1"/><circle cx="4.5" cy="3" r="1"/>'
-      + '<circle cx="1.5" cy="8" r="1"/><circle cx="4.5" cy="8" r="1"/>'
-      + '<circle cx="1.5" cy="13" r="1"/><circle cx="4.5" cy="13" r="1"/>'
-      + '</svg>';
+    handle.textContent = '\u283F';
     Object.assign(handle.style, {
       flex: '0 0 auto',
-      width: '8px',
+      width: '14px',
       minHeight: '20px',
       cursor: 'grab',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
+      color: 'rgba(255,255,255,0.5)',
+      fontSize: '14px',
+      lineHeight: '1',
+      paddingLeft: '2px',
+      paddingRight: '2px',
+      marginLeft: '-2px',
       userSelect: 'none',
       WebkitUserSelect: 'none',
     });
@@ -2135,7 +2129,8 @@
       sx = e.clientX; sy = e.clientY;
       startDx = annotation.customPosition ? annotation.customPosition.dx : 0;
       startDy = annotation.customPosition ? annotation.customPosition.dy : 0;
-      handle.style.cursor = 'grabbing';
+      bubble.classList.add('dt-dragging');
+      document.documentElement.classList.add('dt-bubble-dragging');
     });
 
     function onMove(e) {
@@ -2153,7 +2148,8 @@
       if (!dragging) return;
       dragging = false;
       bubble._dragging = false;
-      handle.style.cursor = 'grab';
+      bubble.classList.remove('dt-dragging');
+      document.documentElement.classList.remove('dt-bubble-dragging');
       if (didDrag) return;
       if (activeAnnotation === annotation) return; // already editing, no-op
       // Defer past the synthetic click so Comment's capture click handler

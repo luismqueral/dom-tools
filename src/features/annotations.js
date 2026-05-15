@@ -187,19 +187,21 @@ function createBubble(annotation) {
   const handle = document.createElement('div');
   handle.setAttribute('aria-label', 'Drag to move');
   handle.title = 'Drag to move';
-  handle.innerHTML = '<svg width="6" height="16" viewBox="0 0 6 16" xmlns="http://www.w3.org/2000/svg" fill="rgba(255,255,255,0.7)" aria-hidden="true">'
-    + '<circle cx="1.5" cy="3" r="1"/><circle cx="4.5" cy="3" r="1"/>'
-    + '<circle cx="1.5" cy="8" r="1"/><circle cx="4.5" cy="8" r="1"/>'
-    + '<circle cx="1.5" cy="13" r="1"/><circle cx="4.5" cy="13" r="1"/>'
-    + '</svg>';
+  handle.textContent = '\u283F';
   Object.assign(handle.style, {
     flex: '0 0 auto',
-    width: '8px',
+    width: '14px',
     minHeight: '20px',
     cursor: 'grab',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '14px',
+    lineHeight: '1',
+    paddingLeft: '2px',
+    paddingRight: '2px',
+    marginLeft: '-2px',
     userSelect: 'none',
     WebkitUserSelect: 'none',
   });
@@ -276,7 +278,8 @@ function createBubble(annotation) {
     sx = e.clientX; sy = e.clientY;
     startDx = annotation.customPosition ? annotation.customPosition.dx : 0;
     startDy = annotation.customPosition ? annotation.customPosition.dy : 0;
-    handle.style.cursor = 'grabbing';
+    bubble.classList.add('dt-dragging');
+    document.documentElement.classList.add('dt-bubble-dragging');
   });
 
   function onMove(e) {
@@ -294,7 +297,8 @@ function createBubble(annotation) {
     if (!dragging) return;
     dragging = false;
     bubble._dragging = false;
-    handle.style.cursor = 'grab';
+    bubble.classList.remove('dt-dragging');
+    document.documentElement.classList.remove('dt-bubble-dragging');
     if (didDrag) return;
     if (activeAnnotation === annotation) return; // already editing, no-op
     // Defer past the synthetic click so Comment's capture click handler
