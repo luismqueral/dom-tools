@@ -264,8 +264,10 @@
     label: 'HD Capture',
 
     init(api) {
+      console.log('[hd-capture] Plugin initialized');
       // Expose the HD capture hook
       window.DomTools._hdCapture = async function (w, h, scale) {
+        console.log(`[hd-capture] Tiling ${w}x${h} @ ${scale}x`);
         await captureHD(w, h, scale, api.inspectorUI);
       };
       window.DomTools._hdCaptureNeeded = needsTiling;

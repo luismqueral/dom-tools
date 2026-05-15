@@ -138,6 +138,7 @@ async function captureFullPage() {
   const scale = getIdealScale();
 
   // Delegate to HD Capture plugin if page exceeds single-canvas limits
+  console.log(`[camera] captureFullPage: ${w}x${h} @ ${scale}x, hdCapture=${!!window.DomTools?._hdCapture}, needed=${window.DomTools?._hdCaptureNeeded?.(w, h, scale)}`);
   if (window.DomTools && window.DomTools._hdCapture && window.DomTools._hdCaptureNeeded &&
       window.DomTools._hdCaptureNeeded(w, h, scale)) {
     showToast('HD capture...');
