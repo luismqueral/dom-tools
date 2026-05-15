@@ -15,12 +15,12 @@ export default {
       file: 'dist/dom-tools.js',
       format: 'iife',
       banner,
+      plugins: [terser({ format: { comments: /^!|@preserve|@license|DOM-Tools/ } })],
     },
     {
-      file: 'dist/dom-tools.min.js',
+      file: 'dist/dom-tools.dev.js',
       format: 'iife',
       banner,
-      plugins: [terser()],
     },
   ],
 };

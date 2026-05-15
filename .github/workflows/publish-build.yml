@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Push built files to studio-queral
+      - name: Push built file to studio-queral
         uses: dmnemec/copy_file_to_another_repo_action@main
         env:
           API_TOKEN_GITHUB: ${{ secrets.STUDIO_QUERAL_TOKEN }}
@@ -23,15 +23,3 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
           user_name: 'github-actions[bot]'
           commit_message: 'Update DOM-Tools build from luismqueral/dom-tools@${{ github.sha }}'
-
-      - name: Push minified build
-        uses: dmnemec/copy_file_to_another_repo_action@main
-        env:
-          API_TOKEN_GITHUB: ${{ secrets.STUDIO_QUERAL_TOKEN }}
-        with:
-          source_file: 'dist/dom-tools.min.js'
-          destination_repo: 'luismqueral/studio-queral'
-          destination_folder: 'public'
-          user_email: 'github-actions[bot]@users.noreply.github.com'
-          user_name: 'github-actions[bot]'
-          commit_message: 'Update DOM-Tools minified build from luismqueral/dom-tools@${{ github.sha }}'
