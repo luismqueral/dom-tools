@@ -1,5 +1,6 @@
 /**
  * DOM-Tools v1.1.0
+ * Built: 2026-05-15T03:28:15.248Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
