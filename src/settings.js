@@ -106,19 +106,32 @@ function el(tag, styles, text) {
 }
 
 let _refreshHint = null;
-function showRefreshHint(container) {
+function showRefreshHint() {
   if (_refreshHint) return;
-  _refreshHint = el('div', {
-    marginTop: '16px', padding: '8px 12px',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '6px', fontSize: '11px', color: '#aaa', textAlign: 'center',
-  }, 'Refresh page for changes to take effect');
-  container.appendChild(_refreshHint);
+  _refreshHint = document.createElement('button');
+  _refreshHint.type = 'button';
+  Object.assign(_refreshHint.style, {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+    width: '100%', padding: '8px 12px', marginBottom: '14px',
+    background: 'rgba(251,191,36,0.12)',
+    border: '1px solid rgba(251,191,36,0.3)',
+    borderRadius: '6px', fontSize: '11px', color: '#fbbf24',
+    cursor: 'pointer', transition: 'background 0.1s',
+    fontFamily: 'inherit',
+  });
+  _refreshHint.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>Refresh page for changes to take effect';
+  _refreshHint.addEventListener('mouseenter', () => { _refreshHint.style.background = 'rgba(251,191,36,0.2)'; });
+  _refreshHint.addEventListener('mouseleave', () => { _refreshHint.style.background = 'rgba(251,191,36,0.12)'; });
+  _refreshHint.addEventListener('click', () => { location.reload(); });
+  // Insert at top of card, after header
+  const card = _popover && _popover.firstElementChild;
+  if (card && card.children[1]) {
+    card.insertBefore(_refreshHint, card.children[1]);
+  }
 }
 
 // --- Experiment toggle row (reused across tabs) ---
-function buildExperimentRow(exp, hintContainer) {
+function buildExperimentRow(exp) {
   const wrap = el('div', { marginBottom: '10px' });
 
   // noToggle: just show label + options, no checkbox
@@ -169,7 +182,7 @@ function buildExperimentRow(exp, hintContainer) {
   checkbox.addEventListener('change', () => {
     setExperiment(exp.id, checkbox.checked);
     if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
-    showRefreshHint(hintContainer);
+    showRefreshHint();
   });
 
   return wrap;
@@ -223,7 +236,7 @@ function buildGeneralTab(container) {
   }, 'Behavior'));
 
   EXPERIMENT_DEFS.filter(e => e.category === 'general').forEach(exp => {
-    container.appendChild(buildExperimentRow(exp, container));
+    container.appendChild(buildExperimentRow(exp));
   });
 }
 
@@ -234,7 +247,7 @@ function buildToolsTab(container) {
   }, 'Additional tools that add new capabilities to the toolbar.'));
 
   EXPERIMENT_DEFS.filter(e => e.category === 'tools').forEach(exp => {
-    container.appendChild(buildExperimentRow(exp, container));
+    container.appendChild(buildExperimentRow(exp));
   });
 }
 
@@ -245,7 +258,7 @@ function buildPluginsTab(container) {
   }, 'External plugins loaded alongside DOM-Tools. Enable to show their toolbar button.'));
 
   EXPERIMENT_DEFS.filter(e => e.category === 'plugins').forEach(exp => {
-    container.appendChild(buildExperimentRow(exp, container));
+    container.appendChild(buildExperimentRow(exp));
   });
 }
 
@@ -511,6 +524,7 @@ function hidePopover() {
     inspectorUI.delete(_popover);
     _popover.remove();
     _popover = null;
+    _refreshHint = null;
     document.removeEventListener('keydown', onPopoverKeyDown, true);
   }
 }
