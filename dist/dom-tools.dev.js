@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-15T04:48:57.844Z
+ * Built: 2026-05-15T03:33:42.504Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -1083,9 +1083,9 @@
       zIndex: String(Z.toolbar + 1),
       background: 'rgba(0,0,0,0.55)',
       backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
       fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
-      boxSizing: 'border-box', padding: '40px',
+      boxSizing: 'border-box', padding: '80px 40px 40px',
     });
 
     const card = el('div', {
@@ -4038,7 +4038,7 @@
 
   // --- Click handler ---------------------------------------------------------
 
-  function onClick(e) {
+  function onClick$1(e) {
     if (!activeMode) return;
     const el = e.target;
     if (isInspectorUI(el) || !isTextElement(el)) return;
@@ -4074,7 +4074,7 @@
     shortcuts: [],
 
     init() {
-      document.addEventListener('click', onClick, true);
+      document.addEventListener('click', onClick$1, true);
       document.addEventListener('mousemove', onMove, true);
     },
 
