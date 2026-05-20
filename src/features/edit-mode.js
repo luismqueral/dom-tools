@@ -15,6 +15,11 @@ import {
   setElementText, evaluateAnnotation, queueRepositionAll,
   ensureOrig, applyAnnotationStyle, getOrigBackground,
 } from './annotations.js';
+import {
+  initMarkdownState, getMarkdownState, clearMarkdownState,
+  parse, render, sourceOffsetFromDOM, placeCursorAtSourceOffset,
+  applyInputToSource,
+} from './markdown-live.js';
 
 const BLUE = COLORS.selector;
 const TEXT_TAGS = [
@@ -160,6 +165,8 @@ function placeCaretFromPoint(clientX, clientY) {
 
 // --- Editable lifecycle ----------------------------------------------------
 
+let composing = false;
+
 function makeEditable(el) {
   if (editableEls.has(el)) return;
   editableEls.add(el);
@@ -179,13 +186,152 @@ function makeEditable(el) {
 
   const originalText = el.innerText;
   const originalClasses = el.className;
-  const handler = () => {
+  const mdState = initMarkdownState(el, originalText);
+
+  // Initial render (plain text → no markdown yet, so renders unchanged)
+  const { html } = render(mdState.tokens, mdState.cursorOffset);
+  mdState.renderedHTML = html;
+  el.innerHTML = html;
+
+  // --- beforeinput: intercept all edits ---
+  const onBeforeInput = (e) => {
+    if (composing) return; // Let IME compose freely
+
+    // Read selection length BEFORE preventing default (selection still intact)
+    const sel = window.getSelection();
+    const selLength = (sel.rangeCount && !sel.isCollapsed) ? sel.toString().length : 0;
+
+    e.preventDefault();
+
+    const cursorOffset = sourceOffsetFromDOM(el);
+    applyInputToSource(mdState, e.inputType, e.data, cursorOffset, e, selLength);
+
+    mdState.tokens = parse(mdState.source);
+    const result = render(mdState.tokens, mdState.cursorOffset);
+    if (result.html !== mdState.renderedHTML) {
+      mdState.renderedHTML = result.html;
+      el.innerHTML = result.html;
+    }
+    placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+
     setElementText(el, originalText, originalClasses);
     evaluateAnnotation(el);
     queueRepositionAll();
   };
-  el.addEventListener('input', handler);
-  inputHandlers.set(el, handler);
+
+  // --- Cursor movement re-rendering ---
+  const onCursorMove = () => {
+    if (composing) return;
+    const newOffset = sourceOffsetFromDOM(el);
+    if (newOffset === mdState.cursorOffset) return;
+    mdState.cursorOffset = newOffset;
+    mdState.tokens = parse(mdState.source);
+    const result = render(mdState.tokens, mdState.cursorOffset);
+    if (result.html !== mdState.renderedHTML) {
+      mdState.renderedHTML = result.html;
+      el.innerHTML = result.html;
+      placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+    }
+  };
+
+  // --- IME composition ---
+  const onCompStart = () => { composing = true; };
+  const onCompEnd = () => {
+    composing = false;
+    // After composition, sync from DOM
+    mdState.source = el.innerText;
+    mdState.cursorOffset = sourceOffsetFromDOM(el);
+    mdState.tokens = parse(mdState.source);
+    const result = render(mdState.tokens, mdState.cursorOffset);
+    mdState.renderedHTML = result.html;
+    el.innerHTML = result.html;
+    placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+    setElementText(el, originalText, originalClasses);
+    evaluateAnnotation(el);
+    queueRepositionAll();
+  };
+
+  // --- Formatting shortcuts (Cmd+B, Cmd+I, Cmd+K) ---
+  const onKeyDown = (e) => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    let wrap = null;
+    if (e.key === 'b') wrap = '**';
+    else if (e.key === 'i') wrap = '*';
+    else if (e.key === 'k') wrap = ['[', '](url)'];
+    if (!wrap) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const src = mdState.source;
+    const cursorOffset = sourceOffsetFromDOM(el);
+
+    // Check for text selection
+    const sel = window.getSelection();
+    let selStart = cursorOffset;
+    let selEnd = cursorOffset;
+    if (sel.rangeCount && !sel.isCollapsed) {
+      // Get selection bounds in source coordinates
+      const range = sel.getRangeAt(0);
+      const savedStart = range.startContainer;
+      const savedStartOff = range.startOffset;
+      // Temporarily collapse to start to read start offset
+      sel.collapseToStart();
+      selStart = sourceOffsetFromDOM(el);
+      // Restore and collapse to end
+      sel.collapse(savedStart, savedStartOff);
+      sel.extend(range.endContainer, range.endOffset);
+      sel.collapseToEnd();
+      selEnd = sourceOffsetFromDOM(el);
+      if (selStart > selEnd) [selStart, selEnd] = [selEnd, selStart];
+    }
+
+    if (selStart !== selEnd) {
+      // Wrap selection
+      const selected = src.slice(selStart, selEnd);
+      let wrapped, newCursor;
+      if (Array.isArray(wrap)) {
+        wrapped = wrap[0] + selected + wrap[1];
+        newCursor = selStart + wrap[0].length + selected.length + wrap[1].length;
+      } else {
+        wrapped = wrap + selected + wrap;
+        newCursor = selStart + wrap.length + selected.length + wrap.length;
+      }
+      mdState.source = src.slice(0, selStart) + wrapped + src.slice(selEnd);
+      mdState.cursorOffset = newCursor;
+    } else {
+      // No selection — insert empty delimiters and place cursor inside
+      let insert, cursorInside;
+      if (Array.isArray(wrap)) {
+        insert = wrap[0] + wrap[1];
+        cursorInside = cursorOffset + wrap[0].length;
+      } else {
+        insert = wrap + wrap;
+        cursorInside = cursorOffset + wrap.length;
+      }
+      mdState.source = src.slice(0, cursorOffset) + insert + src.slice(cursorOffset);
+      mdState.cursorOffset = cursorInside;
+    }
+
+    mdState.tokens = parse(mdState.source);
+    const result = render(mdState.tokens, mdState.cursorOffset);
+    mdState.renderedHTML = result.html;
+    el.innerHTML = result.html;
+    placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+
+    setElementText(el, originalText, originalClasses);
+    evaluateAnnotation(el);
+    queueRepositionAll();
+  };
+
+  el.addEventListener('beforeinput', onBeforeInput);
+  el.addEventListener('keydown', onKeyDown, true);
+  el.addEventListener('keyup', onCursorMove);
+  el.addEventListener('mouseup', onCursorMove);
+  el.addEventListener('compositionstart', onCompStart);
+  el.addEventListener('compositionend', onCompEnd);
+
+  inputHandlers.set(el, { onBeforeInput, onKeyDown, onCursorMove, onCompStart, onCompEnd });
 }
 
 function unmakeEditable(el) {
@@ -195,11 +341,26 @@ function unmakeEditable(el) {
   el.style.cursor = '';
   el.style.outline = '';
   el.style.outlineOffset = '';
-  const h = inputHandlers.get(el);
-  if (h) {
-    el.removeEventListener('input', h);
+
+  const handlers = inputHandlers.get(el);
+  if (handlers) {
+    el.removeEventListener('beforeinput', handlers.onBeforeInput);
+    el.removeEventListener('keydown', handlers.onKeyDown, true);
+    el.removeEventListener('keyup', handlers.onCursorMove);
+    el.removeEventListener('mouseup', handlers.onCursorMove);
+    el.removeEventListener('compositionstart', handlers.onCompStart);
+    el.removeEventListener('compositionend', handlers.onCompEnd);
     inputHandlers.delete(el);
   }
+
+  // Final render: all tokens formatted (cursor outside all tokens)
+  const mdState = getMarkdownState(el);
+  if (mdState) {
+    const { html } = render(mdState.tokens, -1);
+    el.innerHTML = html;
+    clearMarkdownState(el);
+  }
+
   editableEls.delete(el);
   applyAnnotationStyle(el);
 }

@@ -29,6 +29,7 @@ import { Z } from '../core/constants.js';
 import { getSelector } from '../core/helpers.js';
 import { updateCopyBadge } from '../toolbar.js';
 import { getSelectionColor, withAlpha, onColorChange } from '../core/theme.js';
+import { getCurrentText } from './markdown-live.js';
 // NOTE: circular import with style-modifier.js is intentional and safe — both
 // only call each other from runtime event handlers, never at module eval.
 import { focusGroup } from './style-modifier.js';
@@ -116,7 +117,7 @@ function isAnnotated(el) {
 
 function hasTextDiff(el) {
   const e = textEdits.get(el);
-  return e != null && el.innerText !== e.originalText;
+  return e != null && getCurrentText(el) !== e.originalText;
 }
 
 export function findNoteAnnotationByEl(el) {
@@ -561,7 +562,7 @@ export function setElementText(el, originalText, originalClasses) {
 
 export function evaluateAnnotation(el) {
   const e = textEdits.get(el);
-  if (e && el.innerText === e.originalText && el.className === e.originalClasses) {
+  if (e && getCurrentText(el) === e.originalText && el.className === e.originalClasses) {
     textEdits.delete(el);
   }
   applyAnnotationStyle(el);
@@ -576,7 +577,7 @@ function updateBadgeCount() {
     if (!a.transient && a.note && a.note.trim()) count++;
   });
   textEdits.forEach((e, el) => {
-    if (el.innerText !== e.originalText || el.className !== e.originalClasses) count++;
+    if (getCurrentText(el) !== e.originalText || el.className !== e.originalClasses) count++;
   });
   updateCopyBadge(count);
 }
@@ -587,7 +588,7 @@ export function hasChanges() {
     if (!a.transient && a.note && a.note.trim()) count++;
   });
   textEdits.forEach((e, el) => {
-    if (el.innerText !== e.originalText || el.className !== e.originalClasses) count++;
+    if (getCurrentText(el) !== e.originalText || el.className !== e.originalClasses) count++;
   });
   return count > 0;
 }
@@ -605,7 +606,7 @@ export function getAnnotations() {
     });
   });
   textEdits.forEach((e, el) => {
-    if (el.innerText === e.originalText && el.className === e.originalClasses) return;
+    if (getCurrentText(el) === e.originalText && el.className === e.originalClasses) return;
     // Skip structural containers (canvas wrapper) — only track leaf edits
     if (el.id === 'dt-canvas-wrapper') return;
     items.push({

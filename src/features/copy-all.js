@@ -20,6 +20,7 @@ import { showToast, getSelector, copyText } from '../core/helpers.js';
 import { getAnnotations } from './annotations.js';
 import { getSelected } from './style-modifier.js';
 import { getCopyButton } from '../toolbar.js';
+import { getCurrentText } from './markdown-live.js';
 
 // --- Diff helpers --------------------------------------------------------
 
@@ -92,7 +93,7 @@ function buildSections(filterEls) {
       if (!overlaps([item.el])) return;
       const el = item.el;
       const before = item.originalText;
-      const after = el.innerText;
+      const after = getCurrentText(el);
       const textChanged = after !== before;
       const { added, removed } = classDiff(el.className, item.originalClasses);
       const classesChanged = added.length || removed.length;
