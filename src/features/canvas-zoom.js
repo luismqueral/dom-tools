@@ -418,6 +418,7 @@ function applyTransform() {
     const canvasBg = computeCanvasBg(originalDocBg);
     document.body.style.background = canvasBg;
     document.documentElement.style.background = canvasBg;
+    showArtboardLabel();
   } else {
     document.body.style.background = '';
     document.documentElement.style.background = '';
@@ -425,8 +426,45 @@ function applyTransform() {
     wrapper.style.borderRadius = '';
     wrapper.style.boxShadow = '';
     delete wrapper.dataset.dtBgSet;
+    hideArtboardLabel();
   }
   showZoomLevel();
+}
+
+// --- Artboard label (page title shown above wrapper when zoomed out) ---
+let artboardLabel = null;
+
+function ensureArtboardLabel() {
+  if (artboardLabel) return;
+  artboardLabel = document.createElement('div');
+  artboardLabel.setAttribute('data-dt-artboard-label', '');
+  Object.assign(artboardLabel.style, {
+    position: 'absolute',
+    top: '-40px',
+    left: '0',
+    fontSize: '12px',
+    fontWeight: '500',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    color: '#6b7280',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
+  });
+  artboardLabel.textContent = document.title || window.location.hostname;
+  wrapper.style.position = 'relative';
+  wrapper.appendChild(artboardLabel);
+  inspectorUI.add(artboardLabel);
+}
+
+function showArtboardLabel() {
+  if (!wrapper) return;
+  ensureArtboardLabel();
+  artboardLabel.style.display = '';
+}
+
+function hideArtboardLabel() {
+  if (artboardLabel) artboardLabel.style.display = 'none';
 }
 
 function resetTransform() {
@@ -442,6 +480,7 @@ function resetTransform() {
   }
   document.body.style.background = '';
   document.documentElement.style.background = '';
+  hideArtboardLabel();
   updateMinimap();
   showZoomLevel();
 }
