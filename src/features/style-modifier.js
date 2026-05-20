@@ -554,13 +554,7 @@ function onDblClick(e) {
   el.style.cursor = 'text';
   document.documentElement.classList.add('dt-inline-editing');
 
-  // Initialize markdown live state
-  const mdState = initMarkdownState(el, originalText);
-  const { html } = render(mdState.tokens, mdState.cursorOffset);
-  mdState.renderedHTML = html;
-  el.innerHTML = html;
-
-  let composing = false;
+  const useMarkdown = isExperimentEnabled('markdown-edit');
 
   function restoreEditStyle() {
     el.style.outline = '2px solid ' + color;
@@ -576,6 +570,46 @@ function onDblClick(e) {
     sel.removeAllRanges();
     sel.addRange(range);
   }, 0);
+
+  // Shared exit logic
+  function exitEditBase() {
+    el.contentEditable = 'false';
+    el.removeAttribute('data-dt-allow-select');
+    el.style.cursor = '';
+    document.documentElement.classList.remove('dt-inline-editing');
+    editingEl = null;
+    evaluateAnnotation(el);
+    applyOutline(el);
+  }
+
+  if (!useMarkdown) {
+    // Plain-text editing path
+    const onInput = () => {
+      setElementText(el, originalText, originalClasses);
+      restoreEditStyle();
+    };
+    const onKeyDown = (ev) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); el.blur(); }
+    };
+    el.addEventListener('input', onInput);
+    el.addEventListener('keydown', onKeyDown, true);
+    function exitEdit() {
+      el.removeEventListener('blur', exitEdit);
+      el.removeEventListener('input', onInput);
+      el.removeEventListener('keydown', onKeyDown, true);
+      exitEditBase();
+    }
+    el.addEventListener('blur', exitEdit);
+    return;
+  }
+
+  // --- Markdown editing path ---
+  const mdState = initMarkdownState(el, originalText);
+  const { html } = render(mdState.tokens, mdState.cursorOffset);
+  mdState.renderedHTML = html;
+  el.innerHTML = html;
+
+  let composing = false;
 
   // --- beforeinput: intercept all edits ---
   function onBeforeInput(e) {
@@ -706,10 +740,6 @@ function onDblClick(e) {
     document.removeEventListener('selectionchange', onCursorMove);
     el.removeEventListener('compositionstart', onCompStart);
     el.removeEventListener('compositionend', onCompEnd);
-    el.contentEditable = 'false';
-    el.removeAttribute('data-dt-allow-select');
-    el.style.cursor = '';
-    document.documentElement.classList.remove('dt-inline-editing');
 
     // Final render — all tokens formatted
     const mdFinal = getMarkdownState(el);
@@ -719,9 +749,7 @@ function onDblClick(e) {
       clearMarkdownState(el);
     }
 
-    editingEl = null;
-    evaluateAnnotation(el);
-    applyOutline(el);
+    exitEditBase();
   }
   el.addEventListener('blur', exitEdit);
 }

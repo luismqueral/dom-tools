@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T14:01:52.748Z
+ * Built: 2026-05-20T14:07:47.867Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -1156,6 +1156,7 @@
     { id: 'dock', label: 'Edge snap', category: 'general', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
     { id: 'canvas-zoom', label: 'Canvas zoom & pan', category: 'general', description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.', default: true },
     { id: 'dblclick-edit', label: 'Double-click to edit text', category: 'general', description: 'Double-click a text element in Select mode to edit it inline.', default: true },
+    { id: 'markdown-edit', label: 'Markdown editing', category: 'general', description: 'Live Markdown preview when editing text (bold, italic, strike, code, links).', default: true },
     { id: 'element-labels', label: 'Element labels', category: 'general', description: 'Show tag name labels above hovered and selected elements.', default: true },
     { id: 'kidpix-clear', label: 'Kid Pix clear', category: 'general', description: 'Dramatic animated screen wipe when clearing all changes (Shift+Esc).', default: false },
     // Tools
@@ -2222,13 +2223,7 @@
     el.style.cursor = 'text';
     document.documentElement.classList.add('dt-inline-editing');
 
-    // Initialize markdown live state
-    const mdState = initMarkdownState(el, originalText);
-    const { html } = render(mdState.tokens, mdState.cursorOffset);
-    mdState.renderedHTML = html;
-    el.innerHTML = html;
-
-    let composing = false;
+    const useMarkdown = isExperimentEnabled('markdown-edit');
 
     function restoreEditStyle() {
       el.style.outline = '2px solid ' + color;
@@ -2244,6 +2239,46 @@
       sel.removeAllRanges();
       sel.addRange(range);
     }, 0);
+
+    // Shared exit logic
+    function exitEditBase() {
+      el.contentEditable = 'false';
+      el.removeAttribute('data-dt-allow-select');
+      el.style.cursor = '';
+      document.documentElement.classList.remove('dt-inline-editing');
+      editingEl = null;
+      evaluateAnnotation(el);
+      applyOutline(el);
+    }
+
+    if (!useMarkdown) {
+      // Plain-text editing path
+      const onInput = () => {
+        setElementText(el, originalText, originalClasses);
+        restoreEditStyle();
+      };
+      const onKeyDown = (ev) => {
+        if (ev.key === 'Escape') { ev.preventDefault(); el.blur(); }
+      };
+      el.addEventListener('input', onInput);
+      el.addEventListener('keydown', onKeyDown, true);
+      function exitEdit() {
+        el.removeEventListener('blur', exitEdit);
+        el.removeEventListener('input', onInput);
+        el.removeEventListener('keydown', onKeyDown, true);
+        exitEditBase();
+      }
+      el.addEventListener('blur', exitEdit);
+      return;
+    }
+
+    // --- Markdown editing path ---
+    const mdState = initMarkdownState(el, originalText);
+    const { html } = render(mdState.tokens, mdState.cursorOffset);
+    mdState.renderedHTML = html;
+    el.innerHTML = html;
+
+    let composing = false;
 
     // --- beforeinput: intercept all edits ---
     function onBeforeInput(e) {
@@ -2374,10 +2409,6 @@
       document.removeEventListener('selectionchange', onCursorMove);
       el.removeEventListener('compositionstart', onCompStart);
       el.removeEventListener('compositionend', onCompEnd);
-      el.contentEditable = 'false';
-      el.removeAttribute('data-dt-allow-select');
-      el.style.cursor = '';
-      document.documentElement.classList.remove('dt-inline-editing');
 
       // Final render — all tokens formatted
       const mdFinal = getMarkdownState(el);
@@ -2387,9 +2418,7 @@
         clearMarkdownState(el);
       }
 
-      editingEl = null;
-      evaluateAnnotation(el);
-      applyOutline(el);
+      exitEditBase();
     }
     el.addEventListener('blur', exitEdit);
   }
@@ -4608,6 +4637,20 @@
 
     const originalText = el.innerText;
     const originalClasses = el.className;
+    const useMarkdown = isExperimentEnabled('markdown-edit');
+
+    if (!useMarkdown) {
+      // Plain-text editing — let browser handle contentEditable natively
+      const onInput = () => {
+        setElementText(el, originalText, originalClasses);
+        evaluateAnnotation(el);
+        queueRepositionAll();
+      };
+      el.addEventListener('input', onInput);
+      inputHandlers.set(el, { onInput });
+      return;
+    }
+
     const mdState = initMarkdownState(el, originalText);
 
     // Initial render (plain text → no markdown yet, so renders unchanged)
@@ -4766,11 +4809,17 @@
 
     const handlers = inputHandlers.get(el);
     if (handlers) {
-      el.removeEventListener('beforeinput', handlers.onBeforeInput);
-      el.removeEventListener('keydown', handlers.onKeyDown, true);
-      document.removeEventListener('selectionchange', handlers.onCursorMove);
-      el.removeEventListener('compositionstart', handlers.onCompStart);
-      el.removeEventListener('compositionend', handlers.onCompEnd);
+      if (handlers.onInput) {
+        // Plain-text path
+        el.removeEventListener('input', handlers.onInput);
+      } else {
+        // Markdown path
+        el.removeEventListener('beforeinput', handlers.onBeforeInput);
+        el.removeEventListener('keydown', handlers.onKeyDown, true);
+        document.removeEventListener('selectionchange', handlers.onCursorMove);
+        el.removeEventListener('compositionstart', handlers.onCompStart);
+        el.removeEventListener('compositionend', handlers.onCompEnd);
+      }
       inputHandlers.delete(el);
     }
 

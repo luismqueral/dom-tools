@@ -11,6 +11,7 @@ import { state, inspectorUI } from '../core/state.js';
 import { COLORS, Z } from '../core/constants.js';
 import { showToast, isInspectorUI } from '../core/helpers.js';
 import { getSelectionColor, withAlpha } from '../core/theme.js';
+import { isExperimentEnabled } from '../settings.js';
 import {
   setElementText, evaluateAnnotation, queueRepositionAll,
   ensureOrig, applyAnnotationStyle, getOrigBackground,
@@ -186,6 +187,20 @@ function makeEditable(el) {
 
   const originalText = el.innerText;
   const originalClasses = el.className;
+  const useMarkdown = isExperimentEnabled('markdown-edit');
+
+  if (!useMarkdown) {
+    // Plain-text editing — let browser handle contentEditable natively
+    const onInput = () => {
+      setElementText(el, originalText, originalClasses);
+      evaluateAnnotation(el);
+      queueRepositionAll();
+    };
+    el.addEventListener('input', onInput);
+    inputHandlers.set(el, { onInput });
+    return;
+  }
+
   const mdState = initMarkdownState(el, originalText);
 
   // Initial render (plain text → no markdown yet, so renders unchanged)
@@ -344,11 +359,17 @@ function unmakeEditable(el) {
 
   const handlers = inputHandlers.get(el);
   if (handlers) {
-    el.removeEventListener('beforeinput', handlers.onBeforeInput);
-    el.removeEventListener('keydown', handlers.onKeyDown, true);
-    document.removeEventListener('selectionchange', handlers.onCursorMove);
-    el.removeEventListener('compositionstart', handlers.onCompStart);
-    el.removeEventListener('compositionend', handlers.onCompEnd);
+    if (handlers.onInput) {
+      // Plain-text path
+      el.removeEventListener('input', handlers.onInput);
+    } else {
+      // Markdown path
+      el.removeEventListener('beforeinput', handlers.onBeforeInput);
+      el.removeEventListener('keydown', handlers.onKeyDown, true);
+      document.removeEventListener('selectionchange', handlers.onCursorMove);
+      el.removeEventListener('compositionstart', handlers.onCompStart);
+      el.removeEventListener('compositionend', handlers.onCompEnd);
+    }
     inputHandlers.delete(el);
   }
 
