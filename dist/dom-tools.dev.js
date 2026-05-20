@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T14:07:47.867Z
+ * Built: 2026-05-20T14:08:36.909Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -1156,7 +1156,7 @@
     { id: 'dock', label: 'Edge snap', category: 'general', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
     { id: 'canvas-zoom', label: 'Canvas zoom & pan', category: 'general', description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.', default: true },
     { id: 'dblclick-edit', label: 'Double-click to edit text', category: 'general', description: 'Double-click a text element in Select mode to edit it inline.', default: true },
-    { id: 'markdown-edit', label: 'Markdown editing', category: 'general', description: 'Live Markdown preview when editing text (bold, italic, strike, code, links).', default: true },
+    { id: 'markdown-edit', label: 'Markdown editing', category: 'general', description: 'Live Markdown preview when editing text (bold, italic, strike, code, links).', default: false },
     { id: 'element-labels', label: 'Element labels', category: 'general', description: 'Show tag name labels above hovered and selected elements.', default: true },
     { id: 'kidpix-clear', label: 'Kid Pix clear', category: 'general', description: 'Dramatic animated screen wipe when clearing all changes (Shift+Esc).', default: false },
     // Tools
