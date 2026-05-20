@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T13:53:37.350Z
+ * Built: 2026-05-20T13:55:19.824Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -809,6 +809,8 @@
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
   }
 
+  const SYN = 'color:rgba(130,140,155,0.7);font-weight:normal;font-style:normal';
+
   function renderToken(t, index) {
     const c = escapeHTML(t.content);
     const attr = ` data-md-idx="${index}"`;
@@ -818,6 +820,21 @@
       case 'strike': return `<s${attr}>${c}</s>`;
       case 'code': return `<code${attr} style="background:rgba(0,0,0,0.06);padding:1px 4px;border-radius:3px;font-family:monospace;font-size:0.9em">${c}</code>`;
       case 'link': return `<a${attr} href="${escapeHTML(t.href)}" style="color:inherit;text-decoration:underline">${c}</a>`;
+      default: return escapeHTML(t.raw);
+    }
+  }
+
+  // Render a revealed token with dimmed syntax delimiters
+  function renderRevealed(t) {
+    const s = `<span style="${SYN}">`;
+    const e = '</span>';
+    const c = escapeHTML(t.content);
+    switch (t.type) {
+      case 'bold': return `${s}**${e}${c}${s}**${e}`;
+      case 'italic': return `${s}*${e}${c}${s}*${e}`;
+      case 'strike': return `${s}~~${e}${c}${s}~~${e}`;
+      case 'code': return `${s}\`${e}${c}${s}\`${e}`;
+      case 'link': return `${s}[${e}${c}${s}](${e}${escapeHTML(t.href)}${s})${e}`;
       default: return escapeHTML(t.raw);
     }
   }
@@ -844,8 +861,10 @@
 
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
-      if (i === cursorTokenIndex || t.type === 'text') {
+      if (t.type === 'text') {
         html += escapeHTML(t.raw);
+      } else if (i === cursorTokenIndex) {
+        html += renderRevealed(t);
       } else {
         html += renderToken(t, i);
       }
