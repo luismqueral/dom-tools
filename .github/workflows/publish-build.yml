@@ -1,6 +1,7 @@
 name: Publish build to studio-queral
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
