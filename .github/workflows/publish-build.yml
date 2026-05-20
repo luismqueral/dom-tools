@@ -4,13 +4,23 @@ on:
   push:
     branches: [main]
     paths:
-      - 'dist/**'
+      - 'src/**'
+      - 'build/**'
+      - 'package.json'
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: npm run build
 
       - name: Push built file to studio-queral
         uses: dmnemec/copy_file_to_another_repo_action@main
