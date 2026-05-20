@@ -31,7 +31,7 @@ import { updateCopyBadge } from '../toolbar.js';
 import { getSelectionColor, withAlpha, onColorChange } from '../core/theme.js';
 // NOTE: circular import with style-modifier.js is intentional and safe — both
 // only call each other from runtime event handlers, never at module eval.
-import { focusGroup } from './style-modifier.js';
+import { focusGroup, clearSelection } from './style-modifier.js';
 
 // ---- Style state shared across tools ----
 const ORIG_OUTLINES = new WeakMap();
@@ -250,8 +250,36 @@ function createBubble(annotation) {
     if (e.key === ' ' && e.repeat) e.preventDefault();
   });
 
+  // Close button
+  const closeBtn = document.createElement('div');
+  closeBtn.setAttribute('data-dt-close', '');
+  closeBtn.textContent = '\u00d7';
+  Object.assign(closeBtn.style, {
+    flex: '0 0 auto',
+    width: '16px',
+    height: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontFamily: 'system-ui, sans-serif',
+    color: 'rgba(255,255,255,0.6)',
+    borderRadius: '2px',
+    lineHeight: '1',
+    marginRight: '-3px',
+  });
+  closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(255,255,255,0.2)'; closeBtn.style.color = '#fff'; });
+  closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = ''; closeBtn.style.color = 'rgba(255,255,255,0.6)'; });
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    removeNoteAnnotation(annotation);
+    clearSelection();
+  });
+
   bubble.appendChild(handle);
   bubble.appendChild(ta);
+  bubble.appendChild(closeBtn);
   bubble._textarea = ta;
   bubble._handle = handle;
   bubble._autoGrow = autoGrow;

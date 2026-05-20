@@ -78,6 +78,9 @@ function ensureSelectionStyles() {
     html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
       cursor: grab !important;
     }
+    html.dt-comment-active [data-dt-bubble] [data-dt-close] {
+      cursor: pointer !important;
+    }
     html.dt-bubble-dragging,
     html.dt-bubble-dragging *,
     [data-dt-bubble].dt-dragging,
@@ -301,7 +304,7 @@ function selectElement(el, additive) {
   syncEditor();
 }
 
-function clearSelection() {
+export function clearSelection() {
   deselectAll();
   closeEditor();
   refreshTagLabels();
