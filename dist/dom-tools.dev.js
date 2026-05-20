@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T14:23:34.378Z
+ * Built: 2026-05-20T14:28:21.097Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -6532,13 +6532,6 @@
     getScale() { return scale; },
     reset() { resetTransform(); },
   };
-
-  /**
-   * DOM-Tools
-   * Drop <script src="dom-tools.js"></script> before </body> in any HTML file.
-   * Activate by adding ?dom-tools to the page URL, OR by double-tapping Esc.
-   */
-
 
   // --- Plugin namespace (available before boot for early-loading plugins) ---
   window.DomTools = window.DomTools || { _pendingPlugins: [] };

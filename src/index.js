@@ -1,9 +1,3 @@
-/**
- * DOM-Tools
- * Drop <script src="dom-tools.js"></script> before </body> in any HTML file.
- * Activate by adding ?dom-tools to the page URL, OR by double-tapping Esc.
- */
-
 import { register, boot, registerLate, onLateRegister } from './core/registry.js';
 import { initHelpers } from './core/helpers.js';
 import { renderToolbar, toolbar, setActiveButton, appendButton } from './toolbar.js';
