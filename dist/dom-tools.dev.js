@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-15T03:33:42.504Z
+ * Built: 2026-05-20T14:13:11.073Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -672,6 +672,469 @@
   }
 
   /**
+   * Live Markdown rendering for Text Edit mode.
+   *
+   * Obsidian-style "live preview": Markdown is always parsed and rendered,
+   * but the token around the cursor reveals its raw syntax for editing.
+   * No toggle, no animations — instant transitions.
+   *
+   * Supported syntax: **bold**, *italic*, ~~strike~~, `code`, [text](url)
+   */
+
+  const mdStates = new WeakMap();
+
+  // --- State management --------------------------------------------------------
+
+  function initMarkdownState(el, initialText) {
+    const state = {
+      source: initialText,
+      tokens: [],
+      renderedHTML: '',
+      cursorOffset: initialText.length,
+    };
+    state.tokens = parse(state.source);
+    mdStates.set(el, state);
+    return state;
+  }
+
+  function getMarkdownState(el) {
+    return mdStates.get(el);
+  }
+
+  function clearMarkdownState(el) {
+    mdStates.delete(el);
+  }
+
+  function getCurrentText(el) {
+    const s = mdStates.get(el);
+    return s ? s.source : el.innerText;
+  }
+
+  // --- Parser ------------------------------------------------------------------
+  // Single-pass inline tokenizer. Priority: code > bold > italic > strike > link > text
+
+  function parse(source) {
+    const tokens = [];
+    let i = 0;
+    let textStart = 0;
+
+    function pushText() {
+      if (i > textStart) {
+        tokens.push({ type: 'text', raw: source.slice(textStart, i), content: source.slice(textStart, i), start: textStart, end: i });
+      }
+    }
+
+    while (i < source.length) {
+      // Inline code: `...`
+      if (source[i] === '`') {
+        const close = source.indexOf('`', i + 1);
+        if (close !== -1) {
+          pushText();
+          const raw = source.slice(i, close + 1);
+          tokens.push({ type: 'code', raw, content: source.slice(i + 1, close), start: i, end: close + 1 });
+          i = close + 1;
+          textStart = i;
+          continue;
+        }
+      }
+
+      // Bold: **...**
+      if (source[i] === '*' && source[i + 1] === '*') {
+        const close = source.indexOf('**', i + 2);
+        if (close !== -1) {
+          pushText();
+          const raw = source.slice(i, close + 2);
+          tokens.push({ type: 'bold', raw, content: source.slice(i + 2, close), start: i, end: close + 2 });
+          i = close + 2;
+          textStart = i;
+          continue;
+        }
+      }
+
+      // Strikethrough: ~~...~~
+      if (source[i] === '~' && source[i + 1] === '~') {
+        const close = source.indexOf('~~', i + 2);
+        if (close !== -1) {
+          pushText();
+          const raw = source.slice(i, close + 2);
+          tokens.push({ type: 'strike', raw, content: source.slice(i + 2, close), start: i, end: close + 2 });
+          i = close + 2;
+          textStart = i;
+          continue;
+        }
+      }
+
+      // Italic: *...* (but not **)
+      if (source[i] === '*' && source[i + 1] !== '*') {
+        const close = source.indexOf('*', i + 1);
+        if (close !== -1 && source[close + 1] !== '*') {
+          pushText();
+          const raw = source.slice(i, close + 1);
+          tokens.push({ type: 'italic', raw, content: source.slice(i + 1, close), start: i, end: close + 1 });
+          i = close + 1;
+          textStart = i;
+          continue;
+        }
+      }
+
+      // Link: [text](url)
+      if (source[i] === '[') {
+        const closeBracket = source.indexOf(']', i + 1);
+        if (closeBracket !== -1 && source[closeBracket + 1] === '(') {
+          const closeParen = source.indexOf(')', closeBracket + 2);
+          if (closeParen !== -1) {
+            pushText();
+            const raw = source.slice(i, closeParen + 1);
+            const content = source.slice(i + 1, closeBracket);
+            const href = source.slice(closeBracket + 2, closeParen);
+            tokens.push({ type: 'link', raw, content, href, start: i, end: closeParen + 1 });
+            i = closeParen + 1;
+            textStart = i;
+            continue;
+          }
+        }
+      }
+
+      i++;
+    }
+
+    // Trailing text
+    pushText();
+    return tokens;
+  }
+
+  // --- Renderer ----------------------------------------------------------------
+
+  function escapeHTML(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+  }
+
+  const SYN = 'color:rgba(130,140,155,0.7);font-weight:normal;font-style:normal';
+
+  function renderToken(t, index) {
+    const c = escapeHTML(t.content);
+    const attr = ` data-md-idx="${index}"`;
+    switch (t.type) {
+      case 'bold': return `<strong${attr}>${c}</strong>`;
+      case 'italic': return `<em${attr}>${c}</em>`;
+      case 'strike': return `<s${attr}>${c}</s>`;
+      case 'code': return `<code${attr} style="background:rgba(0,0,0,0.06);padding:1px 4px;border-radius:3px;font-family:monospace;font-size:0.9em">${c}</code>`;
+      case 'link': return `<a${attr} href="${escapeHTML(t.href)}" style="color:inherit;text-decoration:underline">${c}</a>`;
+      default: return escapeHTML(t.raw);
+    }
+  }
+
+  // Render a revealed token with dimmed syntax delimiters
+  function renderRevealed(t) {
+    const s = `<span style="${SYN}">`;
+    const e = '</span>';
+    const c = escapeHTML(t.content);
+    switch (t.type) {
+      case 'bold': return `${s}**${e}${c}${s}**${e}`;
+      case 'italic': return `${s}*${e}${c}${s}*${e}`;
+      case 'strike': return `${s}~~${e}${c}${s}~~${e}`;
+      case 'code': return `${s}\`${e}${c}${s}\`${e}`;
+      case 'link': return `${s}[${e}${c}${s}](${e}${escapeHTML(t.href)}${s})${e}`;
+      default: return escapeHTML(t.raw);
+    }
+  }
+
+  function render(tokens, cursorOffset) {
+    let html = '';
+    let cursorTokenIndex = -1;
+
+    // Find which token contains the cursor
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (cursorOffset >= t.start && cursorOffset < t.end) {
+        cursorTokenIndex = i;
+        break;
+      }
+    }
+    // If cursor is at end and last token ends there, reveal it
+    if (cursorTokenIndex === -1 && tokens.length > 0) {
+      const last = tokens[tokens.length - 1];
+      if (cursorOffset === last.end && last.type !== 'text') {
+        cursorTokenIndex = tokens.length - 1;
+      }
+    }
+
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (t.type === 'text') {
+        html += escapeHTML(t.raw);
+      } else if (i === cursorTokenIndex) {
+        html += renderRevealed(t);
+      } else {
+        html += renderToken(t, i);
+      }
+    }
+
+    return { html, cursorTokenIndex };
+  }
+
+  // --- Cursor mapping ----------------------------------------------------------
+
+  // Convert DOM cursor position to source offset.
+  // Strategy: get a flat "DOM text offset" by walking text nodes, then
+  // convert it to source offset using the token map (rendered tokens
+  // contribute content.length in DOM but raw.length in source).
+  function sourceOffsetFromDOM(el) {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return 0;
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    const nodeOffset = range.startOffset;
+
+    const mdState = mdStates.get(el);
+    if (!mdState) return 0;
+
+    // Step 1: compute flat DOM text offset (counting <br> as 1 char each)
+    let domOffset = 0;
+
+    if (node === el) {
+      // Selection on element itself — child index
+      for (let i = 0; i < nodeOffset && i < el.childNodes.length; i++) {
+        const child = el.childNodes[i];
+        if (child.nodeName === 'BR') domOffset += 1;
+        else domOffset += (child.textContent || '').length;
+      }
+    } else {
+      // Walk all nodes (text + elements) in tree order to count offset
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_ALL, null);
+      let current = walker.nextNode();
+      while (current) {
+        if (current === node) {
+          domOffset += nodeOffset;
+          break;
+        }
+        if (current.nodeName === 'BR') {
+          domOffset += 1;
+        } else if (current.nodeType === 3) {
+          domOffset += current.textContent.length;
+        }
+        // Skip element nodes themselves (only count their text children)
+        if (current.nodeType === 1 && current.nodeName !== 'BR') ;
+        current = walker.nextNode();
+      }
+    }
+
+    // Step 2: convert DOM offset to source offset using tokens
+    return domOffsetToSource(domOffset, mdState.tokens, mdState.cursorOffset);
+  }
+
+  // Map a flat DOM text offset to a source offset.
+  // In the rendered DOM:
+  //   - Revealed token (cursor inside): shows raw text → maps 1:1
+  //   - Rendered token: shows only content → occupies content.length in DOM
+  //     but raw.length in source
+  //   - Text tokens: map 1:1
+  function domOffsetToSource(domOffset, tokens, cursorOffset) {
+    let domPos = 0;
+    let sourcePos = 0;
+
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      // Must match render() reveal logic: cursorOffset >= start && < end
+      const isRevealed = t.type !== 'text' &&
+        cursorOffset >= t.start && cursorOffset < t.end;
+      // DOM length of this token
+      const domLen = (t.type === 'text' || isRevealed) ? t.raw.length : t.content.length;
+
+      if (domOffset < domPos + domLen) {
+        // Cursor is within this token
+        const localOffset = domOffset - domPos;
+        if (t.type === 'text' || isRevealed) {
+          return t.start + localOffset;
+        } else {
+          // Inside rendered content — map to after opening delimiter
+          const delimLen = t.raw.indexOf(t.content);
+          return t.start + delimLen + localOffset;
+        }
+      }
+
+      domPos += domLen;
+      sourcePos = t.end;
+    }
+
+    return sourcePos;
+  }
+
+  // Place cursor at a given source offset, accounting for rendered HTML
+  function placeCursorAtSourceOffset(el, sourceOffset, tokens) {
+    // Convert source offset to DOM text offset
+    const targetDOMOffset = sourceToDomOffset(sourceOffset, tokens);
+
+    // Walk all nodes (text + BR) to place the cursor
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_ALL, null);
+    let accumulated = 0;
+    let current = walker.nextNode();
+    while (current) {
+      if (current.nodeName === 'BR') {
+        if (accumulated === targetDOMOffset) {
+          // Place cursor right before the BR
+          const sel = window.getSelection();
+          const range = document.createRange();
+          const parent = current.parentNode;
+          const idx = Array.from(parent.childNodes).indexOf(current);
+          range.setStart(parent, idx + 1);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          return;
+        }
+        accumulated += 1;
+      } else if (current.nodeType === 3) {
+        const len = current.textContent.length;
+        if (accumulated + len >= targetDOMOffset) {
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.setStart(current, targetDOMOffset - accumulated);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          return;
+        }
+        accumulated += len;
+      }
+      current = walker.nextNode();
+    }
+
+    // Fallback: place at end
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  // Convert source offset to the flat DOM text offset.
+  // The render was done with `sourceOffset` as the cursorOffset,
+  // so the token containing sourceOffset is revealed (shown raw in DOM).
+  // Must match the render function's reveal logic: cursorOffset >= start && < end.
+  function sourceToDomOffset(sourceOffset, tokens) {
+    let domOffset = 0;
+
+    for (const t of tokens) {
+      // Is this token revealed? Must match render() logic exactly.
+      const isRevealed = t.type !== 'text' &&
+        sourceOffset >= t.start && sourceOffset < t.end;
+
+      if (sourceOffset >= t.start && sourceOffset < t.end) {
+        // Cursor is within this token — add local offset
+        domOffset += (sourceOffset - t.start);
+        return domOffset;
+      }
+
+      // Past this token — add its full DOM contribution
+      const domLen = (t.type === 'text' || isRevealed) ? t.raw.length : t.content.length;
+      domOffset += domLen;
+    }
+
+    return domOffset;
+  }
+
+  // --- Source mutation from InputEvent ------------------------------------------
+
+  function applyInputToSource(state, inputType, data, cursorOffset, event, selLength = 0) {
+    const src = state.source;
+    // End of selection range — for insert operations, selected text gets replaced
+    const selEnd = cursorOffset + selLength;
+
+    switch (inputType) {
+      case 'insertText':
+        state.source = src.slice(0, cursorOffset) + (data || '') + src.slice(selEnd);
+        state.cursorOffset = cursorOffset + (data || '').length;
+        break;
+      case 'insertParagraph':
+      case 'insertLineBreak':
+        state.source = src.slice(0, cursorOffset) + '\n' + src.slice(selEnd);
+        state.cursorOffset = cursorOffset + 1;
+        break;
+      case 'deleteContentBackward':
+        if (selLength > 0) {
+          state.source = src.slice(0, cursorOffset) + src.slice(selEnd);
+          state.cursorOffset = cursorOffset;
+        } else if (cursorOffset > 0) {
+          state.source = src.slice(0, cursorOffset - 1) + src.slice(cursorOffset);
+          state.cursorOffset = cursorOffset - 1;
+        }
+        break;
+      case 'deleteContentForward':
+        if (selLength > 0) {
+          state.source = src.slice(0, cursorOffset) + src.slice(selEnd);
+          state.cursorOffset = cursorOffset;
+        } else if (cursorOffset < src.length) {
+          state.source = src.slice(0, cursorOffset) + src.slice(cursorOffset + 1);
+          state.cursorOffset = cursorOffset;
+        }
+        break;
+      case 'deleteWordBackward': {
+        if (selLength > 0) {
+          state.source = src.slice(0, cursorOffset) + src.slice(selEnd);
+          state.cursorOffset = cursorOffset;
+        } else {
+          let pos = cursorOffset - 1;
+          while (pos > 0 && src[pos - 1] === ' ') pos--;
+          while (pos > 0 && src[pos - 1] !== ' ') pos--;
+          state.source = src.slice(0, pos) + src.slice(cursorOffset);
+          state.cursorOffset = pos;
+        }
+        break;
+      }
+      case 'deleteWordForward': {
+        if (selLength > 0) {
+          state.source = src.slice(0, cursorOffset) + src.slice(selEnd);
+          state.cursorOffset = cursorOffset;
+        } else {
+          let pos = cursorOffset;
+          while (pos < src.length && src[pos] !== ' ') pos++;
+          while (pos < src.length && src[pos] === ' ') pos++;
+          state.source = src.slice(0, cursorOffset) + src.slice(pos);
+          state.cursorOffset = cursorOffset;
+        }
+        break;
+      }
+      case 'insertFromPaste':
+      case 'insertFromDrop': {
+        const text = event && event.dataTransfer
+          ? event.dataTransfer.getData('text/plain')
+          : (data || '');
+        state.source = src.slice(0, cursorOffset) + text + src.slice(selEnd);
+        state.cursorOffset = cursorOffset + text.length;
+        break;
+      }
+      case 'deleteByCut': {
+        // For cut with selection, we need the selection bounds.
+        // The cursorOffset represents the start; we estimate end from
+        // the selected text length via the event's target ranges.
+        const sel = window.getSelection();
+        if (sel.rangeCount && !sel.isCollapsed) {
+          const selText = sel.toString();
+          // Find the selection in source near the cursor
+          const idx = src.indexOf(selText, Math.max(0, cursorOffset - selText.length));
+          if (idx !== -1) {
+            state.source = src.slice(0, idx) + src.slice(idx + selText.length);
+            state.cursorOffset = idx;
+            break;
+          }
+        }
+        state.cursorOffset = cursorOffset;
+        break;
+      }
+      case 'historyUndo':
+      case 'historyRedo':
+        // Let browser handle or ignore — we don't support undo yet
+        state.cursorOffset = cursorOffset;
+        break;
+      default:
+        state.cursorOffset = cursorOffset;
+        break;
+    }
+  }
+
+  /**
    * Settings panel — full-screen modal with tabbed sections.
    *
    * Tabs: General | Tools | Plugins | About
@@ -693,6 +1156,7 @@
     { id: 'dock', label: 'Edge snap', category: 'general', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
     { id: 'canvas-zoom', label: 'Canvas zoom & pan', category: 'general', description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.', default: true },
     { id: 'dblclick-edit', label: 'Double-click to edit text', category: 'general', description: 'Double-click a text element in Select mode to edit it inline.', default: true },
+    { id: 'markdown-edit', label: 'Markdown editing', category: 'general', description: 'Live Markdown preview when editing text (bold, italic, strike, code, links).', default: false },
     { id: 'element-labels', label: 'Element labels', category: 'general', description: 'Show tag name labels above hovered and selected elements.', default: true },
     { id: 'kidpix-clear', label: 'Kid Pix clear', category: 'general', description: 'Dramatic animated screen wipe when clearing all changes (Shift+Esc).', default: false },
     // Tools
@@ -772,19 +1236,32 @@
   }
 
   let _refreshHint = null;
-  function showRefreshHint(container) {
+  function showRefreshHint() {
     if (_refreshHint) return;
-    _refreshHint = el('div', {
-      marginTop: '16px', padding: '8px 12px',
-      background: 'rgba(255,255,255,0.06)',
-      border: '1px solid rgba(255,255,255,0.1)',
-      borderRadius: '6px', fontSize: '11px', color: '#aaa', textAlign: 'center',
-    }, 'Refresh page for changes to take effect');
-    container.appendChild(_refreshHint);
+    _refreshHint = document.createElement('button');
+    _refreshHint.type = 'button';
+    Object.assign(_refreshHint.style, {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+      width: '100%', padding: '8px 12px', marginBottom: '14px',
+      background: 'rgba(251,191,36,0.12)',
+      border: '1px solid rgba(251,191,36,0.3)',
+      borderRadius: '6px', fontSize: '11px', color: '#fbbf24',
+      cursor: 'pointer', transition: 'background 0.1s',
+      fontFamily: 'inherit',
+    });
+    _refreshHint.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>Refresh page for changes to take effect';
+    _refreshHint.addEventListener('mouseenter', () => { _refreshHint.style.background = 'rgba(251,191,36,0.2)'; });
+    _refreshHint.addEventListener('mouseleave', () => { _refreshHint.style.background = 'rgba(251,191,36,0.12)'; });
+    _refreshHint.addEventListener('click', () => { location.reload(); });
+    // Insert at top of card, after header
+    const card = _popover && _popover.firstElementChild;
+    if (card && card.children[1]) {
+      card.insertBefore(_refreshHint, card.children[1]);
+    }
   }
 
   // --- Experiment toggle row (reused across tabs) ---
-  function buildExperimentRow(exp, hintContainer) {
+  function buildExperimentRow(exp) {
     const wrap = el('div', { marginBottom: '10px' });
 
     // noToggle: just show label + options, no checkbox
@@ -835,7 +1312,7 @@
     checkbox.addEventListener('change', () => {
       setExperiment(exp.id, checkbox.checked);
       if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
-      showRefreshHint(hintContainer);
+      showRefreshHint();
     });
 
     return wrap;
@@ -889,7 +1366,7 @@
     }, 'Behavior'));
 
     EXPERIMENT_DEFS.filter(e => e.category === 'general').forEach(exp => {
-      container.appendChild(buildExperimentRow(exp, container));
+      container.appendChild(buildExperimentRow(exp));
     });
   }
 
@@ -900,7 +1377,7 @@
     }, 'Additional tools that add new capabilities to the toolbar.'));
 
     EXPERIMENT_DEFS.filter(e => e.category === 'tools').forEach(exp => {
-      container.appendChild(buildExperimentRow(exp, container));
+      container.appendChild(buildExperimentRow(exp));
     });
   }
 
@@ -911,7 +1388,7 @@
     }, 'External plugins loaded alongside DOM-Tools. Enable to show their toolbar button.'));
 
     EXPERIMENT_DEFS.filter(e => e.category === 'plugins').forEach(exp => {
-      container.appendChild(buildExperimentRow(exp, container));
+      container.appendChild(buildExperimentRow(exp));
     });
   }
 
@@ -1083,9 +1560,9 @@
       zIndex: String(Z.toolbar + 1),
       background: 'rgba(0,0,0,0.55)',
       backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
-      boxSizing: 'border-box', padding: '80px 40px 40px',
+      boxSizing: 'border-box', padding: '40px',
     });
 
     const card = el('div', {
@@ -1142,6 +1619,7 @@
       inspectorUI.delete(_popover);
       _popover.remove();
       _popover = null;
+      _refreshHint = null;
       document.removeEventListener('keydown', onPopoverKeyDown, true);
     }
   }
@@ -1615,6 +2093,9 @@
     if (editingEl && (e.target === editingEl || editingEl.contains(e.target))) return;
     if (e.button !== 0) return;
 
+    // Clicking outside the editing element — force exit edit mode
+    if (editingEl) editingEl.blur();
+
     dragActive = true;
     didDrag = false;
     dragStartX = e.clientX;
@@ -1730,6 +2211,9 @@
     if (!el || !el.tagName || NON_EDITABLE_TAGS.has(el.tagName)) return;
     if (!el.textContent || !el.textContent.trim()) return;
 
+    // Already editing this element — let browser handle word-selection
+    if (el === editingEl || el.closest('[data-dt-allow-select]')) return;
+
     e.preventDefault();
     e.stopPropagation();
 
@@ -1753,10 +2237,16 @@
     el.style.cursor = 'text';
     document.documentElement.classList.add('dt-inline-editing');
 
+    const useMarkdown = isExperimentEnabled('markdown-edit');
+
+    function restoreEditStyle() {
+      el.style.outline = '2px solid ' + color;
+      el.style.backgroundColor = withAlpha(color, 0.08);
+    }
+
     // Focus, select all text, and place caret after a tick (let the bubble close first)
     setTimeout(() => {
       el.focus();
-      // Select all text so the user sees what they're editing
       const sel = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(el);
@@ -1764,22 +2254,8 @@
       sel.addRange(range);
     }, 0);
 
-    // Track text changes for copy-all output (register once on first input,
-    // then re-apply our editing outline since setElementText triggers
-    // applyAnnotationStyle which would overwrite it).
-    function onInput() {
-      setElementText(el, originalText, originalClasses);
-      // Restore editing visual — applyAnnotationStyle resets outline/bg
-      el.style.outline = '2px solid ' + color;
-      el.style.backgroundColor = withAlpha(color, 0.08);
-    }
-    el.addEventListener('input', onInput);
-
-    // Exit edit on blur or Escape
-    function exitEdit() {
-      el.removeEventListener('blur', exitEdit);
-      el.removeEventListener('keydown', onEditKey);
-      el.removeEventListener('input', onInput);
+    // Shared exit logic
+    function exitEditBase() {
       el.contentEditable = 'false';
       el.removeAttribute('data-dt-allow-select');
       el.style.cursor = '';
@@ -1788,15 +2264,177 @@
       evaluateAnnotation(el);
       applyOutline(el);
     }
+
+    if (!useMarkdown) {
+      // Plain-text editing path
+      const onInput = () => {
+        setElementText(el, originalText, originalClasses);
+        restoreEditStyle();
+      };
+      const onKeyDown = (ev) => {
+        if (ev.key === 'Escape') { ev.preventDefault(); el.blur(); }
+      };
+      el.addEventListener('input', onInput);
+      el.addEventListener('keydown', onKeyDown, true);
+      function exitEdit() {
+        el.removeEventListener('blur', exitEdit);
+        el.removeEventListener('input', onInput);
+        el.removeEventListener('keydown', onKeyDown, true);
+        exitEditBase();
+      }
+      el.addEventListener('blur', exitEdit);
+      return;
+    }
+
+    // --- Markdown editing path ---
+    const mdState = initMarkdownState(el, originalText);
+    const { html } = render(mdState.tokens, mdState.cursorOffset);
+    mdState.renderedHTML = html;
+    el.innerHTML = html;
+
+    let composing = false;
+
+    // --- beforeinput: intercept all edits ---
+    function onBeforeInput(e) {
+      if (composing) return;
+      const sel = window.getSelection();
+      const selLength = (sel.rangeCount && !sel.isCollapsed) ? sel.toString().length : 0;
+      e.preventDefault();
+
+      const cursorOffset = sourceOffsetFromDOM(el);
+      applyInputToSource(mdState, e.inputType, e.data, cursorOffset, e, selLength);
+
+      mdState.tokens = parse(mdState.source);
+      const result = render(mdState.tokens, mdState.cursorOffset);
+      if (result.html !== mdState.renderedHTML) {
+        mdState.renderedHTML = result.html;
+        el.innerHTML = result.html;
+      }
+      placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+
+      setElementText(el, originalText, originalClasses);
+      restoreEditStyle();
+    }
+
+    // --- Cursor movement re-rendering ---
+    function onCursorMove() {
+      if (composing) return;
+      if (!el.contains(document.activeElement || document.getSelection()?.anchorNode)) return;
+      const newOffset = sourceOffsetFromDOM(el);
+      if (newOffset === mdState.cursorOffset) return;
+      mdState.cursorOffset = newOffset;
+      mdState.tokens = parse(mdState.source);
+      const result = render(mdState.tokens, mdState.cursorOffset);
+      if (result.html !== mdState.renderedHTML) {
+        mdState.renderedHTML = result.html;
+        el.innerHTML = result.html;
+        placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+      }
+    }
+
+    // --- Formatting shortcuts (Cmd+B, Cmd+I, Cmd+K) ---
     function onEditKey(ev) {
       if (ev.key === 'Escape') {
         ev.preventDefault();
         ev.stopPropagation();
         el.blur();
+        return;
       }
+      if (!(ev.metaKey || ev.ctrlKey)) return;
+      let wrap = null;
+      if (ev.key === 'b') wrap = '**';
+      else if (ev.key === 'i') wrap = '*';
+      else if (ev.key === 'k') wrap = ['[', '](url)'];
+      if (!wrap) return;
+
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const src = mdState.source;
+      const cursorOffset = sourceOffsetFromDOM(el);
+      const sel = window.getSelection();
+      let selStart = cursorOffset;
+      let selEnd = cursorOffset;
+      if (sel.rangeCount && !sel.isCollapsed) {
+        const selText = sel.toString();
+        selEnd = selStart + selText.length;
+      }
+
+      if (selStart !== selEnd) {
+        const selected = src.slice(selStart, selEnd);
+        let wrapped, newCursor;
+        if (Array.isArray(wrap)) {
+          wrapped = wrap[0] + selected + wrap[1];
+          newCursor = selStart + wrap[0].length + selected.length + wrap[1].length;
+        } else {
+          wrapped = wrap + selected + wrap;
+          newCursor = selStart + wrap.length + selected.length + wrap.length;
+        }
+        mdState.source = src.slice(0, selStart) + wrapped + src.slice(selEnd);
+        mdState.cursorOffset = newCursor;
+      } else {
+        let insert, cursorInside;
+        if (Array.isArray(wrap)) {
+          insert = wrap[0] + wrap[1];
+          cursorInside = cursorOffset + wrap[0].length;
+        } else {
+          insert = wrap + wrap;
+          cursorInside = cursorOffset + wrap.length;
+        }
+        mdState.source = src.slice(0, cursorOffset) + insert + src.slice(cursorOffset);
+        mdState.cursorOffset = cursorInside;
+      }
+
+      mdState.tokens = parse(mdState.source);
+      const result = render(mdState.tokens, mdState.cursorOffset);
+      mdState.renderedHTML = result.html;
+      el.innerHTML = result.html;
+      placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+      setElementText(el, originalText, originalClasses);
+      restoreEditStyle();
+    }
+
+    // --- IME ---
+    function onCompStart() { composing = true; }
+    function onCompEnd() {
+      composing = false;
+      mdState.source = el.innerText;
+      mdState.cursorOffset = sourceOffsetFromDOM(el);
+      mdState.tokens = parse(mdState.source);
+      const result = render(mdState.tokens, mdState.cursorOffset);
+      mdState.renderedHTML = result.html;
+      el.innerHTML = result.html;
+      placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+      setElementText(el, originalText, originalClasses);
+      restoreEditStyle();
+    }
+
+    el.addEventListener('beforeinput', onBeforeInput);
+    el.addEventListener('keydown', onEditKey, true);
+    document.addEventListener('selectionchange', onCursorMove);
+    el.addEventListener('compositionstart', onCompStart);
+    el.addEventListener('compositionend', onCompEnd);
+
+    // Exit edit on blur or Escape
+    function exitEdit() {
+      el.removeEventListener('blur', exitEdit);
+      el.removeEventListener('beforeinput', onBeforeInput);
+      el.removeEventListener('keydown', onEditKey, true);
+      document.removeEventListener('selectionchange', onCursorMove);
+      el.removeEventListener('compositionstart', onCompStart);
+      el.removeEventListener('compositionend', onCompEnd);
+
+      // Final render — all tokens formatted
+      const mdFinal = getMarkdownState(el);
+      if (mdFinal) {
+        const { html: finalHtml } = render(mdFinal.tokens, -1);
+        el.innerHTML = finalHtml;
+        clearMarkdownState(el);
+      }
+
+      exitEditBase();
     }
     el.addEventListener('blur', exitEdit);
-    el.addEventListener('keydown', onEditKey);
   }
 
   // --- Module spec ---------------------------------------------------------
@@ -1980,7 +2618,7 @@
 
   function hasTextDiff(el) {
     const e = textEdits.get(el);
-    return e != null && el.innerText !== e.originalText;
+    return e != null && getCurrentText(el) !== e.originalText;
   }
 
   function findNoteAnnotationByEl(el) {
@@ -2412,7 +3050,7 @@
 
   function evaluateAnnotation(el) {
     const e = textEdits.get(el);
-    if (e && el.innerText === e.originalText && el.className === e.originalClasses) {
+    if (e && getCurrentText(el) === e.originalText && el.className === e.originalClasses) {
       textEdits.delete(el);
     }
     applyAnnotationStyle(el);
@@ -2427,7 +3065,7 @@
       if (!a.transient && a.note && a.note.trim()) count++;
     });
     textEdits.forEach((e, el) => {
-      if (el.innerText !== e.originalText || el.className !== e.originalClasses) count++;
+      if (getCurrentText(el) !== e.originalText || el.className !== e.originalClasses) count++;
     });
     updateCopyBadge(count);
   }
@@ -2438,7 +3076,7 @@
       if (!a.transient && a.note && a.note.trim()) count++;
     });
     textEdits.forEach((e, el) => {
-      if (el.innerText !== e.originalText || el.className !== e.originalClasses) count++;
+      if (getCurrentText(el) !== e.originalText || el.className !== e.originalClasses) count++;
     });
     return count > 0;
   }
@@ -2456,7 +3094,7 @@
       });
     });
     textEdits.forEach((e, el) => {
-      if (el.innerText === e.originalText && el.className === e.originalClasses) return;
+      if (getCurrentText(el) === e.originalText && el.className === e.originalClasses) return;
       // Skip structural containers (canvas wrapper) — only track leaf edits
       if (el.id === 'dt-canvas-wrapper') return;
       items.push({
@@ -2581,7 +3219,7 @@
         if (!overlaps([item.el])) return;
         const el = item.el;
         const before = item.originalText;
-        const after = el.innerText;
+        const after = getCurrentText(el);
         const textChanged = after !== before;
         const { added, removed } = classDiff(el.className, item.originalClasses);
         const classesChanged = added.length || removed.length;
@@ -3992,6 +4630,8 @@
 
   // --- Editable lifecycle ----------------------------------------------------
 
+  let composing = false;
+
   function makeEditable(el) {
     if (editableEls.has(el)) return;
     editableEls.add(el);
@@ -4011,13 +4651,166 @@
 
     const originalText = el.innerText;
     const originalClasses = el.className;
-    const handler = () => {
+    const useMarkdown = isExperimentEnabled('markdown-edit');
+
+    if (!useMarkdown) {
+      // Plain-text editing — let browser handle contentEditable natively
+      const onInput = () => {
+        setElementText(el, originalText, originalClasses);
+        evaluateAnnotation(el);
+        queueRepositionAll();
+      };
+      el.addEventListener('input', onInput);
+      inputHandlers.set(el, { onInput });
+      return;
+    }
+
+    const mdState = initMarkdownState(el, originalText);
+
+    // Initial render (plain text → no markdown yet, so renders unchanged)
+    const { html } = render(mdState.tokens, mdState.cursorOffset);
+    mdState.renderedHTML = html;
+    el.innerHTML = html;
+
+    // --- beforeinput: intercept all edits ---
+    const onBeforeInput = (e) => {
+      if (composing) return; // Let IME compose freely
+
+      // Read selection length BEFORE preventing default (selection still intact)
+      const sel = window.getSelection();
+      const selLength = (sel.rangeCount && !sel.isCollapsed) ? sel.toString().length : 0;
+
+      e.preventDefault();
+
+      const cursorOffset = sourceOffsetFromDOM(el);
+      applyInputToSource(mdState, e.inputType, e.data, cursorOffset, e, selLength);
+
+      mdState.tokens = parse(mdState.source);
+      const result = render(mdState.tokens, mdState.cursorOffset);
+      if (result.html !== mdState.renderedHTML) {
+        mdState.renderedHTML = result.html;
+        el.innerHTML = result.html;
+      }
+      placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+
       setElementText(el, originalText, originalClasses);
       evaluateAnnotation(el);
       queueRepositionAll();
     };
-    el.addEventListener('input', handler);
-    inputHandlers.set(el, handler);
+
+    // --- Cursor movement re-rendering ---
+    const onCursorMove = () => {
+      if (composing) return;
+      if (!el.contains(document.activeElement || document.getSelection()?.anchorNode)) return;
+      const newOffset = sourceOffsetFromDOM(el);
+      if (newOffset === mdState.cursorOffset) return;
+      mdState.cursorOffset = newOffset;
+      mdState.tokens = parse(mdState.source);
+      const result = render(mdState.tokens, mdState.cursorOffset);
+      if (result.html !== mdState.renderedHTML) {
+        mdState.renderedHTML = result.html;
+        el.innerHTML = result.html;
+        placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+      }
+    };
+
+    // --- IME composition ---
+    const onCompStart = () => { composing = true; };
+    const onCompEnd = () => {
+      composing = false;
+      // After composition, sync from DOM
+      mdState.source = el.innerText;
+      mdState.cursorOffset = sourceOffsetFromDOM(el);
+      mdState.tokens = parse(mdState.source);
+      const result = render(mdState.tokens, mdState.cursorOffset);
+      mdState.renderedHTML = result.html;
+      el.innerHTML = result.html;
+      placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+      setElementText(el, originalText, originalClasses);
+      evaluateAnnotation(el);
+      queueRepositionAll();
+    };
+
+    // --- Formatting shortcuts (Cmd+B, Cmd+I, Cmd+K) ---
+    const onKeyDown = (e) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      let wrap = null;
+      if (e.key === 'b') wrap = '**';
+      else if (e.key === 'i') wrap = '*';
+      else if (e.key === 'k') wrap = ['[', '](url)'];
+      if (!wrap) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const src = mdState.source;
+      const cursorOffset = sourceOffsetFromDOM(el);
+
+      // Check for text selection
+      const sel = window.getSelection();
+      let selStart = cursorOffset;
+      let selEnd = cursorOffset;
+      if (sel.rangeCount && !sel.isCollapsed) {
+        // Get selection bounds in source coordinates
+        const range = sel.getRangeAt(0);
+        const savedStart = range.startContainer;
+        const savedStartOff = range.startOffset;
+        // Temporarily collapse to start to read start offset
+        sel.collapseToStart();
+        selStart = sourceOffsetFromDOM(el);
+        // Restore and collapse to end
+        sel.collapse(savedStart, savedStartOff);
+        sel.extend(range.endContainer, range.endOffset);
+        sel.collapseToEnd();
+        selEnd = sourceOffsetFromDOM(el);
+        if (selStart > selEnd) [selStart, selEnd] = [selEnd, selStart];
+      }
+
+      if (selStart !== selEnd) {
+        // Wrap selection
+        const selected = src.slice(selStart, selEnd);
+        let wrapped, newCursor;
+        if (Array.isArray(wrap)) {
+          wrapped = wrap[0] + selected + wrap[1];
+          newCursor = selStart + wrap[0].length + selected.length + wrap[1].length;
+        } else {
+          wrapped = wrap + selected + wrap;
+          newCursor = selStart + wrap.length + selected.length + wrap.length;
+        }
+        mdState.source = src.slice(0, selStart) + wrapped + src.slice(selEnd);
+        mdState.cursorOffset = newCursor;
+      } else {
+        // No selection — insert empty delimiters and place cursor inside
+        let insert, cursorInside;
+        if (Array.isArray(wrap)) {
+          insert = wrap[0] + wrap[1];
+          cursorInside = cursorOffset + wrap[0].length;
+        } else {
+          insert = wrap + wrap;
+          cursorInside = cursorOffset + wrap.length;
+        }
+        mdState.source = src.slice(0, cursorOffset) + insert + src.slice(cursorOffset);
+        mdState.cursorOffset = cursorInside;
+      }
+
+      mdState.tokens = parse(mdState.source);
+      const result = render(mdState.tokens, mdState.cursorOffset);
+      mdState.renderedHTML = result.html;
+      el.innerHTML = result.html;
+      placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+
+      setElementText(el, originalText, originalClasses);
+      evaluateAnnotation(el);
+      queueRepositionAll();
+    };
+
+    el.addEventListener('beforeinput', onBeforeInput);
+    el.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('selectionchange', onCursorMove);
+    el.addEventListener('compositionstart', onCompStart);
+    el.addEventListener('compositionend', onCompEnd);
+
+    inputHandlers.set(el, { onBeforeInput, onKeyDown, onCursorMove, onCompStart, onCompEnd });
   }
 
   function unmakeEditable(el) {
@@ -4027,18 +4820,38 @@
     el.style.cursor = '';
     el.style.outline = '';
     el.style.outlineOffset = '';
-    const h = inputHandlers.get(el);
-    if (h) {
-      el.removeEventListener('input', h);
+
+    const handlers = inputHandlers.get(el);
+    if (handlers) {
+      if (handlers.onInput) {
+        // Plain-text path
+        el.removeEventListener('input', handlers.onInput);
+      } else {
+        // Markdown path
+        el.removeEventListener('beforeinput', handlers.onBeforeInput);
+        el.removeEventListener('keydown', handlers.onKeyDown, true);
+        document.removeEventListener('selectionchange', handlers.onCursorMove);
+        el.removeEventListener('compositionstart', handlers.onCompStart);
+        el.removeEventListener('compositionend', handlers.onCompEnd);
+      }
       inputHandlers.delete(el);
     }
+
+    // Final render: all tokens formatted (cursor outside all tokens)
+    const mdState = getMarkdownState(el);
+    if (mdState) {
+      const { html } = render(mdState.tokens, -1);
+      el.innerHTML = html;
+      clearMarkdownState(el);
+    }
+
     editableEls.delete(el);
     applyAnnotationStyle(el);
   }
 
   // --- Click handler ---------------------------------------------------------
 
-  function onClick$1(e) {
+  function onClick(e) {
     if (!activeMode) return;
     const el = e.target;
     if (isInspectorUI(el) || !isTextElement(el)) return;
@@ -4074,7 +4887,7 @@
     shortcuts: [],
 
     init() {
-      document.addEventListener('click', onClick$1, true);
+      document.addEventListener('click', onClick, true);
       document.addEventListener('mousemove', onMove, true);
     },
 
