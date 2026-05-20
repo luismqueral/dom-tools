@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T01:33:08.176Z
+ * Built: 2026-05-15T03:33:42.504Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -1083,9 +1083,9 @@
       zIndex: String(Z.toolbar + 1),
       background: 'rgba(0,0,0,0.55)',
       backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
       fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
-      boxSizing: 'border-box', padding: '40px',
+      boxSizing: 'border-box', padding: '80px 40px 40px',
     });
 
     const card = el('div', {
@@ -4038,7 +4038,7 @@
 
   // --- Click handler ---------------------------------------------------------
 
-  function onClick(e) {
+  function onClick$1(e) {
     if (!activeMode) return;
     const el = e.target;
     if (isInspectorUI(el) || !isTextElement(el)) return;
@@ -4074,7 +4074,7 @@
     shortcuts: [],
 
     init() {
-      document.addEventListener('click', onClick, true);
+      document.addEventListener('click', onClick$1, true);
       document.addEventListener('mousemove', onMove, true);
     },
 
@@ -5337,7 +5337,6 @@
       const canvasBg = computeCanvasBg(originalDocBg);
       document.body.style.background = canvasBg;
       document.documentElement.style.background = canvasBg;
-      showArtboardLabel();
     } else {
       document.body.style.background = '';
       document.documentElement.style.background = '';
@@ -5345,45 +5344,8 @@
       wrapper.style.borderRadius = '';
       wrapper.style.boxShadow = '';
       delete wrapper.dataset.dtBgSet;
-      hideArtboardLabel();
     }
     showZoomLevel();
-  }
-
-  // --- Artboard label (page title shown above wrapper when zoomed out) ---
-  let artboardLabel = null;
-
-  function ensureArtboardLabel() {
-    if (artboardLabel) return;
-    artboardLabel = document.createElement('div');
-    artboardLabel.setAttribute('data-dt-artboard-label', '');
-    Object.assign(artboardLabel.style, {
-      position: 'absolute',
-      top: '-40px',
-      left: '0',
-      fontSize: '12px',
-      fontWeight: '500',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      color: '#6b7280',
-      whiteSpace: 'nowrap',
-      pointerEvents: 'none',
-      userSelect: 'none',
-      WebkitUserSelect: 'none',
-    });
-    artboardLabel.textContent = document.title || window.location.hostname;
-    wrapper.style.position = 'relative';
-    wrapper.appendChild(artboardLabel);
-    inspectorUI.add(artboardLabel);
-  }
-
-  function showArtboardLabel() {
-    if (!wrapper) return;
-    ensureArtboardLabel();
-    artboardLabel.style.display = '';
-  }
-
-  function hideArtboardLabel() {
-    if (artboardLabel) artboardLabel.style.display = 'none';
   }
 
   function resetTransform() {
@@ -5399,7 +5361,6 @@
     }
     document.body.style.background = '';
     document.documentElement.style.background = '';
-    hideArtboardLabel();
     updateMinimap();
     showZoomLevel();
   }

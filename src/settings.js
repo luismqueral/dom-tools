@@ -451,9 +451,9 @@ function showPopover() {
     zIndex: String(Z.toolbar + 1),
     background: 'rgba(0,0,0,0.55)',
     backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
     fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
-    boxSizing: 'border-box', padding: '40px',
+    boxSizing: 'border-box', padding: '80px 40px 40px',
   });
 
   const card = el('div', {
