@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T14:13:11.073Z
+ * Built: 2026-05-20T14:16:50.734Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -1560,9 +1560,9 @@
       zIndex: String(Z.toolbar + 1),
       background: 'rgba(0,0,0,0.55)',
       backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
       fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
-      boxSizing: 'border-box', padding: '40px',
+      boxSizing: 'border-box', padding: '80px 40px 40px',
     });
 
     const card = el('div', {
@@ -1743,11 +1743,21 @@
     const style = document.createElement('style');
     style.id = 'dt-comment-styles';
     style.textContent = `
+    html.dt-comment-active,
     html.dt-comment-active body,
     html.dt-comment-active body *:not(${inspectorUiSelector}) {
       user-select: none !important;
       -webkit-user-select: none !important;
-      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'%3E%3Cg transform='translate(24,0) scale(-1,1)'%3E%3Cpath d='M3.41345 10.7445C2.81811 10.513 2.52043 10.3972 2.43353 10.2304C2.35819 10.0858 2.35809 9.91354 2.43326 9.76886C2.51997 9.60195 2.8175 9.48584 3.41258 9.25361L20.3003 2.66327C20.8375 2.45364 21.1061 2.34883 21.2777 2.40616C21.4268 2.45596 21.5437 2.57292 21.5935 2.72197C21.6509 2.8936 21.5461 3.16219 21.3364 3.69937L14.7461 20.5871C14.5139 21.1822 14.3977 21.4797 14.2308 21.5664C14.0862 21.6416 13.9139 21.6415 13.7693 21.5662C13.6025 21.4793 13.4867 21.1816 13.2552 20.5862L10.6271 13.8282C10.5801 13.7074 10.5566 13.647 10.5203 13.5961C10.4881 13.551 10.4487 13.5115 10.4036 13.4794C10.3527 13.4431 10.2923 13.4196 10.1715 13.3726L3.41345 10.7445Z' fill='%23000' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E") 19 1, default !important;
+      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'%3E%3Cdefs%3E%3Cfilter id='s' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeDropShadow dx='0' dy='1' stdDeviation='0.5' flood-opacity='0.3'/%3E%3C/filter%3E%3C/defs%3E%3Cg transform='translate(24,0) scale(-1,1)' filter='url(%23s)'%3E%3Cpath d='M3.41345 10.7445C2.81811 10.513 2.52043 10.3972 2.43353 10.2304C2.35819 10.0858 2.35809 9.91354 2.43326 9.76886C2.51997 9.60195 2.8175 9.48584 3.41258 9.25361L20.3003 2.66327C20.8375 2.45364 21.1061 2.34883 21.2777 2.40616C21.4268 2.45596 21.5437 2.57292 21.5935 2.72197C21.6509 2.8936 21.5461 3.16219 21.3364 3.69937L14.7461 20.5871C14.5139 21.1822 14.3977 21.4797 14.2308 21.5664C14.0862 21.6416 13.9139 21.6415 13.7693 21.5662C13.6025 21.4793 13.4867 21.1816 13.2552 20.5862L10.6271 13.8282C10.5801 13.7074 10.5566 13.647 10.5203 13.5961C10.4881 13.551 10.4487 13.5115 10.4036 13.4794C10.3527 13.4431 10.2923 13.4196 10.1715 13.3726L3.41345 10.7445Z' fill='%23000' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E") 19 1, default !important;
+    }
+    @supports (-webkit-appearance: none) and (not (-moz-appearance: none)) {
+      @supports (-webkit-hyphens: none) {
+        html.dt-comment-active,
+        html.dt-comment-active body,
+        html.dt-comment-active body *:not(${inspectorUiSelector}) {
+          cursor: default !important;
+        }
+      }
     }
     html.dt-comment-active [data-dt-allow-select],
     html.dt-comment-active [data-dt-allow-select] * {
@@ -1766,6 +1776,9 @@
     }
     html.dt-comment-active [data-dt-bubble] [aria-label="Drag to move"] {
       cursor: grab !important;
+    }
+    html.dt-comment-active [data-dt-bubble] [data-dt-close] {
+      cursor: pointer !important;
     }
     html.dt-bubble-dragging,
     html.dt-bubble-dragging *,
@@ -2739,8 +2752,36 @@
       if (e.key === ' ' && e.repeat) e.preventDefault();
     });
 
+    // Close button
+    const closeBtn = document.createElement('div');
+    closeBtn.setAttribute('data-dt-close', '');
+    closeBtn.textContent = '\u00d7';
+    Object.assign(closeBtn.style, {
+      flex: '0 0 auto',
+      width: '16px',
+      height: '16px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'pointer',
+      fontSize: '13px',
+      fontFamily: 'system-ui, sans-serif',
+      color: 'rgba(255,255,255,0.6)',
+      borderRadius: '2px',
+      lineHeight: '1',
+      marginRight: '-3px',
+    });
+    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(255,255,255,0.2)'; closeBtn.style.color = '#fff'; });
+    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = ''; closeBtn.style.color = 'rgba(255,255,255,0.6)'; });
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeNoteAnnotation(annotation);
+      clearSelection();
+    });
+
     bubble.appendChild(handle);
     bubble.appendChild(ta);
+    bubble.appendChild(closeBtn);
     bubble._textarea = ta;
     bubble._handle = handle;
     bubble._autoGrow = autoGrow;
@@ -6150,6 +6191,7 @@
       const canvasBg = computeCanvasBg(originalDocBg);
       document.body.style.background = canvasBg;
       document.documentElement.style.background = canvasBg;
+      showArtboardLabel();
     } else {
       document.body.style.background = '';
       document.documentElement.style.background = '';
@@ -6157,8 +6199,45 @@
       wrapper.style.borderRadius = '';
       wrapper.style.boxShadow = '';
       delete wrapper.dataset.dtBgSet;
+      hideArtboardLabel();
     }
     showZoomLevel();
+  }
+
+  // --- Artboard label (page title shown above wrapper when zoomed out) ---
+  let artboardLabel = null;
+
+  function ensureArtboardLabel() {
+    if (artboardLabel) return;
+    artboardLabel = document.createElement('div');
+    artboardLabel.setAttribute('data-dt-artboard-label', '');
+    Object.assign(artboardLabel.style, {
+      position: 'absolute',
+      top: '-40px',
+      left: '0',
+      fontSize: '12px',
+      fontWeight: '500',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      color: '#6b7280',
+      whiteSpace: 'nowrap',
+      pointerEvents: 'none',
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
+    });
+    artboardLabel.textContent = document.title || window.location.hostname;
+    wrapper.style.position = 'relative';
+    wrapper.appendChild(artboardLabel);
+    inspectorUI.add(artboardLabel);
+  }
+
+  function showArtboardLabel() {
+    if (!wrapper) return;
+    ensureArtboardLabel();
+    artboardLabel.style.display = '';
+  }
+
+  function hideArtboardLabel() {
+    if (artboardLabel) artboardLabel.style.display = 'none';
   }
 
   function resetTransform() {
@@ -6174,6 +6253,7 @@
     }
     document.body.style.background = '';
     document.documentElement.style.background = '';
+    hideArtboardLabel();
     updateMinimap();
     showZoomLevel();
   }
