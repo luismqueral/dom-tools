@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T13:55:19.824Z
+ * Built: 2026-05-20T13:57:32.237Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -2264,6 +2264,7 @@
     // --- Cursor movement re-rendering ---
     function onCursorMove() {
       if (composing) return;
+      if (!el.contains(document.activeElement || document.getSelection()?.anchorNode)) return;
       const newOffset = sourceOffsetFromDOM(el);
       if (newOffset === mdState.cursorOffset) return;
       mdState.cursorOffset = newOffset;
@@ -2355,8 +2356,7 @@
 
     el.addEventListener('beforeinput', onBeforeInput);
     el.addEventListener('keydown', onEditKey, true);
-    el.addEventListener('keyup', onCursorMove);
-    el.addEventListener('mouseup', onCursorMove);
+    document.addEventListener('selectionchange', onCursorMove);
     el.addEventListener('compositionstart', onCompStart);
     el.addEventListener('compositionend', onCompEnd);
 
@@ -2365,8 +2365,7 @@
       el.removeEventListener('blur', exitEdit);
       el.removeEventListener('beforeinput', onBeforeInput);
       el.removeEventListener('keydown', onEditKey, true);
-      el.removeEventListener('keyup', onCursorMove);
-      el.removeEventListener('mouseup', onCursorMove);
+      document.removeEventListener('selectionchange', onCursorMove);
       el.removeEventListener('compositionstart', onCompStart);
       el.removeEventListener('compositionend', onCompEnd);
       el.contentEditable = 'false';
@@ -4639,6 +4638,7 @@
     // --- Cursor movement re-rendering ---
     const onCursorMove = () => {
       if (composing) return;
+      if (!el.contains(document.activeElement || document.getSelection()?.anchorNode)) return;
       const newOffset = sourceOffsetFromDOM(el);
       if (newOffset === mdState.cursorOffset) return;
       mdState.cursorOffset = newOffset;
@@ -4743,8 +4743,7 @@
 
     el.addEventListener('beforeinput', onBeforeInput);
     el.addEventListener('keydown', onKeyDown, true);
-    el.addEventListener('keyup', onCursorMove);
-    el.addEventListener('mouseup', onCursorMove);
+    document.addEventListener('selectionchange', onCursorMove);
     el.addEventListener('compositionstart', onCompStart);
     el.addEventListener('compositionend', onCompEnd);
 
@@ -4763,8 +4762,7 @@
     if (handlers) {
       el.removeEventListener('beforeinput', handlers.onBeforeInput);
       el.removeEventListener('keydown', handlers.onKeyDown, true);
-      el.removeEventListener('keyup', handlers.onCursorMove);
-      el.removeEventListener('mouseup', handlers.onCursorMove);
+      document.removeEventListener('selectionchange', handlers.onCursorMove);
       el.removeEventListener('compositionstart', handlers.onCompStart);
       el.removeEventListener('compositionend', handlers.onCompEnd);
       inputHandlers.delete(el);

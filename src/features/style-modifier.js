@@ -596,6 +596,7 @@ function onDblClick(e) {
   // --- Cursor movement re-rendering ---
   function onCursorMove() {
     if (composing) return;
+    if (!el.contains(document.activeElement || document.getSelection()?.anchorNode)) return;
     const newOffset = sourceOffsetFromDOM(el);
     if (newOffset === mdState.cursorOffset) return;
     mdState.cursorOffset = newOffset;
@@ -687,8 +688,7 @@ function onDblClick(e) {
 
   el.addEventListener('beforeinput', onBeforeInput);
   el.addEventListener('keydown', onEditKey, true);
-  el.addEventListener('keyup', onCursorMove);
-  el.addEventListener('mouseup', onCursorMove);
+  document.addEventListener('selectionchange', onCursorMove);
   el.addEventListener('compositionstart', onCompStart);
   el.addEventListener('compositionend', onCompEnd);
 
@@ -697,8 +697,7 @@ function onDblClick(e) {
     el.removeEventListener('blur', exitEdit);
     el.removeEventListener('beforeinput', onBeforeInput);
     el.removeEventListener('keydown', onEditKey, true);
-    el.removeEventListener('keyup', onCursorMove);
-    el.removeEventListener('mouseup', onCursorMove);
+    document.removeEventListener('selectionchange', onCursorMove);
     el.removeEventListener('compositionstart', onCompStart);
     el.removeEventListener('compositionend', onCompEnd);
     el.contentEditable = 'false';

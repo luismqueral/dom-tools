@@ -222,6 +222,7 @@ function makeEditable(el) {
   // --- Cursor movement re-rendering ---
   const onCursorMove = () => {
     if (composing) return;
+    if (!el.contains(document.activeElement || document.getSelection()?.anchorNode)) return;
     const newOffset = sourceOffsetFromDOM(el);
     if (newOffset === mdState.cursorOffset) return;
     mdState.cursorOffset = newOffset;
@@ -326,8 +327,7 @@ function makeEditable(el) {
 
   el.addEventListener('beforeinput', onBeforeInput);
   el.addEventListener('keydown', onKeyDown, true);
-  el.addEventListener('keyup', onCursorMove);
-  el.addEventListener('mouseup', onCursorMove);
+  document.addEventListener('selectionchange', onCursorMove);
   el.addEventListener('compositionstart', onCompStart);
   el.addEventListener('compositionend', onCompEnd);
 
@@ -346,8 +346,7 @@ function unmakeEditable(el) {
   if (handlers) {
     el.removeEventListener('beforeinput', handlers.onBeforeInput);
     el.removeEventListener('keydown', handlers.onKeyDown, true);
-    el.removeEventListener('keyup', handlers.onCursorMove);
-    el.removeEventListener('mouseup', handlers.onCursorMove);
+    document.removeEventListener('selectionchange', handlers.onCursorMove);
     el.removeEventListener('compositionstart', handlers.onCompStart);
     el.removeEventListener('compositionend', handlers.onCompEnd);
     inputHandlers.delete(el);
