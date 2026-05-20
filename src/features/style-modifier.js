@@ -410,6 +410,9 @@ function onMouseDown(e) {
   if (editingEl && (e.target === editingEl || editingEl.contains(e.target))) return;
   if (e.button !== 0) return;
 
+  // Clicking outside the editing element — force exit edit mode
+  if (editingEl) editingEl.blur();
+
   dragActive = true;
   didDrag = false;
   dragStartX = e.clientX;

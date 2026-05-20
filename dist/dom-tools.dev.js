@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T13:59:39.828Z
+ * Built: 2026-05-20T14:01:52.748Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -2077,6 +2077,9 @@
     if (isInspectorUI(e.target)) return;
     if (editingEl && (e.target === editingEl || editingEl.contains(e.target))) return;
     if (e.button !== 0) return;
+
+    // Clicking outside the editing element — force exit edit mode
+    if (editingEl) editingEl.blur();
 
     dragActive = true;
     didDrag = false;
