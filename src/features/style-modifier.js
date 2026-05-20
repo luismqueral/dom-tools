@@ -18,6 +18,11 @@ import { activateModule } from '../core/registry.js';
 import { isExperimentEnabled } from '../settings.js';
 import { getSelectionColor, withAlpha, onColorChange } from '../core/theme.js';
 import { ensurePlexMono } from '../core/fonts.js';
+import {
+  initMarkdownState, getMarkdownState, clearMarkdownState,
+  parse, render, sourceOffsetFromDOM, placeCursorAtSourceOffset,
+  applyInputToSource,
+} from './markdown-live.js';
 // NOTE: circular import with annotations.js is intentional and safe — both
 // only call each other from runtime event handlers, never at module eval.
 import {
@@ -543,10 +548,22 @@ function onDblClick(e) {
   el.style.cursor = 'text';
   document.documentElement.classList.add('dt-inline-editing');
 
+  // Initialize markdown live state
+  const mdState = initMarkdownState(el, originalText);
+  const { html } = render(mdState.tokens, mdState.cursorOffset);
+  mdState.renderedHTML = html;
+  el.innerHTML = html;
+
+  let composing = false;
+
+  function restoreEditStyle() {
+    el.style.outline = '2px solid ' + color;
+    el.style.backgroundColor = withAlpha(color, 0.08);
+  }
+
   // Focus, select all text, and place caret after a tick (let the bubble close first)
   setTimeout(() => {
     el.focus();
-    // Select all text so the user sees what they're editing
     const sel = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -554,39 +571,154 @@ function onDblClick(e) {
     sel.addRange(range);
   }, 0);
 
-  // Track text changes for copy-all output (register once on first input,
-  // then re-apply our editing outline since setElementText triggers
-  // applyAnnotationStyle which would overwrite it).
-  function onInput() {
-    setElementText(el, originalText, originalClasses);
-    // Restore editing visual — applyAnnotationStyle resets outline/bg
-    el.style.outline = '2px solid ' + color;
-    el.style.backgroundColor = withAlpha(color, 0.08);
-  }
-  el.addEventListener('input', onInput);
+  // --- beforeinput: intercept all edits ---
+  function onBeforeInput(e) {
+    if (composing) return;
+    const sel = window.getSelection();
+    const selLength = (sel.rangeCount && !sel.isCollapsed) ? sel.toString().length : 0;
+    e.preventDefault();
 
-  // Exit edit on blur or Escape
-  function exitEdit() {
-    el.removeEventListener('blur', exitEdit);
-    el.removeEventListener('keydown', onEditKey);
-    el.removeEventListener('input', onInput);
-    el.contentEditable = 'false';
-    el.removeAttribute('data-dt-allow-select');
-    el.style.cursor = '';
-    document.documentElement.classList.remove('dt-inline-editing');
-    editingEl = null;
-    evaluateAnnotation(el);
-    applyOutline(el);
+    const cursorOffset = sourceOffsetFromDOM(el);
+    applyInputToSource(mdState, e.inputType, e.data, cursorOffset, e, selLength);
+
+    mdState.tokens = parse(mdState.source);
+    const result = render(mdState.tokens, mdState.cursorOffset);
+    if (result.html !== mdState.renderedHTML) {
+      mdState.renderedHTML = result.html;
+      el.innerHTML = result.html;
+    }
+    placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+
+    setElementText(el, originalText, originalClasses);
+    restoreEditStyle();
   }
+
+  // --- Cursor movement re-rendering ---
+  function onCursorMove() {
+    if (composing) return;
+    const newOffset = sourceOffsetFromDOM(el);
+    if (newOffset === mdState.cursorOffset) return;
+    mdState.cursorOffset = newOffset;
+    mdState.tokens = parse(mdState.source);
+    const result = render(mdState.tokens, mdState.cursorOffset);
+    if (result.html !== mdState.renderedHTML) {
+      mdState.renderedHTML = result.html;
+      el.innerHTML = result.html;
+      placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+    }
+  }
+
+  // --- Formatting shortcuts (Cmd+B, Cmd+I, Cmd+K) ---
   function onEditKey(ev) {
     if (ev.key === 'Escape') {
       ev.preventDefault();
       ev.stopPropagation();
       el.blur();
+      return;
     }
+    if (!(ev.metaKey || ev.ctrlKey)) return;
+    let wrap = null;
+    if (ev.key === 'b') wrap = '**';
+    else if (ev.key === 'i') wrap = '*';
+    else if (ev.key === 'k') wrap = ['[', '](url)'];
+    if (!wrap) return;
+
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const src = mdState.source;
+    const cursorOffset = sourceOffsetFromDOM(el);
+    const sel = window.getSelection();
+    let selStart = cursorOffset;
+    let selEnd = cursorOffset;
+    if (sel.rangeCount && !sel.isCollapsed) {
+      const selText = sel.toString();
+      selEnd = selStart + selText.length;
+    }
+
+    if (selStart !== selEnd) {
+      const selected = src.slice(selStart, selEnd);
+      let wrapped, newCursor;
+      if (Array.isArray(wrap)) {
+        wrapped = wrap[0] + selected + wrap[1];
+        newCursor = selStart + wrap[0].length + selected.length + wrap[1].length;
+      } else {
+        wrapped = wrap + selected + wrap;
+        newCursor = selStart + wrap.length + selected.length + wrap.length;
+      }
+      mdState.source = src.slice(0, selStart) + wrapped + src.slice(selEnd);
+      mdState.cursorOffset = newCursor;
+    } else {
+      let insert, cursorInside;
+      if (Array.isArray(wrap)) {
+        insert = wrap[0] + wrap[1];
+        cursorInside = cursorOffset + wrap[0].length;
+      } else {
+        insert = wrap + wrap;
+        cursorInside = cursorOffset + wrap.length;
+      }
+      mdState.source = src.slice(0, cursorOffset) + insert + src.slice(cursorOffset);
+      mdState.cursorOffset = cursorInside;
+    }
+
+    mdState.tokens = parse(mdState.source);
+    const result = render(mdState.tokens, mdState.cursorOffset);
+    mdState.renderedHTML = result.html;
+    el.innerHTML = result.html;
+    placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+    setElementText(el, originalText, originalClasses);
+    restoreEditStyle();
+  }
+
+  // --- IME ---
+  function onCompStart() { composing = true; }
+  function onCompEnd() {
+    composing = false;
+    mdState.source = el.innerText;
+    mdState.cursorOffset = sourceOffsetFromDOM(el);
+    mdState.tokens = parse(mdState.source);
+    const result = render(mdState.tokens, mdState.cursorOffset);
+    mdState.renderedHTML = result.html;
+    el.innerHTML = result.html;
+    placeCursorAtSourceOffset(el, mdState.cursorOffset, mdState.tokens);
+    setElementText(el, originalText, originalClasses);
+    restoreEditStyle();
+  }
+
+  el.addEventListener('beforeinput', onBeforeInput);
+  el.addEventListener('keydown', onEditKey, true);
+  el.addEventListener('keyup', onCursorMove);
+  el.addEventListener('mouseup', onCursorMove);
+  el.addEventListener('compositionstart', onCompStart);
+  el.addEventListener('compositionend', onCompEnd);
+
+  // Exit edit on blur or Escape
+  function exitEdit() {
+    el.removeEventListener('blur', exitEdit);
+    el.removeEventListener('beforeinput', onBeforeInput);
+    el.removeEventListener('keydown', onEditKey, true);
+    el.removeEventListener('keyup', onCursorMove);
+    el.removeEventListener('mouseup', onCursorMove);
+    el.removeEventListener('compositionstart', onCompStart);
+    el.removeEventListener('compositionend', onCompEnd);
+    el.contentEditable = 'false';
+    el.removeAttribute('data-dt-allow-select');
+    el.style.cursor = '';
+    document.documentElement.classList.remove('dt-inline-editing');
+
+    // Final render — all tokens formatted
+    const mdFinal = getMarkdownState(el);
+    if (mdFinal) {
+      const { html: finalHtml } = render(mdFinal.tokens, -1);
+      el.innerHTML = finalHtml;
+      clearMarkdownState(el);
+    }
+
+    editingEl = null;
+    evaluateAnnotation(el);
+    applyOutline(el);
   }
   el.addEventListener('blur', exitEdit);
-  el.addEventListener('keydown', onEditKey);
 }
 
 // --- Module spec ---------------------------------------------------------
