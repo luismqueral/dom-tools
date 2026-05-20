@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T13:57:32.237Z
+ * Built: 2026-05-20T13:59:39.828Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -2192,6 +2192,9 @@
     if (isInspectorUI(el)) return;
     if (!el || !el.tagName || NON_EDITABLE_TAGS.has(el.tagName)) return;
     if (!el.textContent || !el.textContent.trim()) return;
+
+    // Already editing this element — let browser handle word-selection
+    if (el === editingEl || el.closest('[data-dt-allow-select]')) return;
 
     e.preventDefault();
     e.stopPropagation();

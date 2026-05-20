@@ -525,6 +525,9 @@ function onDblClick(e) {
   if (!el || !el.tagName || NON_EDITABLE_TAGS.has(el.tagName)) return;
   if (!el.textContent || !el.textContent.trim()) return;
 
+  // Already editing this element — let browser handle word-selection
+  if (el === editingEl || el.closest('[data-dt-allow-select]')) return;
+
   e.preventDefault();
   e.stopPropagation();
 
