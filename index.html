@@ -68,6 +68,8 @@
   .hero {
     text-align: center;
     margin-bottom: var(--sp-8);
+    margin-left: calc(-1 * var(--sp-12));
+    margin-right: calc(-1 * var(--sp-12));
     padding: var(--sp-8) var(--sp-7) var(--sp-7);
     border-radius: var(--sp-4);
     background: linear-gradient(to right, #dbeafe, #ede9fe, #fef3c7, #fee2e2);
@@ -95,27 +97,13 @@
     margin-left: auto;
     margin-right: auto;
   }
-  .install-tabs {
-    display: flex;
-    gap: var(--sp-2);
-    margin-bottom: var(--sp-3);
-  }
-  .install-tabs button {
-    padding: var(--sp-2) var(--sp-4);
+  .install h3 {
     font-size: var(--ts-sm);
-    font-weight: 600;
-    font-family: inherit;
-    border: 1px solid var(--nyt-border-strong);
-    border-radius: var(--sp-2);
-    background: var(--nyt-bg);
     color: var(--nyt-fg-dim);
-    cursor: pointer;
+    margin: 0 0 var(--sp-2);
+    font-weight: 600;
   }
-  .install-tabs button.active {
-    background: var(--nyt-fg);
-    color: var(--nyt-bg);
-    border-color: var(--nyt-fg);
-  }
+  .install h3 + .box { margin-bottom: var(--sp-4); }
   .install .box { position: relative; }
   .install pre {
     white-space: normal;
@@ -212,11 +200,17 @@
 
   footer {
     font-size: var(--ts-base);
-    color: var(--nyt-fg-dim);
+    color: var(--nyt-fg);
     margin-top: var(--sp-12);
     text-align: center;
     padding: var(--sp-6) 0;
     border-top: 1px solid var(--nyt-border);
+  }
+  footer small {
+    display: block;
+    font-size: var(--ts-sm);
+    color: var(--nyt-fg-dim);
+    margin-top: var(--sp-1);
   }
   footer a { color: var(--nyt-accent); text-decoration: underline; }
 </style>
@@ -227,15 +221,13 @@
   <h1>DOM-Tools</h1>
   <img src="header.png" alt="">
   <div class="install" data-dt-ignore>
-    <div class="install-tabs">
-      <button class="active" data-tab="hosted">Install via hosted instance</button>
-      <button data-tab="source">Install from source</button>
-    </div>
-    <div class="box" id="install-hosted">
+    <h3>Install via hosted instance:</h3>
+    <div class="box">
       <pre id="install-snippet">Loading…</pre>
       <button class="copy-btn" id="install-copy">Copy</button>
     </div>
-    <div class="box" id="install-source" style="display:none">
+    <h3>Install from source:</h3>
+    <div class="box">
       <pre id="source-snippet">Loading…</pre>
       <button class="copy-btn" id="source-copy">Copy</button>
     </div>
@@ -292,7 +284,8 @@
 </div>
 
 <footer>
-  a project by <a href="https://github.com/luismqueral">Luis Queral</a>
+  a project by the Generative Design Lab @ NYT
+  <small>maintained by <a href="https://github.com/luismqueral">Luis Queral</a></small>
 </footer>
 
 <script>
@@ -308,28 +301,10 @@
     const GITHUB_URL = 'https://github.com/luismqueral/dom-tools';
 
     const hostedPrompt = 'Install this design tool in the <head> of this project: <script src="' + CDN_URL + '"><\/script>';
-    const sourcePrompt = GITHUB_URL;
 
-    // Populate snippets
     document.getElementById('install-snippet').textContent = hostedPrompt;
     document.getElementById('source-snippet').textContent = GITHUB_URL;
 
-    // Tab switching
-    const tabs = document.querySelectorAll('.install-tabs button');
-    const hostedBox = document.getElementById('install-hosted');
-    const sourceBox = document.getElementById('install-source');
-
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        tabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const which = tab.dataset.tab;
-        hostedBox.style.display = which === 'hosted' ? '' : 'none';
-        sourceBox.style.display = which === 'source' ? '' : 'none';
-      });
-    });
-
-    // Copy helpers
     function copyText(text, btn) {
       navigator.clipboard.writeText(text).catch(() => {
         const ta = document.createElement('textarea');
@@ -348,7 +323,7 @@
       copyText(hostedPrompt, this);
     });
     document.getElementById('source-copy').addEventListener('click', function() {
-      copyText(sourcePrompt, this);
+      copyText(GITHUB_URL, this);
     });
   })();
 </script>
