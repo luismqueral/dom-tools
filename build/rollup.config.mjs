@@ -1,4 +1,5 @@
 import terser from '@rollup/plugin-terser';
+import replace from '@rollup/plugin-replace';
 
 const now = new Date().toISOString();
 const banner = `/**
@@ -10,6 +11,9 @@ const banner = `/**
 
 export default {
   input: 'src/index.js',
+  plugins: [
+    replace({ __BUILD_DATE__: JSON.stringify(now), preventAssignment: true }),
+  ],
   output: [
     {
       file: 'dist/dom-tools.js',

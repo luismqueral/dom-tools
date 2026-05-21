@@ -264,10 +264,12 @@ function buildPluginsTab(container) {
 
 // --- Tab: About ---
 function buildAboutTab(container) {
-  // Version
+  // Version + build date
   const version = el('div', { marginBottom: '20px' });
   version.appendChild(el('div', { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }, 'DOM-Tools'));
-  version.appendChild(el('div', { fontSize: '11px', color: '#888' }, 'v1.0.0'));
+  const buildDate = typeof __BUILD_DATE__ !== 'undefined' ? __BUILD_DATE__ : 'dev';
+  const dateLabel = buildDate !== 'dev' ? new Date(buildDate).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'dev';
+  version.appendChild(el('div', { fontSize: '11px', color: '#888' }, `Release: ${dateLabel}`));
   container.appendChild(version);
 
   // Shortcuts
