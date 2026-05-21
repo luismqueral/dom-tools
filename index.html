@@ -56,7 +56,7 @@
   body {
     font-family: var(--nyt-sans);
     font-weight: 500;
-    max-width: 900px;
+    max-width: 680px;
     margin: 0 auto;
     padding: var(--sp-8) var(--sp-6);
     color: var(--nyt-fg);
@@ -95,11 +95,26 @@
     margin-left: auto;
     margin-right: auto;
   }
-  .install h3 {
-    font-size: var(--ts-base);
-    color: var(--nyt-fg-dim);
-    margin: 0 0 var(--sp-3);
+  .install-tabs {
+    display: flex;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-3);
+  }
+  .install-tabs button {
+    padding: var(--sp-2) var(--sp-4);
+    font-size: var(--ts-sm);
     font-weight: 600;
+    font-family: inherit;
+    border: 1px solid var(--nyt-border-strong);
+    border-radius: var(--sp-2);
+    background: var(--nyt-bg);
+    color: var(--nyt-fg-dim);
+    cursor: pointer;
+  }
+  .install-tabs button.active {
+    background: var(--nyt-fg);
+    color: var(--nyt-bg);
+    border-color: var(--nyt-fg);
   }
   .install .box { position: relative; }
   .install pre {
@@ -114,7 +129,7 @@
     color: var(--nyt-fg);
     margin: 0;
   }
-  .install button {
+  .install .copy-btn {
     position: absolute;
     top: var(--sp-2);
     right: var(--sp-2);
@@ -128,7 +143,7 @@
     cursor: pointer;
     font-family: inherit;
   }
-  .install button:hover { background: #000; }
+  .install .copy-btn:hover { background: #000; }
 
   h2 {
     font-size: var(--ts-xl);
@@ -211,11 +226,18 @@
 <div class="hero">
   <h1>DOM-Tools</h1>
   <img src="header.png" alt="">
-  <div class="install">
-    <h3>Install with this prompt:</h3>
-    <div class="box" data-dt-ignore>
+  <div class="install" data-dt-ignore>
+    <div class="install-tabs">
+      <button class="active" data-tab="hosted">Install via hosted instance</button>
+      <button data-tab="source">Install from source</button>
+    </div>
+    <div class="box" id="install-hosted">
       <pre id="install-snippet">Loading…</pre>
-      <button id="install-copy">Copy</button>
+      <button class="copy-btn" id="install-copy">Copy</button>
+    </div>
+    <div class="box" id="install-source" style="display:none">
+      <pre id="source-snippet">Loading…</pre>
+      <button class="copy-btn" id="source-copy">Copy</button>
     </div>
   </div>
 </div>
@@ -282,27 +304,51 @@
 
 <script>
   (() => {
-    const pre = document.getElementById('install-snippet');
-    const btn = document.getElementById('install-copy');
     const CDN_URL = 'https://queral.studio/dom-tools.js';
-    const snippet = 'Install this design tool in the <head> of this project: <script src="' + CDN_URL + '"><\/script>';
+    const GITHUB_URL = 'https://github.com/luismqueral/dom-tools';
 
-    pre.textContent = '<script src="' + CDN_URL + '"><\/script>';
+    const hostedPrompt = 'Install this design tool in the <head> of this project: <script src="' + CDN_URL + '"><\/script>';
+    const sourcePrompt = GITHUB_URL;
 
-    btn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(snippet);
-      } catch (_) {
+    // Populate snippets
+    document.getElementById('install-snippet').textContent = hostedPrompt;
+    document.getElementById('source-snippet').textContent = GITHUB_URL;
+
+    // Tab switching
+    const tabs = document.querySelectorAll('.install-tabs button');
+    const hostedBox = document.getElementById('install-hosted');
+    const sourceBox = document.getElementById('install-source');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const which = tab.dataset.tab;
+        hostedBox.style.display = which === 'hosted' ? '' : 'none';
+        sourceBox.style.display = which === 'source' ? '' : 'none';
+      });
+    });
+
+    // Copy helpers
+    function copyText(text, btn) {
+      navigator.clipboard.writeText(text).catch(() => {
         const ta = document.createElement('textarea');
-        ta.value = snippet;
+        ta.value = text;
         ta.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0;';
         document.body.appendChild(ta);
         ta.select();
         try { document.execCommand('copy'); } catch (_) {}
         ta.remove();
-      }
+      });
       btn.textContent = 'Copied!';
       setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    }
+
+    document.getElementById('install-copy').addEventListener('click', function() {
+      copyText(hostedPrompt, this);
+    });
+    document.getElementById('source-copy').addEventListener('click', function() {
+      copyText(sourcePrompt, this);
     });
   })();
 </script>

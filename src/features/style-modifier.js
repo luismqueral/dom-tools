@@ -462,7 +462,10 @@ function ensureSpacingContainer() {
 
 const spacingLabels = [];
 
-function addSpacingBox(x, y, w, h, color, label, tokenName) {
+const LABEL_BG_PADDING = 'rgba(30, 90, 50, 0.9)';
+const LABEL_BG_MARGIN = 'rgba(140, 70, 0, 0.9)';
+
+function addSpacingBox(x, y, w, h, color, label, tokenName, isPadding) {
   if (w <= 0 || h <= 0) return;
   const d = document.createElement('div');
   Object.assign(d.style, {
@@ -475,12 +478,13 @@ function addSpacingBox(x, y, w, h, color, label, tokenName) {
   // Queue label to be rendered in a second pass on top of all boxes
   if (label > 0 && (w >= 14 || h >= 14)) {
     const showToken = (w >= 20 || h >= 20) ? (tokenName || null) : null;
-    spacingLabels.push({ x: x + w / 2, y: y + h / 2, value: Math.round(label), token: showToken });
+    const bg = isPadding ? LABEL_BG_PADDING : LABEL_BG_MARGIN;
+    spacingLabels.push({ x: x + w / 2, y: y + h / 2, value: Math.round(label), token: showToken, bg });
   }
 }
 
 function flushSpacingLabels() {
-  spacingLabels.forEach(({ x, y, value, token }) => {
+  spacingLabels.forEach(({ x, y, value, token, bg }) => {
     const lbl = document.createElement('span');
     Object.assign(lbl.style, {
       position: 'fixed',
@@ -488,7 +492,7 @@ function flushSpacingLabels() {
       transform: 'translate(-50%, -50%)',
       font: '9px/1 "IBM Plex Mono", ui-monospace, Menlo, monospace',
       color: '#fff',
-      background: 'rgba(0,0,0,0.85)',
+      background: bg,
       padding: '2px 4px', borderRadius: '2px',
       whiteSpace: 'nowrap',
       display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -540,16 +544,16 @@ function showSpacingOverlay(el, force) {
   const tokens = resolveTokensForElement(el);
 
   // Padding boxes
-  if (pt > 0) addSpacingBox(innerLeft, innerTop, innerW, pt, SPACING_PADDING_COLOR, pt, tokens.paddingTop);
-  if (pb > 0) addSpacingBox(innerLeft, innerTop + innerH - pb, innerW, pb, SPACING_PADDING_COLOR, pb, tokens.paddingBottom);
-  if (pl > 0) addSpacingBox(innerLeft, innerTop + pt, pl, innerH - pt - pb, SPACING_PADDING_COLOR, pl, tokens.paddingLeft);
-  if (pr > 0) addSpacingBox(innerLeft + innerW - pr, innerTop + pt, pr, innerH - pt - pb, SPACING_PADDING_COLOR, pr, tokens.paddingRight);
+  if (pt > 0) addSpacingBox(innerLeft, innerTop, innerW, pt, SPACING_PADDING_COLOR, pt, tokens.paddingTop, true);
+  if (pb > 0) addSpacingBox(innerLeft, innerTop + innerH - pb, innerW, pb, SPACING_PADDING_COLOR, pb, tokens.paddingBottom, true);
+  if (pl > 0) addSpacingBox(innerLeft, innerTop + pt, pl, innerH - pt - pb, SPACING_PADDING_COLOR, pl, tokens.paddingLeft, true);
+  if (pr > 0) addSpacingBox(innerLeft + innerW - pr, innerTop + pt, pr, innerH - pt - pb, SPACING_PADDING_COLOR, pr, tokens.paddingRight, true);
 
   // Margin boxes
-  if (mt > 0) addSpacingBox(rect.left, rect.top - mt, rect.width, mt, SPACING_MARGIN_COLOR, mt, tokens.marginTop);
-  if (mb > 0) addSpacingBox(rect.left, rect.bottom, rect.width, mb, SPACING_MARGIN_COLOR, mb, tokens.marginBottom);
-  if (ml > 0) addSpacingBox(rect.left - ml, rect.top - mt, ml, rect.height + mt + mb, SPACING_MARGIN_COLOR, ml, tokens.marginLeft);
-  if (mr > 0) addSpacingBox(rect.right, rect.top - mt, mr, rect.height + mt + mb, SPACING_MARGIN_COLOR, mr, tokens.marginRight);
+  if (mt > 0) addSpacingBox(rect.left, rect.top - mt, rect.width, mt, SPACING_MARGIN_COLOR, mt, tokens.marginTop, false);
+  if (mb > 0) addSpacingBox(rect.left, rect.bottom, rect.width, mb, SPACING_MARGIN_COLOR, mb, tokens.marginBottom, false);
+  if (ml > 0) addSpacingBox(rect.left - ml, rect.top - mt, ml, rect.height + mt + mb, SPACING_MARGIN_COLOR, ml, tokens.marginLeft, false);
+  if (mr > 0) addSpacingBox(rect.right, rect.top - mt, mr, rect.height + mt + mb, SPACING_MARGIN_COLOR, mr, tokens.marginRight, false);
 
   // Render labels in second pass so they sit above all colored boxes
   flushSpacingLabels();
@@ -1032,9 +1036,11 @@ const moduleSpec = {
         lastShiftUp = 0;
         if (spacingActive) {
           clearSpacingOverlay();
+          showToast('Show Spacing OFF');
         } else {
           spacingActive = true;
           if (hoveredEl) showSpacingOverlay(hoveredEl);
+          showToast('Show Spacing ON — Press Shift twice to toggle');
         }
       } else {
         lastShiftUp = now;
