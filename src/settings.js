@@ -301,24 +301,18 @@ function buildAboutTab(container) {
     paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
   }, 'Links'));
 
-  const links = [
-    ['GitHub', 'https://github.com/luismqueral/dom-tools'],
-    ['Documentation', 'https://queral.studio/notes/dom-tools'],
-  ];
-  links.forEach(([label, href]) => {
-    const a = document.createElement('a');
-    a.href = href;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.textContent = label;
-    Object.assign(a.style, {
-      display: 'block', fontSize: '12px', color: getSelectionColor(),
-      textDecoration: 'none', padding: '4px 0',
-    });
-    a.addEventListener('mouseenter', () => { a.style.textDecoration = 'underline'; });
-    a.addEventListener('mouseleave', () => { a.style.textDecoration = 'none'; });
-    container.appendChild(a);
+  const ghLink = document.createElement('a');
+  ghLink.href = 'https://github.com/luismqueral/dom-tools';
+  ghLink.target = '_blank';
+  ghLink.rel = 'noopener';
+  ghLink.textContent = 'GitHub';
+  Object.assign(ghLink.style, {
+    display: 'block', fontSize: '12px', color: getSelectionColor(),
+    textDecoration: 'none', padding: '4px 0',
   });
+  ghLink.addEventListener('mouseenter', () => { ghLink.style.textDecoration = 'underline'; });
+  ghLink.addEventListener('mouseleave', () => { ghLink.style.textDecoration = 'none'; });
+  container.appendChild(ghLink);
 
   // Reset
   container.appendChild(el('div', {
