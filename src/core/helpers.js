@@ -45,7 +45,7 @@ export function initHelpers() {
   toast = document.createElement('div');
   Object.assign(toast.style, {
     position: 'fixed', top: '16px', left: '50%', transform: 'translateX(-50%)',
-    background: '#222', color: '#fff', padding: '8px 16px', borderRadius: '6px',
+    background: 'rgba(30,30,30,0.95)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', color: '#fff', padding: '8px 16px', borderRadius: '6px',
     fontSize: '13px', fontFamily: 'system-ui, -apple-system, sans-serif', zIndex: String(Z.toolbar), display: 'none',
     transition: 'opacity 0.2s', whiteSpace: 'nowrap', maxWidth: '90vw'
   });
