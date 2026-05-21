@@ -17,67 +17,193 @@
   @font-face { font-family: 'Pixelfraktur'; src: url(fonts/pixelfraktur.woff2) format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
   @keyframes gradient-shift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
 
-  * { box-sizing: border-box; }
+  :root {
+    --nyt-fg: #121212;
+    --nyt-fg-dim: #5a5a5a;
+    --nyt-fg-faint: #8b8b8b;
+    --nyt-bg: #ffffff;
+    --nyt-bg-alt: #f5f5f2;
+    --nyt-border: #ececec;
+    --nyt-border-strong: #c7c7c7;
+    --nyt-accent: #326891;
+
+    --nyt-sans: 'nyt-franklin', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+
+    --sp-1: 0.25rem;
+    --sp-2: 0.5rem;
+    --sp-3: 0.75rem;
+    --sp-4: 1rem;
+    --sp-5: 1.5rem;
+    --sp-6: 2rem;
+    --sp-7: 3rem;
+    --sp-8: 4rem;
+    --sp-10: 5rem;
+    --sp-12: 6rem;
+    --sp-16: 8rem;
+
+    --ts-xs: 11px;
+    --ts-sm: 13px;
+    --ts-base: 15px;
+    --ts-md: 17px;
+    --ts-lg: 20px;
+    --ts-xl: 26px;
+    --ts-2xl: 34px;
+    --ts-3xl: 42px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
   body {
-    font-family: 'nyt-franklin', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--nyt-sans);
     font-weight: 500;
     max-width: 900px;
     margin: 0 auto;
-    padding: 40px 32px;
-    color: #111827;
+    padding: var(--sp-8) var(--sp-6);
+    color: var(--nyt-fg);
+    font-size: var(--ts-base);
     line-height: 1.6;
+    background: var(--nyt-bg);
   }
+
   .hero {
-    text-align: center; margin-bottom: 48px; padding: 64px 40px 40px;
-    border-radius: 16px;
+    text-align: center;
+    margin-bottom: var(--sp-8);
+    padding: var(--sp-8) var(--sp-7) var(--sp-7);
+    border-radius: var(--sp-4);
     background: linear-gradient(to right, #dbeafe, #ede9fe, #fef3c7, #fee2e2);
     background-size: 300% 300%;
     animation: gradient-shift 8s ease infinite;
   }
-  .hero h1 { font-family: 'nyt-franklin', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 72px; font-weight: 700; margin: 0 0 8px; }
-  .hero img { display: inline-block; width: 300px; height: auto; margin-top: 16px; image-rendering: pixelated; }
-  .install { margin-top: 24px; text-align: left; max-width: 520px; margin-left: auto; margin-right: auto; }
-  .install h3 { font-size: 15px; color: #4b5563; margin: 0 0 10px; font-weight: 600; }
+  .hero h1 {
+    font-family: var(--nyt-sans);
+    font-size: var(--ts-3xl);
+    font-weight: 700;
+    margin: 0 0 var(--sp-2);
+  }
+  .hero img {
+    display: inline-block;
+    width: 300px;
+    height: auto;
+    margin-top: var(--sp-4);
+    image-rendering: pixelated;
+  }
+
+  .install {
+    margin-top: var(--sp-5);
+    text-align: left;
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .install h3 {
+    font-size: var(--ts-base);
+    color: var(--nyt-fg-dim);
+    margin: 0 0 var(--sp-3);
+    font-weight: 600;
+  }
   .install .box { position: relative; }
   .install pre {
-    white-space: normal; word-break: break-all;
-    padding: 14px 80px 14px 16px;
-    font-size: 13px; background: rgba(0,0,0,0.06);
-    border-radius: 8px; font-family: monospace; color: #374151; margin: 0;
+    white-space: normal;
+    word-break: break-all;
+    padding: var(--sp-4) var(--sp-10) var(--sp-4) var(--sp-4);
+    font-size: var(--ts-sm);
+    background: var(--nyt-bg-alt);
+    border: 1px solid var(--nyt-border);
+    border-radius: var(--sp-2);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--nyt-fg);
+    margin: 0;
   }
   .install button {
-    position: absolute; top: 8px; right: 8px;
-    padding: 6px 14px; background: #1f2937; color: #fff; border: 0;
-    border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
+    position: absolute;
+    top: var(--sp-2);
+    right: var(--sp-2);
+    padding: var(--sp-2) var(--sp-4);
+    background: var(--nyt-fg);
+    color: var(--nyt-bg);
+    border: 0;
+    border-radius: var(--sp-2);
+    font-size: var(--ts-sm);
+    font-weight: 600;
+    cursor: pointer;
     font-family: inherit;
   }
   .install button:hover { background: #000; }
 
-  h2 { font-size: 28px; font-weight: 700; margin: 48px 0 20px; color: #374151; }
-  p { font-size: 16px; color: #4b5563; margin: 12px 0; }
+  h2 {
+    font-size: var(--ts-xl);
+    font-weight: 700;
+    margin: var(--sp-8) 0 var(--sp-5);
+    color: var(--nyt-fg);
+  }
+  p {
+    font-size: var(--ts-base);
+    color: var(--nyt-fg-dim);
+    margin: var(--sp-3) 0;
+  }
 
-  video { width: 100%; border-radius: 12px; margin-top: 16px; }
+  video {
+    width: 100%;
+    border-radius: var(--sp-3);
+    margin-top: var(--sp-4);
+  }
 
   .grid {
-    display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--sp-4);
+    margin-top: var(--sp-4);
   }
-  .card { background: #f3f4f6; border-radius: 12px; padding: 20px; font-size: 16px; }
-  .card strong { display: block; margin-bottom: 4px; font-weight: 700; }
-  .card span { color: #6b7280; font-size: 15px; }
+  .card {
+    background: var(--nyt-bg-alt);
+    border: 1px solid var(--nyt-border);
+    border-radius: var(--sp-3);
+    padding: var(--sp-5);
+    font-size: var(--ts-base);
+  }
+  .card strong {
+    display: block;
+    margin-bottom: var(--sp-1);
+    font-weight: 700;
+    color: var(--nyt-fg);
+  }
+  .card span {
+    color: var(--nyt-fg-dim);
+    font-size: var(--ts-sm);
+  }
 
   .shortcuts {
-    background: #f3f4f6; border-radius: 12px; padding: 24px;
-    font-size: 16px; color: #4b5563; margin-top: 24px; line-height: 2;
+    background: var(--nyt-bg-alt);
+    border: 1px solid var(--nyt-border);
+    border-radius: var(--sp-3);
+    padding: var(--sp-5);
+    font-size: var(--ts-base);
+    color: var(--nyt-fg-dim);
+    margin-top: var(--sp-5);
+    line-height: 2;
   }
-  .shortcuts p { margin: 8px 0; }
+  .shortcuts p { margin: var(--sp-2) 0; }
   kbd {
-    display: inline-block; padding: 4px 10px; background: #e5e7eb;
-    border: 1px solid #d1d5db; border-radius: 6px; font-family: monospace;
-    font-size: 14px; font-weight: 600; color: inherit;
+    display: inline-block;
+    padding: var(--sp-1) var(--sp-3);
+    background: var(--nyt-bg);
+    border: 1px solid var(--nyt-border-strong);
+    border-radius: var(--sp-2);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: var(--ts-sm);
+    font-weight: 600;
+    color: inherit;
   }
 
-  footer { font-size: 16px; color: #374151; margin-top: 64px; text-align: center; }
-  footer a { color: #374151; text-decoration: underline; }
+  footer {
+    font-size: var(--ts-base);
+    color: var(--nyt-fg-dim);
+    margin-top: var(--sp-12);
+    text-align: center;
+    padding: var(--sp-6) 0;
+    border-top: 1px solid var(--nyt-border);
+  }
+  footer a { color: var(--nyt-accent); text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -158,7 +284,7 @@
   (() => {
     const pre = document.getElementById('install-snippet');
     const btn = document.getElementById('install-copy');
-    const CDN_URL = 'https://queral.studio/dom-tools.min.js';
+    const CDN_URL = 'https://queral.studio/dom-tools.js';
     const snippet = 'Install this design tool in the <head> of this project: <script src="' + CDN_URL + '"><\/script>';
 
     pre.textContent = '<script src="' + CDN_URL + '"><\/script>';

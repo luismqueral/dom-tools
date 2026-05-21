@@ -351,6 +351,101 @@ const SHIFT_DOUBLE_TAP_MS = 350;
 const SPACING_PADDING_COLOR = 'rgba(144, 238, 144, 0.4)';
 const SPACING_MARGIN_COLOR = 'rgba(255, 165, 0, 0.35)';
 
+// --- CSS token resolution helpers -------------------------------------------
+
+const TOKEN_RE = /var\((--[\w-]+)/;
+
+function extractToken(value) {
+  if (!value) return null;
+  const m = value.match(TOKEN_RE);
+  return m ? m[1] : null;
+}
+
+function splitShorthandValue(value) {
+  const parts = [];
+  let current = '', depth = 0;
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === '(') { depth++; current += ch; }
+    else if (ch === ')') { depth--; current += ch; }
+    else if (/\s/.test(ch) && depth === 0) {
+      if (current) { parts.push(current); current = ''; }
+    } else { current += ch; }
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
+function expandBoxShorthand(value) {
+  const parts = splitShorthandValue(value);
+  let top, right, bottom, left;
+  if (parts.length === 1) { top = right = bottom = left = parts[0]; }
+  else if (parts.length === 2) { top = bottom = parts[0]; right = left = parts[1]; }
+  else if (parts.length === 3) { top = parts[0]; right = left = parts[1]; bottom = parts[2]; }
+  else { top = parts[0]; right = parts[1]; bottom = parts[2]; left = parts[3]; }
+  return { top, right, bottom, left };
+}
+
+function collectRuleTokens(style, el, tokens) {
+  // Check shorthand first
+  for (const prop of ['padding', 'margin']) {
+    const raw = style.getPropertyValue(prop);
+    if (raw && TOKEN_RE.test(raw)) {
+      const expanded = expandBoxShorthand(raw);
+      const prefix = prop === 'padding' ? 'padding' : 'margin';
+      tokens[prefix + 'Top'] = extractToken(expanded.top);
+      tokens[prefix + 'Right'] = extractToken(expanded.right);
+      tokens[prefix + 'Bottom'] = extractToken(expanded.bottom);
+      tokens[prefix + 'Left'] = extractToken(expanded.left);
+    }
+  }
+  // Longhand overrides shorthand
+  for (const [cssProp, key] of [
+    ['padding-top', 'paddingTop'], ['padding-right', 'paddingRight'],
+    ['padding-bottom', 'paddingBottom'], ['padding-left', 'paddingLeft'],
+    ['margin-top', 'marginTop'], ['margin-right', 'marginRight'],
+    ['margin-bottom', 'marginBottom'], ['margin-left', 'marginLeft'],
+  ]) {
+    const raw = style.getPropertyValue(cssProp);
+    if (raw && TOKEN_RE.test(raw)) {
+      tokens[key] = extractToken(raw);
+    }
+  }
+}
+
+function processRules(rules, el, tokens) {
+  for (let i = 0; i < rules.length; i++) {
+    const rule = rules[i];
+    if (rule instanceof CSSMediaRule) {
+      if (window.matchMedia(rule.conditionText).matches) {
+        processRules(rule.cssRules, el, tokens);
+      }
+    } else if (rule instanceof CSSStyleRule) {
+      try { if (!el.matches(rule.selectorText)) continue; } catch (_) { continue; }
+      collectRuleTokens(rule.style, el, tokens);
+    }
+  }
+}
+
+function resolveTokensForElement(el) {
+  const tokens = {
+    paddingTop: null, paddingRight: null, paddingBottom: null, paddingLeft: null,
+    marginTop: null, marginRight: null, marginBottom: null, marginLeft: null,
+  };
+  // Iterate stylesheets (later rules / sheets override earlier — cascade approximation)
+  for (let s = 0; s < document.styleSheets.length; s++) {
+    let rules;
+    try { rules = document.styleSheets[s].cssRules; } catch (_) { continue; }
+    if (!rules) continue;
+    processRules(rules, el, tokens);
+  }
+  // Inline styles always win
+  if (el.style) collectRuleTokens(el.style, el, tokens);
+  return tokens;
+}
+
+// --- Spacing overlay rendering -----------------------------------------------
+
 function ensureSpacingContainer() {
   if (spacingContainer) return;
   spacingContainer = document.createElement('div');
@@ -367,7 +462,7 @@ function ensureSpacingContainer() {
 
 const spacingLabels = [];
 
-function addSpacingBox(x, y, w, h, color, label) {
+function addSpacingBox(x, y, w, h, color, label, tokenName) {
   if (w <= 0 || h <= 0) return;
   const d = document.createElement('div');
   Object.assign(d.style, {
@@ -379,14 +474,14 @@ function addSpacingBox(x, y, w, h, color, label) {
   spacingContainer.appendChild(d);
   // Queue label to be rendered in a second pass on top of all boxes
   if (label > 0 && (w >= 14 || h >= 14)) {
-    spacingLabels.push({ x: x + w / 2, y: y + h / 2, value: Math.round(label) });
+    const showToken = (w >= 20 || h >= 20) ? (tokenName || null) : null;
+    spacingLabels.push({ x: x + w / 2, y: y + h / 2, value: Math.round(label), token: showToken });
   }
 }
 
 function flushSpacingLabels() {
-  spacingLabels.forEach(({ x, y, value }) => {
+  spacingLabels.forEach(({ x, y, value, token }) => {
     const lbl = document.createElement('span');
-    lbl.textContent = value;
     Object.assign(lbl.style, {
       position: 'fixed',
       top: y + 'px', left: x + 'px',
@@ -396,7 +491,22 @@ function flushSpacingLabels() {
       background: 'rgba(0,0,0,0.85)',
       padding: '2px 4px', borderRadius: '2px',
       whiteSpace: 'nowrap',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      gap: '1px',
     });
+    if (token) {
+      const tokSpan = document.createElement('span');
+      tokSpan.textContent = token;
+      lbl.appendChild(tokSpan);
+      const valSpan = document.createElement('span');
+      valSpan.textContent = value;
+      Object.assign(valSpan.style, { fontSize: '7px', opacity: '0.7' });
+      lbl.appendChild(valSpan);
+    } else {
+      const valSpan = document.createElement('span');
+      valSpan.textContent = value;
+      lbl.appendChild(valSpan);
+    }
     spacingContainer.appendChild(lbl);
   });
   spacingLabels.length = 0;
@@ -426,17 +536,20 @@ function showSpacingOverlay(el, force) {
   const innerW = rect.width - blw - br;
   const innerH = rect.height - bt - bb;
 
+  // Resolve CSS custom property tokens for this element
+  const tokens = resolveTokensForElement(el);
+
   // Padding boxes
-  if (pt > 0) addSpacingBox(innerLeft, innerTop, innerW, pt, SPACING_PADDING_COLOR, pt);
-  if (pb > 0) addSpacingBox(innerLeft, innerTop + innerH - pb, innerW, pb, SPACING_PADDING_COLOR, pb);
-  if (pl > 0) addSpacingBox(innerLeft, innerTop + pt, pl, innerH - pt - pb, SPACING_PADDING_COLOR, pl);
-  if (pr > 0) addSpacingBox(innerLeft + innerW - pr, innerTop + pt, pr, innerH - pt - pb, SPACING_PADDING_COLOR, pr);
+  if (pt > 0) addSpacingBox(innerLeft, innerTop, innerW, pt, SPACING_PADDING_COLOR, pt, tokens.paddingTop);
+  if (pb > 0) addSpacingBox(innerLeft, innerTop + innerH - pb, innerW, pb, SPACING_PADDING_COLOR, pb, tokens.paddingBottom);
+  if (pl > 0) addSpacingBox(innerLeft, innerTop + pt, pl, innerH - pt - pb, SPACING_PADDING_COLOR, pl, tokens.paddingLeft);
+  if (pr > 0) addSpacingBox(innerLeft + innerW - pr, innerTop + pt, pr, innerH - pt - pb, SPACING_PADDING_COLOR, pr, tokens.paddingRight);
 
   // Margin boxes
-  if (mt > 0) addSpacingBox(rect.left, rect.top - mt, rect.width, mt, SPACING_MARGIN_COLOR, mt);
-  if (mb > 0) addSpacingBox(rect.left, rect.bottom, rect.width, mb, SPACING_MARGIN_COLOR, mb);
-  if (ml > 0) addSpacingBox(rect.left - ml, rect.top - mt, ml, rect.height + mt + mb, SPACING_MARGIN_COLOR, ml);
-  if (mr > 0) addSpacingBox(rect.right, rect.top - mt, mr, rect.height + mt + mb, SPACING_MARGIN_COLOR, mr);
+  if (mt > 0) addSpacingBox(rect.left, rect.top - mt, rect.width, mt, SPACING_MARGIN_COLOR, mt, tokens.marginTop);
+  if (mb > 0) addSpacingBox(rect.left, rect.bottom, rect.width, mb, SPACING_MARGIN_COLOR, mb, tokens.marginBottom);
+  if (ml > 0) addSpacingBox(rect.left - ml, rect.top - mt, ml, rect.height + mt + mb, SPACING_MARGIN_COLOR, ml, tokens.marginLeft);
+  if (mr > 0) addSpacingBox(rect.right, rect.top - mt, mr, rect.height + mt + mb, SPACING_MARGIN_COLOR, mr, tokens.marginRight);
 
   // Render labels in second pass so they sit above all colored boxes
   flushSpacingLabels();
