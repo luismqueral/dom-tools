@@ -1,3 +1,5 @@
 node_modules/
 .specstory/
 nyt-docs-styles/
+rfcs/002-telemetry.md
+test-telemetry.html
