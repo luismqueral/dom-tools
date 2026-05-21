@@ -11,7 +11,7 @@
 
 import { state, inspectorUI } from '../core/state.js';
 import { Z } from '../core/constants.js';
-import { isInspectorUI } from '../core/helpers.js';
+import { isInspectorUI, showToast } from '../core/helpers.js';
 import { isExperimentEnabled } from '../settings.js';
 
 let active = false;
@@ -407,6 +407,12 @@ function applyTransform() {
   updateMinimap();
 
   const zoomed = scale !== 1;
+  const wasZoomed = wrapper.dataset.dtBgSet === '1';
+  if (zoomed && !wasZoomed) {
+    showToast('Canvas ON — Cmd+Scroll to zoom, Space to pan. Cmd+0 to reset');
+  } else if (!zoomed && wasZoomed) {
+    showToast('Canvas OFF');
+  }
   if (zoomed) {
     if (!wrapper.dataset.dtBgSet) {
       snapshotDocBg();
