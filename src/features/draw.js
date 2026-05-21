@@ -317,7 +317,7 @@ export default {
     if (!drawPanel) drawPanel = createDrawPanel();
     drawPanel.style.display = 'block';
     renderPanelState();
-    showToast('Draw mode');
+    showToast('Draw ON — A or Esc to exit');
   },
 
   deactivate() {

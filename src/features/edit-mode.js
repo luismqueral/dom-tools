@@ -430,7 +430,7 @@ export default {
   activate() {
     activeMode = true;
     state.editMode = true;
-    showToast('Edit Text — click any text to edit it inline');
+    showToast('Edit Text ON — Click any text to edit. Esc to exit');
   },
 
   deactivate() {

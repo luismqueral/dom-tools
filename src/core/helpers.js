@@ -10,7 +10,7 @@ export function showToast(msg) {
   toast.style.display = 'block';
   toast.style.opacity = '1';
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.style.display = 'none', 200); }, 2000);
+  toast._t = setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.style.display = 'none', 200); }, 4000);
 }
 
 // --- Tooltip ---

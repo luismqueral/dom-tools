@@ -291,7 +291,7 @@ export default {
     state.cameraMode = true;
     state.active = true;
     document.body.style.cursor = 'crosshair';
-    showToast('Camera ON — click element, drag area, or Cmd+Shift+S full page');
+    showToast('Camera ON — Click element, drag area, or Cmd+Shift+S. Esc to exit');
   },
 
   deactivate() {

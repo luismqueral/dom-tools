@@ -1070,7 +1070,7 @@ const moduleSpec = {
     state.styleModActive = true;
     document.body.style.cursor = '';
     document.documentElement.classList.add('dt-comment-active');
-    showToast('Click to select, drag to group');
+    showToast('Select ON — Click to select, drag to group. Esc to exit');
   },
 
   deactivate() {
