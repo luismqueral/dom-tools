@@ -39,12 +39,12 @@ export function setToolsEnabled(on) {
     document.documentElement.classList.remove('dt-disabled');
     activateModule(HOME_ID);
     setActiveButton(HOME_ID);
-    showToast('DOM-Tools on');
+    showToast('DOM-Tools ON — [Esc]+[Esc] to toggle');
   } else {
     closeEditor();
     getModules().forEach(m => { if (m.deactivate) m.deactivate(); });
     document.documentElement.classList.add('dt-disabled');
-    showToast('DOM-Tools off');
+    showToast('DOM-Tools OFF — [Esc]+[Esc] to toggle');
   }
 }
 

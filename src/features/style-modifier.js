@@ -1040,7 +1040,7 @@ const moduleSpec = {
         } else {
           spacingActive = true;
           if (hoveredEl) showSpacingOverlay(hoveredEl);
-          showToast('Show Spacing ON — Press Shift twice to toggle');
+          showToast('Show Spacing ON — [Shift]+[Shift] to toggle');
         }
       } else {
         lastShiftUp = now;
@@ -1070,7 +1070,7 @@ const moduleSpec = {
     state.styleModActive = true;
     document.body.style.cursor = '';
     document.documentElement.classList.add('dt-comment-active');
-    showToast('Select ON — Click to select, drag to group. Esc to exit');
+    showToast('Select ON — Click to select, drag to group. [Esc] to exit');
   },
 
   deactivate() {

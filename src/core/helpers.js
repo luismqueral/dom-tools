@@ -6,7 +6,8 @@ let toast = null;
 
 export function showToast(msg) {
   if (!toast) return;
-  toast.textContent = msg;
+  toast.innerHTML = msg.replace(/\[([^\]]+)\]/g,
+    '<kbd style="display:inline-block;padding:2px 6px;margin:0 2px;background:#444;border:1px solid #555;border-radius:4px;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;line-height:1.3">$1</kbd>');
   toast.style.display = 'block';
   toast.style.opacity = '1';
   clearTimeout(toast._t);
@@ -45,8 +46,8 @@ export function initHelpers() {
   Object.assign(toast.style, {
     position: 'fixed', top: '16px', left: '50%', transform: 'translateX(-50%)',
     background: '#222', color: '#fff', padding: '8px 16px', borderRadius: '6px',
-    fontSize: '13px', fontFamily: 'monospace', zIndex: String(Z.toolbar), display: 'none',
-    transition: 'opacity 0.2s', whiteSpace: 'nowrap', maxWidth: '90vw', overflow: 'hidden', textOverflow: 'ellipsis'
+    fontSize: '13px', fontFamily: 'system-ui, -apple-system, sans-serif', zIndex: String(Z.toolbar), display: 'none',
+    transition: 'opacity 0.2s', whiteSpace: 'nowrap', maxWidth: '90vw'
   });
   document.body.appendChild(toast);
   inspectorUI.add(toast);

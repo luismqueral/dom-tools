@@ -409,7 +409,7 @@ function applyTransform() {
   const zoomed = scale !== 1;
   const wasZoomed = wrapper.dataset.dtBgSet === '1';
   if (zoomed && !wasZoomed) {
-    showToast('Canvas ON — Cmd+Scroll to zoom, Space to pan. Cmd+0 to reset');
+    showToast('Canvas ON — [Cmd]+Scroll to zoom, [Space] to pan. [Cmd+0] to reset');
   } else if (!zoomed && wasZoomed) {
     showToast('Canvas OFF');
   }

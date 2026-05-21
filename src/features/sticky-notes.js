@@ -146,7 +146,7 @@ export default {
     state.annotateSub = 'sticky';
     state.stickyMode = true;
     document.body.style.cursor = 'crosshair';
-    showToast('Sticky Notes ON — Click to place. Esc to exit');
+    showToast('Sticky Notes ON — Click to place. [Esc] to exit');
   },
 
   deactivate() {
