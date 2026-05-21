@@ -338,6 +338,99 @@ export function focusGroup(els) {
   els[0].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
+// --- Shift+hover spacing inspection --------------------------------------
+// Hold Shift while hovering to see padding (green) and margin (orange)
+// overlays on the hovered element. Release Shift to dismiss.
+
+let spacingContainer = null;
+let spacingEl = null;
+
+const SPACING_PADDING_COLOR = 'rgba(144, 238, 144, 0.4)';
+const SPACING_MARGIN_COLOR = 'rgba(255, 165, 0, 0.35)';
+
+function ensureSpacingContainer() {
+  if (spacingContainer) return;
+  spacingContainer = document.createElement('div');
+  spacingContainer.setAttribute('data-dt-spacing-overlay', '');
+  Object.assign(spacingContainer.style, {
+    position: 'fixed', top: '0', left: '0',
+    width: '100%', height: '100%',
+    pointerEvents: 'none',
+    zIndex: String(Z.overlay),
+  });
+  document.body.appendChild(spacingContainer);
+  inspectorUI.add(spacingContainer);
+}
+
+function addSpacingBox(x, y, w, h, color, label) {
+  if (w <= 0 || h <= 0) return;
+  const d = document.createElement('div');
+  Object.assign(d.style, {
+    position: 'fixed',
+    top: y + 'px', left: x + 'px',
+    width: w + 'px', height: h + 'px',
+    background: color,
+  });
+  if (label > 0 && (w >= 16 || h >= 16)) {
+    const lbl = document.createElement('span');
+    lbl.textContent = Math.round(label);
+    Object.assign(lbl.style, {
+      position: 'absolute', top: '50%', left: '50%',
+      transform: 'translate(-50%, -50%)',
+      font: '9px/1 "IBM Plex Mono", ui-monospace, Menlo, monospace',
+      color: '#fff',
+      background: 'rgba(0,0,0,0.7)',
+      padding: '1px 3px', borderRadius: '2px',
+      whiteSpace: 'nowrap',
+    });
+    d.appendChild(lbl);
+  }
+  spacingContainer.appendChild(d);
+}
+
+function showSpacingOverlay(el, force) {
+  if (spacingEl === el && !force) return;
+  ensureSpacingContainer();
+  spacingContainer.innerHTML = '';
+  spacingEl = el;
+
+  const cs = getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+  const p = (v) => parseFloat(v) || 0;
+
+  const mt = p(cs.marginTop), mr = p(cs.marginRight);
+  const mb = p(cs.marginBottom), ml = p(cs.marginLeft);
+  const pt = p(cs.paddingTop), pr = p(cs.paddingRight);
+  const pb = p(cs.paddingBottom), pl = p(cs.paddingLeft);
+
+  // Padding (inside the element border)
+  const bt = p(cs.borderTopWidth), blw = p(cs.borderLeftWidth);
+  const br = p(cs.borderRightWidth), bb = p(cs.borderBottomWidth);
+
+  const innerTop = rect.top + bt;
+  const innerLeft = rect.left + blw;
+  const innerW = rect.width - blw - br;
+  const innerH = rect.height - bt - bb;
+
+  // Padding boxes
+  if (pt > 0) addSpacingBox(innerLeft, innerTop, innerW, pt, SPACING_PADDING_COLOR, pt);
+  if (pb > 0) addSpacingBox(innerLeft, innerTop + innerH - pb, innerW, pb, SPACING_PADDING_COLOR, pb);
+  if (pl > 0) addSpacingBox(innerLeft, innerTop + pt, pl, innerH - pt - pb, SPACING_PADDING_COLOR, pl);
+  if (pr > 0) addSpacingBox(innerLeft + innerW - pr, innerTop + pt, pr, innerH - pt - pb, SPACING_PADDING_COLOR, pr);
+
+  // Margin boxes
+  if (mt > 0) addSpacingBox(rect.left, rect.top - mt, rect.width, mt, SPACING_MARGIN_COLOR, mt);
+  if (mb > 0) addSpacingBox(rect.left, rect.bottom, rect.width, mb, SPACING_MARGIN_COLOR, mb);
+  if (ml > 0) addSpacingBox(rect.left - ml, rect.top - mt, ml, rect.height + mt + mb, SPACING_MARGIN_COLOR, ml);
+  if (mr > 0) addSpacingBox(rect.right, rect.top - mt, mr, rect.height + mt + mb, SPACING_MARGIN_COLOR, mr);
+}
+
+function clearSpacingOverlay() {
+  if (!spacingContainer) return;
+  spacingContainer.innerHTML = '';
+  spacingEl = null;
+}
+
 // --- Hover highlight -----------------------------------------------------
 // Two flavors:
 //   - block-ish (containers, images, etc): a soft tinted background +
@@ -356,6 +449,7 @@ function clearHover() {
   applyOutline(hoveredEl);
   hoveredEl = null;
   refreshTagLabels();
+  clearSpacingOverlay();
 }
 
 function onMove(e) {
@@ -374,7 +468,12 @@ function onMove(e) {
     clearHover();
     return;
   }
-  if (el === hoveredEl) return;
+  if (el === hoveredEl) {
+    // Same element — but Shift state may have changed
+    if (e.shiftKey && hoveredEl) showSpacingOverlay(hoveredEl);
+    else if (!e.shiftKey) clearSpacingOverlay();
+    return;
+  }
   clearHover();
   // Don't hover-paint elements that are already selected.
   if (selected.find(s => s.el === el)) return;
@@ -385,6 +484,7 @@ function onMove(e) {
   el.style.outline = '2.5px solid ' + withAlpha(color, 0.55);
   el.style.backgroundColor = getOrigBackground(el);
   refreshTagLabels();
+  if (e.shiftKey) showSpacingOverlay(el);
 }
 
 // --- Drag-to-select (marquee) --------------------------------------------
@@ -792,6 +892,18 @@ const moduleSpec = {
     document.addEventListener('dblclick', onDblClick, true);
     window.addEventListener('scroll', repositionAllTagLabels, true);
     window.addEventListener('resize', repositionAllTagLabels);
+
+    // Shift+hover spacing: show/hide on keydown/keyup so it responds
+    // even when the mouse is stationary over an element.
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Shift' && activeMode && hoveredEl) showSpacingOverlay(hoveredEl);
+    }, true);
+    document.addEventListener('keyup', (e) => {
+      if (e.key === 'Shift') clearSpacingOverlay();
+    }, true);
+    // Reposition spacing overlay on scroll/resize
+    window.addEventListener('scroll', () => { if (spacingEl) showSpacingOverlay(spacingEl, true); }, true);
+    window.addEventListener('resize', () => { if (spacingEl) showSpacingOverlay(spacingEl, true); });
 
     // Live theme updates: re-paint selected outlines, editable-text
     // backgrounds, tag-label backgrounds, and the toolbar button
