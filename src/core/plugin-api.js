@@ -11,6 +11,7 @@ import { showToast, addTooltip, nudge, flashElement, copyText, getSelector, getC
 import { setActiveButton } from '../toolbar.js';
 import { getSelectionColor, withAlpha, onColorChange } from './theme.js';
 import { getSelected } from '../features/style-modifier.js';
+import { updateBadgeCount } from '../features/annotations.js';
 
 /**
  * createPanel — reusable draggable floating panel factory.
@@ -121,6 +122,7 @@ export const pluginAPI = {
   onColorChange,
   createPanel,
   getSelected,
+  updateBadgeCount,
   Z,
   COLORS,
 };

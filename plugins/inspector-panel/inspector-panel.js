@@ -177,6 +177,7 @@
       });
     }
     window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
   }
 
   function applyRawValue(el, cssProp, value) {
@@ -197,6 +198,7 @@
       });
     }
     window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
   }
 
   function resetProp(el, cssProp) {
@@ -204,6 +206,7 @@
     const idx = changes.findIndex(c => c.el === el && c.prop === cssProp);
     if (idx >= 0) changes.splice(idx, 1);
     window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
   }
 
   // --- Spacing overlay ---
@@ -930,6 +933,7 @@
       panel.style.display = 'none';
       startPolling();
       window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
     },
 
     enable() {
