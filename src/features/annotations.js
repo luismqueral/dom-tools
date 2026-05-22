@@ -598,8 +598,7 @@ export function evaluateAnnotation(el) {
 }
 
 // ---- Badge ----
-function updateBadgeCount() {
-  // Each non-transient note + each text edit counts as one change.
+function countChanges() {
   let count = 0;
   noteAnnotations.forEach(a => {
     if (!a.transient && a.note && a.note.trim()) count++;
@@ -607,18 +606,17 @@ function updateBadgeCount() {
   textEdits.forEach((e, el) => {
     if (getCurrentText(el) !== e.originalText || el.className !== e.originalClasses) count++;
   });
-  updateCopyBadge(count);
+  const inspectorChanges = window.DomTools && window.DomTools._inspectorChanges;
+  if (inspectorChanges) count += inspectorChanges.length;
+  return count;
+}
+
+export function updateBadgeCount() {
+  updateCopyBadge(countChanges());
 }
 
 export function hasChanges() {
-  let count = 0;
-  noteAnnotations.forEach(a => {
-    if (!a.transient && a.note && a.note.trim()) count++;
-  });
-  textEdits.forEach((e, el) => {
-    if (getCurrentText(el) !== e.originalText || el.className !== e.originalClasses) count++;
-  });
-  return count > 0;
+  return countChanges() > 0;
 }
 
 // ---- Unified list for copy-all ----
