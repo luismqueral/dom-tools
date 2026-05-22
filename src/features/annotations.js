@@ -452,7 +452,7 @@ function syncBubble(annotation, editing) {
   ta.placeholder = editing
     ? (annotation.els.length > 1
       ? `Group note for ${annotation.els.length} elements…`
-      : 'Describe the change…')
+      : 'Describe changes...')
     : '';
   if (ta.value !== annotation.note) ta.value = annotation.note;
   annotation.bubbleEl._autoGrow();
