@@ -4,10 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'build/**'
-      - 'package.json'
 
 jobs:
   publish:
