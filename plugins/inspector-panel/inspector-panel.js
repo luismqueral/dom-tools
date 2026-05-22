@@ -1,7 +1,9 @@
 /**
- * Inspector Panel plugin — shows computed styles and CSS tokens for the
- * currently selected element in a draggable floating panel.
- * Token values are clickable — opens a combobox to swap tokens live.
+ * Inspector Panel plugin — keyboard-first design token editor.
+ *
+ * Shows spacing (cross/plus layout), typography, and appearance controls
+ * for the currently selected element. Token values are stepped with
+ * arrow keys; raw values are editable inline.
  *
  * Prototype for issue #50.
  */
@@ -10,7 +12,7 @@
 
   const TOKEN_RE = /var\((--[\w-]+)/;
 
-  // --- Token resolution (mirrors style-modifier.js logic) ---
+  // --- Token resolution ---
 
   function extractToken(value) {
     if (!value) return null;
@@ -73,16 +75,10 @@
     return families;
   }
 
-  // Determine token family: '--sp-4' → 'sp', '--nyt-fg-dim' → 'nyt-fg', '--ts-xl' → 'ts'
-  // Heuristic: last segment is the "value" (number, size name, modifier).
-  // Family = everything before the last segment.
   function getFamily(tokenName) {
     const bare = tokenName.replace(/^--/, '');
     const parts = bare.split('-');
     if (parts.length <= 1) return bare;
-    // Try progressively shorter prefixes — family is the longest prefix
-    // that has at least one sibling. Since we call this during discovery,
-    // just use "all but last segment" as the family.
     return parts.slice(0, -1).join('-');
   }
 
@@ -92,252 +88,19 @@
     return families[family] || [];
   }
 
-  // --- Token editing ---
-
-  // Track original values for undo + copy-all
-  const changes = []; // { el, prop, from, to, selector }
-
-  function applyToken(el, cssProp, newToken, oldToken) {
-    // Store original inline value if first edit on this prop
-    if (!el._dtOrigStyles) el._dtOrigStyles = {};
-    if (!(cssProp in el._dtOrigStyles)) {
-      el._dtOrigStyles[cssProp] = el.style.getPropertyValue(cssProp) || '';
-    }
-    el.style.setProperty(cssProp, `var(${newToken})`);
-
-    // Track change
-    const existing = changes.find(c => c.el === el && c.prop === cssProp);
-    if (existing) {
-      existing.to = newToken;
-    } else {
-      changes.push({
-        el,
-        prop: cssProp,
-        from: oldToken || el._dtOrigStyles[cssProp],
-        to: newToken,
-        selector: api.getSelector(el),
-      });
-    }
-
-    // Expose for copy-all
-    window.DomTools._inspectorChanges = changes;
+  function getFamilyByName(familyName) {
+    const families = discoverTokenFamilies();
+    return families[familyName] || [];
   }
 
-  // --- Combobox / Token Picker ---
-
-  let activePicker = null;
-
-  function closePicker() {
-    if (activePicker) {
-      activePicker.remove();
-      activePicker = null;
-    }
-    document.removeEventListener('mousedown', onPickerOutsideClick, true);
+  // Resolve a token name to its computed color value (for swatches)
+  function resolveTokenColor(tokenName) {
+    const rootStyles = getComputedStyle(document.documentElement);
+    return rootStyles.getPropertyValue(tokenName).trim();
   }
 
-  function onPickerOutsideClick(e) {
-    if (activePicker && !activePicker.contains(e.target)) {
-      closePicker();
-    }
-  }
+  // --- Token resolution for an element ---
 
-  function openTokenPicker(prop, currentToken, anchorEl, targetEl) {
-    closePicker();
-
-    const tokens = getFamilyTokens(currentToken);
-    if (tokens.length === 0) return;
-
-    const picker = document.createElement('div');
-    activePicker = picker;
-    Object.assign(picker.style, {
-      position: 'absolute',
-      top: '0', left: '0',
-      width: '220px',
-      background: 'rgba(20,20,20,0.98)',
-      border: '1px solid rgba(255,255,255,0.15)',
-      borderRadius: '6px',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-      zIndex: '999999',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      fontSize: '11px',
-      color: '#fff',
-      overflow: 'hidden',
-    });
-
-    // Search input
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = 'Filter tokens…';
-    input.value = '';
-    Object.assign(input.style, {
-      width: '100%',
-      padding: '8px 10px',
-      background: 'rgba(255,255,255,0.05)',
-      border: 'none',
-      borderBottom: '1px solid rgba(255,255,255,0.1)',
-      color: '#fff',
-      fontSize: '11px',
-      fontFamily: 'inherit',
-      outline: 'none',
-      boxSizing: 'border-box',
-    });
-    picker.appendChild(input);
-
-    // List container
-    const list = document.createElement('div');
-    Object.assign(list.style, {
-      maxHeight: '200px',
-      overflowY: 'auto',
-      padding: '4px 0',
-    });
-    picker.appendChild(list);
-
-    let highlighted = -1;
-    let filteredTokens = tokens;
-
-    function updateHighlight() {
-      const rows = list.children;
-      for (let i = 0; i < rows.length; i++) {
-        const isCurrent = rows[i]._tokenName === currentToken;
-        rows[i].style.background = i === highlighted
-          ? 'rgba(255,255,255,0.1)'
-          : (isCurrent ? 'rgba(251,191,36,0.1)' : 'transparent');
-      }
-    }
-
-    function renderList() {
-      list.innerHTML = '';
-      filteredTokens = tokens.filter(t =>
-        t.name.toLowerCase().includes(input.value.toLowerCase()) ||
-        t.value.toLowerCase().includes(input.value.toLowerCase())
-      );
-      filteredTokens.forEach((t, i) => {
-        const row = document.createElement('div');
-        row._tokenName = t.name;
-        const isCurrent = t.name === currentToken;
-        Object.assign(row.style, {
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '5px 10px',
-          cursor: 'pointer',
-          background: isCurrent ? 'rgba(251,191,36,0.1)' : 'transparent',
-          borderLeft: isCurrent ? '2px solid #fbbf24' : '2px solid transparent',
-        });
-        row.addEventListener('mouseenter', () => {
-          highlighted = i;
-          updateHighlight();
-        });
-        row.addEventListener('click', (e) => {
-          e.stopPropagation();
-          selectToken(t.name);
-        });
-
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = t.name;
-        Object.assign(nameSpan.style, {
-          color: isCurrent ? '#fbbf24' : '#fff',
-          fontWeight: isCurrent ? '600' : '400',
-        });
-
-        const valSpan = document.createElement('span');
-        valSpan.textContent = t.value;
-        Object.assign(valSpan.style, {
-          color: 'rgba(255,255,255,0.4)',
-          fontSize: '10px',
-          marginLeft: '8px',
-          flexShrink: '0',
-        });
-
-        row.appendChild(nameSpan);
-        row.appendChild(valSpan);
-        list.appendChild(row);
-      });
-    }
-
-    function selectToken(tokenName) {
-      applyToken(targetEl, prop, tokenName, currentToken);
-      closePicker();
-      // Re-render panel with new values
-      renderPanel(targetEl);
-    }
-
-    input.addEventListener('input', () => {
-      highlighted = -1;
-      renderList();
-    });
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        highlighted = Math.min(highlighted + 1, filteredTokens.length - 1);
-        renderList();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        highlighted = Math.max(highlighted - 1, 0);
-        renderList();
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (highlighted >= 0 && highlighted < filteredTokens.length) {
-          selectToken(filteredTokens[highlighted].name);
-        }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        closePicker();
-      }
-    });
-
-    renderList();
-
-    // Position relative to content area
-    content.style.position = 'relative';
-    const anchorRect = anchorEl.getBoundingClientRect();
-    const contentRect = content.getBoundingClientRect();
-    picker.style.top = (anchorRect.bottom - contentRect.top + content.scrollTop + 2) + 'px';
-    picker.style.left = Math.max(0, anchorRect.left - contentRect.left - 40) + 'px';
-
-    content.appendChild(picker);
-    input.focus();
-
-    // Close on outside click (delayed to avoid catching the opening click)
-    setTimeout(() => {
-      document.addEventListener('mousedown', onPickerOutsideClick, true);
-    }, 0);
-  }
-
-  // Properties we inspect — grouped by category
-  const PROPERTY_GROUPS = [
-    {
-      label: 'Layout',
-      props: ['display', 'position', 'top', 'right', 'bottom', 'left',
-              'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
-              'overflow', 'z-index'],
-    },
-    {
-      label: 'Spacing',
-      props: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-              'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-              'gap', 'row-gap', 'column-gap'],
-    },
-    {
-      label: 'Flex / Grid',
-      props: ['flex-direction', 'flex-wrap', 'justify-content', 'align-items',
-              'align-self', 'flex-grow', 'flex-shrink', 'flex-basis',
-              'grid-template-columns', 'grid-template-rows', 'grid-column', 'grid-row'],
-    },
-    {
-      label: 'Typography',
-      props: ['font-family', 'font-size', 'font-weight', 'line-height',
-              'letter-spacing', 'text-align', 'text-transform', 'color'],
-    },
-    {
-      label: 'Background & Border',
-      props: ['background', 'background-color', 'border', 'border-radius',
-              'box-shadow', 'opacity'],
-    },
-  ];
-
-  // Resolve tokens for ALL properties (not just spacing)
   function resolveAllTokens(el) {
     const tokens = {};
     for (let s = 0; s < document.styleSheets.length; s++) {
@@ -346,7 +109,6 @@
       if (!rules) continue;
       processRules(rules, el, tokens);
     }
-    // Inline styles always win
     if (el.style && el.style.length) {
       for (let i = 0; i < el.style.length; i++) {
         const prop = el.style[i];
@@ -374,7 +136,6 @@
   }
 
   function collectTokens(style, tokens) {
-    // Check shorthands for box model
     for (const prop of ['padding', 'margin']) {
       const raw = style.getPropertyValue(prop);
       if (raw && TOKEN_RE.test(raw)) {
@@ -385,7 +146,6 @@
         tokens[prop + '-left'] = extractToken(expanded.left);
       }
     }
-    // Check all explicitly set properties
     for (let i = 0; i < style.length; i++) {
       const prop = style[i];
       const raw = style.getPropertyValue(prop);
@@ -395,6 +155,151 @@
     }
   }
 
+  // --- Change tracking ---
+
+  const changes = [];
+
+  function applyToken(el, cssProp, newToken, oldToken) {
+    if (!el._dtOrigStyles) el._dtOrigStyles = {};
+    if (!(cssProp in el._dtOrigStyles)) {
+      el._dtOrigStyles[cssProp] = el.style.getPropertyValue(cssProp) || '';
+    }
+    el.style.setProperty(cssProp, `var(${newToken})`);
+    const existing = changes.find(c => c.el === el && c.prop === cssProp);
+    if (existing) {
+      existing.to = newToken;
+    } else {
+      changes.push({
+        el, prop: cssProp,
+        from: oldToken || el._dtOrigStyles[cssProp],
+        to: newToken,
+        selector: api.getSelector(el),
+      });
+    }
+    window.DomTools._inspectorChanges = changes;
+  }
+
+  function applyRawValue(el, cssProp, value) {
+    if (!el._dtOrigStyles) el._dtOrigStyles = {};
+    if (!(cssProp in el._dtOrigStyles)) {
+      el._dtOrigStyles[cssProp] = el.style.getPropertyValue(cssProp) || '';
+    }
+    el.style.setProperty(cssProp, value);
+    const existing = changes.find(c => c.el === el && c.prop === cssProp);
+    if (existing) {
+      existing.to = value;
+    } else {
+      changes.push({
+        el, prop: cssProp,
+        from: el._dtOrigStyles[cssProp],
+        to: value,
+        selector: api.getSelector(el),
+      });
+    }
+    window.DomTools._inspectorChanges = changes;
+  }
+
+  function resetProp(el, cssProp) {
+    el.style.removeProperty(cssProp);
+    const idx = changes.findIndex(c => c.el === el && c.prop === cssProp);
+    if (idx >= 0) changes.splice(idx, 1);
+    window.DomTools._inspectorChanges = changes;
+  }
+
+  // --- Spacing overlay ---
+
+  const PAD_COLOR = 'rgba(144, 238, 144, 0.4)';
+  const PAD_BRIGHT = 'rgba(144, 238, 144, 0.6)';
+  const PAD_LABEL_BG = 'rgba(30, 90, 50, 0.9)';
+  const MAR_COLOR = 'rgba(255, 165, 0, 0.35)';
+  const MAR_BRIGHT = 'rgba(255, 165, 0, 0.55)';
+  const MAR_LABEL_BG = 'rgba(140, 70, 0, 0.9)';
+
+  let overlayEl = null;
+
+  function clearOverlay() {
+    if (overlayEl) { overlayEl.remove(); overlayEl = null; }
+  }
+
+  function showSpacingOverlay(prop, el) {
+    clearOverlay();
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const p = (v) => parseFloat(v) || 0;
+    const isPadding = prop.startsWith('padding');
+    const color = isPadding ? PAD_COLOR : MAR_COLOR;
+    const brightColor = isPadding ? PAD_BRIGHT : MAR_BRIGHT;
+    const labelBg = isPadding ? PAD_LABEL_BG : MAR_LABEL_BG;
+
+    const sides = (prop === 'padding' || prop === 'margin')
+      ? ['top', 'right', 'bottom', 'left']
+      : [prop.split('-').pop()];
+
+    const container = document.createElement('div');
+    Object.assign(container.style, {
+      position: 'fixed', top: '0', left: '0',
+      width: '100%', height: '100%',
+      pointerEvents: 'none', zIndex: '99998',
+    });
+
+    sides.forEach(side => {
+      const fullProp = (isPadding ? 'padding-' : 'margin-') + side;
+      const val = p(cs.getPropertyValue(fullProp));
+      if (val <= 0) return;
+
+      let x, y, w, h;
+      if (isPadding) {
+        const pt = p(cs.paddingTop), pr = p(cs.paddingRight), pb = p(cs.paddingBottom), pl = p(cs.paddingLeft);
+        if (side === 'top') { x = rect.left; y = rect.top; w = rect.width; h = pt; }
+        else if (side === 'bottom') { x = rect.left; y = rect.bottom - pb; w = rect.width; h = pb; }
+        else if (side === 'left') { x = rect.left; y = rect.top + pt; w = pl; h = rect.height - pt - pb; }
+        else { x = rect.right - pr; y = rect.top + pt; w = pr; h = rect.height - pt - pb; }
+      } else {
+        const mt = p(cs.marginTop), mr = p(cs.marginRight), mb = p(cs.marginBottom), ml = p(cs.marginLeft);
+        if (side === 'top') { x = rect.left; y = rect.top - mt; w = rect.width; h = mt; }
+        else if (side === 'bottom') { x = rect.left; y = rect.bottom; w = rect.width; h = mb; }
+        else if (side === 'left') { x = rect.left - ml; y = rect.top - mt; w = ml; h = rect.height + mt + mb; }
+        else { x = rect.right; y = rect.top - mt; w = mr; h = rect.height + mt + mb; }
+      }
+
+      const box = document.createElement('div');
+      Object.assign(box.style, {
+        position: 'fixed', top: y + 'px', left: x + 'px',
+        width: w + 'px', height: h + 'px',
+        background: sides.length === 1 ? brightColor : color,
+      });
+      container.appendChild(box);
+
+      if (w >= 14 || h >= 14) {
+        const lbl = document.createElement('span');
+        Object.assign(lbl.style, {
+          position: 'fixed',
+          top: (y + h / 2) + 'px', left: (x + w / 2) + 'px',
+          transform: 'translate(-50%, -50%)',
+          font: '9px/1 ui-monospace, Menlo, monospace',
+          color: '#fff', background: labelBg,
+          padding: '2px 5px', borderRadius: '2px',
+          whiteSpace: 'nowrap',
+        });
+        lbl.textContent = Math.round(val) + 'px';
+        container.appendChild(lbl);
+      }
+    });
+
+    document.body.appendChild(container);
+    overlayEl = container;
+  }
+
+  // --- DOM helpers ---
+
+  function el(tag, styles, attrs) {
+    const node = document.createElement(tag);
+    if (styles) Object.assign(node.style, styles);
+    if (attrs) Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+    return node;
+  }
+
   // --- Panel rendering ---
 
   let panel = null;
@@ -402,148 +307,549 @@
   let api = null;
   let lastEl = null;
 
-  function renderPanel(el) {
-    if (!el || !content) return;
-    lastEl = el;
-    closePicker();
-
-    const computed = window.getComputedStyle(el);
-    const tokens = resolveAllTokens(el);
-    const selector = api.getSelector(el);
-
-    // Build DOM instead of innerHTML so we can attach click handlers
+  function renderPanel(targetEl) {
+    if (!targetEl || !content) return;
+    lastEl = targetEl;
     content.innerHTML = '';
 
-    // Selector header
-    const headerDiv = document.createElement('div');
-    Object.assign(headerDiv.style, { marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)' });
-    const selectorLabel = document.createElement('div');
-    Object.assign(selectorLabel.style, { fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginBottom: '2px' });
+    const computed = getComputedStyle(targetEl);
+    const tokens = resolveAllTokens(targetEl);
+    const selector = api.getSelector(targetEl);
+
+    // --- Selector header ---
+    const headerDiv = el('div', { marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)' });
+    const selectorLabel = el('div', { fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginBottom: '2px' });
     selectorLabel.textContent = 'SELECTOR';
-    const selectorCode = document.createElement('code');
-    Object.assign(selectorCode.style, { fontSize: '11px', color: '#7dd3fc', wordBreak: 'break-all' });
+    const selectorCode = el('code', { fontSize: '11px', color: '#7dd3fc', wordBreak: 'break-all' });
     selectorCode.textContent = selector;
     headerDiv.appendChild(selectorLabel);
     headerDiv.appendChild(selectorCode);
     content.appendChild(headerDiv);
 
-    // Tag + classes
-    const tagDiv = document.createElement('div');
-    Object.assign(tagDiv.style, { marginBottom: '10px', fontSize: '11px' });
-    const tag = el.tagName.toLowerCase();
-    const classes = el.classList.length ? '.' + Array.from(el.classList).join('.') : '';
-    const tagSpan = document.createElement('span');
-    tagSpan.style.color = '#c084fc';
-    tagSpan.textContent = tag;
-    tagDiv.appendChild(tagSpan);
-    if (classes) {
-      const classSpan = document.createElement('span');
-      classSpan.style.color = '#86efac';
-      classSpan.textContent = classes;
-      tagDiv.appendChild(classSpan);
+    // --- SPACING section ---
+    content.appendChild(sectionLabel('SPACING'));
+    content.appendChild(buildCross('padding', targetEl, tokens, computed));
+    content.appendChild(buildCross('margin', targetEl, tokens, computed));
+
+    // Gap — always show (editable even at 0)
+    const gapToken = tokens['gap'] || null;
+    const gapVal = computed.getPropertyValue('gap');
+    if (gapToken) {
+      content.appendChild(buildPropRow('gap', gapToken, gapVal, targetEl, 'sp'));
+    } else {
+      content.appendChild(buildValueRow('gap', gapVal || '0', targetEl, 1));
     }
-    content.appendChild(tagDiv);
 
-    // Property groups
-    for (const group of PROPERTY_GROUPS) {
-      const rows = [];
-      for (const prop of group.props) {
-        const val = computed.getPropertyValue(prop);
-        if (!val || val === 'none' || val === 'normal' || val === 'auto' || val === '0px' || val === 'static') continue;
-        if (prop === 'display' && val === 'block') continue;
-        if (prop === 'overflow' && val === 'visible') continue;
-        const token = tokens[prop] || null;
-        rows.push({ prop, val, token });
+    // --- TYPOGRAPHY section ---
+    content.appendChild(sectionLabel('TYPOGRAPHY'));
+
+    const typProps = [
+      { prop: 'font-family', family: null, isValue: false },
+      { prop: 'font-size', family: null, isValue: false },
+      { prop: 'font-weight', family: null, isValue: true, step: 100 },
+      { prop: 'line-height', family: null, isValue: true, step: 0.1 },
+      { prop: 'color', family: null, isValue: false, hasColor: true },
+    ];
+    for (const def of typProps) {
+      const token = tokens[def.prop] || null;
+      const val = computed.getPropertyValue(def.prop);
+      if (!val) continue;
+      if (def.isValue || (!token && def.step)) {
+        content.appendChild(buildValueRow(def.prop, val, targetEl, def.step || 1));
+      } else if (token) {
+        content.appendChild(buildPropRow(def.prop, token, val, targetEl, null, def.hasColor));
+      } else {
+        content.appendChild(buildStaticRow(def.prop, val));
       }
-      if (rows.length === 0) continue;
+    }
 
-      const groupDiv = document.createElement('div');
-      groupDiv.style.marginBottom = '8px';
-      const groupLabel = document.createElement('div');
-      Object.assign(groupLabel.style, { fontSize: '9px', fontWeight: '700', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px', marginBottom: '4px' });
-      groupLabel.textContent = group.label.toUpperCase();
-      groupDiv.appendChild(groupLabel);
+    // --- APPEARANCE section ---
+    content.appendChild(sectionLabel('APPEARANCE'));
 
-      for (const row of rows) {
-        const rowDiv = document.createElement('div');
-        Object.assign(rowDiv.style, { display: 'flex', gap: '6px', alignItems: 'baseline', padding: '2px 0', fontSize: '11px' });
+    const appProps = [
+      { prop: 'background-color', label: 'background', family: null, isValue: false, hasColor: true },
+      { prop: 'border-radius', family: null, isValue: false },
+      { prop: 'border-color', family: null, isValue: false, hasColor: true },
+      { prop: 'border-width', family: null, isValue: true, step: 1 },
+    ];
+    for (const def of appProps) {
+      const token = tokens[def.prop] || null;
+      const val = computed.getPropertyValue(def.prop);
+      if (!val) continue;
+      if (def.isValue || (!token && def.step)) {
+        content.appendChild(buildValueRow(def.label || def.prop, val, targetEl, def.step || 1));
+      } else if (token) {
+        content.appendChild(buildPropRow(def.label || def.prop, token, val, targetEl, null, def.hasColor));
+      } else {
+        content.appendChild(buildStaticRow(def.label || def.prop, truncate(val, 30)));
+      }
+    }
 
-        const propSpan = document.createElement('span');
-        Object.assign(propSpan.style, { color: 'rgba(255,255,255,0.6)', minWidth: '110px', flexShrink: '0' });
-        propSpan.textContent = row.prop;
-        rowDiv.appendChild(propSpan);
+    // Wire Tab cycling across all controls
+    wireTabCycling();
+  }
 
-        const valSpan = document.createElement('span');
-        Object.assign(valSpan.style, { color: '#fff', wordBreak: 'break-all' });
-        valSpan.textContent = truncate(row.val, 60);
-        rowDiv.appendChild(valSpan);
+  // --- Section label ---
 
-        if (row.token) {
-          const tokenSpan = document.createElement('span');
-          Object.assign(tokenSpan.style, {
-            color: '#fbbf24',
-            fontSize: '10px',
-            whiteSpace: 'nowrap',
-            cursor: 'pointer',
-            padding: '1px 4px',
-            borderRadius: '3px',
-            background: 'rgba(251,191,36,0.1)',
-            marginLeft: 'auto',
-          });
-          tokenSpan.textContent = row.token + ' ▾';
-          tokenSpan.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openTokenPicker(row.prop, row.token, tokenSpan, el);
-          });
-          rowDiv.appendChild(tokenSpan);
+  function sectionLabel(text) {
+    const lbl = el('div', {
+      fontSize: '9px', fontWeight: '700',
+      color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px',
+      marginBottom: '4px', marginTop: '10px',
+    });
+    lbl.textContent = text;
+    return lbl;
+  }
+
+  // --- Cross/Plus grid for padding/margin ---
+
+  function buildCross(type, targetEl, tokens, computed) {
+    const isPadding = type === 'padding';
+    const accentColor = isPadding ? 'rgba(80,200,120,' : 'rgba(255,165,0,';
+
+    const wrapper = el('div', { marginBottom: '10px' });
+
+    // Label
+    const label = el('div', {
+      fontSize: '9px', fontWeight: '600', letterSpacing: '0.3px',
+      color: accentColor + '0.7)', marginBottom: '4px', textAlign: 'center',
+    });
+    label.textContent = type;
+    wrapper.appendChild(label);
+
+    // Grid
+    const grid = el('div', {
+      display: 'grid',
+      gridTemplateColumns: '1fr auto 1fr',
+      gridTemplateRows: 'auto auto auto',
+      gap: '2px',
+      alignItems: 'center',
+      justifyItems: 'center',
+      maxWidth: '220px',
+      margin: '0 auto',
+    });
+
+    const sides = ['top', 'right', 'bottom', 'left'];
+    const positions = {
+      top: { gridColumn: '2', gridRow: '1' },
+      left: { gridColumn: '1', gridRow: '2' },
+      right: { gridColumn: '3', gridRow: '2' },
+      bottom: { gridColumn: '2', gridRow: '3' },
+    };
+
+    const stepSpans = [];
+
+    // Side cells
+    sides.forEach(side => {
+      const prop = `${type}-${side}`;
+      const token = tokens[prop] || null;
+      const val = computed.getPropertyValue(prop);
+
+      const cell = el('div', positions[side]);
+      const span = createTokenStep(token, prop, targetEl, 'sp', isPadding);
+      stepSpans.push(span);
+      cell.appendChild(span);
+      grid.appendChild(cell);
+    });
+
+    // "All" center cell
+    const centerCell = el('div', { gridColumn: '2', gridRow: '2' });
+    const allSpan = el('span', {
+      fontSize: '10px', minWidth: '50px', padding: '3px 6px',
+      borderRadius: '4px', textAlign: 'center', cursor: 'pointer',
+      outline: 'none', whiteSpace: 'nowrap',
+      background: accentColor + '0.15)',
+      color: accentColor + '0.9)',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0' });
+    allSpan.textContent = 'all';
+    allSpan.classList.add('dt-token-step', 'dt-cross-all');
+    allSpan.dataset.prop = type;
+    allSpan.dataset.family = 'sp';
+
+    // "All" interaction — steps all 4 sides together
+    attachAllControl(allSpan, stepSpans, type, targetEl);
+    centerCell.appendChild(allSpan);
+    grid.appendChild(centerCell);
+
+    wrapper.appendChild(grid);
+    return wrapper;
+  }
+
+  function createTokenStep(token, prop, targetEl, defaultFamily, isPadding) {
+    const hasToken = !!token;
+    const family = hasToken ? getFamily(token) : defaultFamily;
+
+    const span = el('span', {
+      fontSize: '10px', minWidth: '70px', padding: '3px 6px',
+      borderRadius: '4px', textAlign: 'center', cursor: 'pointer',
+      outline: 'none', whiteSpace: 'nowrap',
+      color: hasToken ? '#fbbf24' : 'rgba(255,255,255,0.4)',
+      background: 'rgba(251,191,36,0.08)',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0' });
+    span.textContent = hasToken ? token : '0';
+    span.classList.add('dt-token-step');
+    span.dataset.prop = prop;
+    span.dataset.token = token || '';
+    span.dataset.family = family || '';
+
+    attachTokenStepHandlers(span, targetEl);
+    return span;
+  }
+
+  // --- Token step keyboard handlers ---
+
+  function attachTokenStepHandlers(span, targetEl) {
+    const prop = span.dataset.prop;
+
+    span.addEventListener('click', (e) => { e.stopPropagation(); span.focus(); });
+
+    span.addEventListener('focus', () => {
+      span.style.background = 'rgba(251,191,36,0.22)';
+      span.style.boxShadow = '0 0 0 2px rgba(251,191,36,0.6)';
+      if (prop.startsWith('padding') || prop.startsWith('margin')) {
+        showSpacingOverlay(prop, targetEl);
+      }
+    });
+
+    span.addEventListener('blur', () => {
+      span.style.background = 'rgba(251,191,36,0.08)';
+      span.style.boxShadow = '';
+      clearOverlay();
+    });
+
+    span.addEventListener('mouseenter', () => {
+      if (document.activeElement !== span) {
+        span.style.background = 'rgba(251,191,36,0.18)';
+        span.style.boxShadow = '0 0 0 1px rgba(251,191,36,0.3)';
+      }
+      if (prop.startsWith('padding') || prop.startsWith('margin')) {
+        showSpacingOverlay(prop, targetEl);
+      }
+    });
+
+    span.addEventListener('mouseleave', () => {
+      if (document.activeElement !== span) {
+        span.style.background = 'rgba(251,191,36,0.08)';
+        span.style.boxShadow = '';
+        clearOverlay();
+      }
+    });
+
+    span.addEventListener('keydown', (e) => {
+      const family = span.dataset.family;
+      const scale = getFamilyByName(family);
+      if (!scale || !scale.length) return;
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        stepToken(span, scale, 1, targetEl);
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        stepToken(span, scale, -1, targetEl);
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        resetProp(targetEl, prop);
+        span.textContent = '\u2014';
+        span.style.color = 'rgba(255,255,255,0.3)';
+        span.dataset.token = '';
+      } else if (e.key === 'Escape') {
+        span.blur();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        cycleControl(span, e.shiftKey);
+      }
+    });
+  }
+
+  function stepToken(span, scale, dir, targetEl) {
+    const currentToken = span.dataset.token;
+    let idx = scale.findIndex(t => t.name === currentToken);
+    if (idx < 0) idx = 0;
+    idx = Math.max(0, Math.min(scale.length - 1, idx + dir));
+
+    const token = scale[idx];
+    span.dataset.token = token.name;
+    span.textContent = token.name;
+    span.style.color = '#fbbf24';
+
+    const prop = span.dataset.prop;
+    applyToken(targetEl, prop, token.name, currentToken);
+
+    if (prop.startsWith('padding') || prop.startsWith('margin')) {
+      showSpacingOverlay(prop, targetEl);
+    }
+
+    // Update swatch if in a row with one
+    const row = span.closest('.dt-prop-row');
+    if (row) {
+      const swatch = row.querySelector('.dt-color-swatch');
+      if (swatch) {
+        swatch.style.background = resolveTokenColor(token.name);
+      }
+    }
+  }
+
+  // --- "All" center control ---
+
+  function attachAllControl(allSpan, sideSpans, type, targetEl) {
+    allSpan.addEventListener('click', (e) => { e.stopPropagation(); allSpan.focus(); });
+
+    allSpan.addEventListener('focus', () => {
+      const isPadding = type === 'padding';
+      const accent = isPadding ? 'rgba(80,200,120,' : 'rgba(255,165,0,';
+      allSpan.style.boxShadow = '0 0 0 2px ' + accent + '0.6)';
+      showSpacingOverlay(type, targetEl);
+    });
+
+    allSpan.addEventListener('blur', () => {
+      allSpan.style.boxShadow = '';
+      clearOverlay();
+    });
+
+    allSpan.addEventListener('keydown', (e) => {
+      const family = allSpan.dataset.family;
+      const scale = getFamilyByName(family);
+      if (!scale || !scale.length) return;
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        stepAll(allSpan, sideSpans, scale, 1, type, targetEl);
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        stepAll(allSpan, sideSpans, scale, -1, type, targetEl);
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        ['top', 'right', 'bottom', 'left'].forEach(side => {
+          resetProp(targetEl, `${type}-${side}`);
+        });
+        sideSpans.forEach(s => {
+          s.textContent = '\u2014';
+          s.style.color = 'rgba(255,255,255,0.3)';
+          s.dataset.token = '';
+        });
+        allSpan.textContent = '\u2014';
+      } else if (e.key === 'Escape') {
+        allSpan.blur();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        cycleControl(allSpan, e.shiftKey);
+      }
+    });
+  }
+
+  function stepAll(allSpan, sideSpans, scale, dir, type, targetEl) {
+    // Use the first side's current index as reference
+    const refToken = sideSpans[0].dataset.token;
+    let idx = scale.findIndex(t => t.name === refToken);
+    if (idx < 0) idx = 0;
+    idx = Math.max(0, Math.min(scale.length - 1, idx + dir));
+
+    const token = scale[idx];
+    allSpan.textContent = token.name;
+    allSpan.dataset.token = token.name;
+
+    const sides = ['top', 'right', 'bottom', 'left'];
+    sideSpans.forEach((span, i) => {
+      span.dataset.token = token.name;
+      span.textContent = token.name;
+      span.style.color = '#fbbf24';
+      applyToken(targetEl, `${type}-${sides[i]}`, token.name, span.dataset.token);
+    });
+
+    showSpacingOverlay(type, targetEl);
+  }
+
+  // --- Property row builders ---
+
+  function buildPropRow(label, token, val, targetEl, defaultFamily, hasColor) {
+    const row = el('div', {
+      display: 'flex', gap: '6px', alignItems: 'center',
+      padding: '2px 0', fontSize: '11px',
+    });
+    row.classList.add('dt-prop-row');
+
+    const nameSpan = el('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    nameSpan.textContent = label;
+    row.appendChild(nameSpan);
+
+    // Color swatch
+    if (hasColor && token) {
+      const swatch = el('span', {
+        width: '12px', height: '12px', borderRadius: '3px',
+        border: '1px solid rgba(255,255,255,0.2)',
+        marginLeft: 'auto', flexShrink: '0',
+        background: resolveTokenColor(token),
+      });
+      swatch.classList.add('dt-color-swatch');
+      row.appendChild(swatch);
+    }
+
+    // Token step
+    const family = token ? getFamily(token) : defaultFamily;
+    const span = el('span', {
+      color: '#fbbf24', fontSize: '11px', whiteSpace: 'nowrap',
+      cursor: 'pointer', padding: '4px 10px', borderRadius: '4px',
+      background: 'rgba(251,191,36,0.08)', minWidth: '100px',
+      textAlign: 'center', outline: 'none',
+      marginLeft: hasColor ? '0' : 'auto',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0' });
+    span.textContent = token;
+    span.classList.add('dt-token-step');
+    span.dataset.prop = label.includes('-') ? label : label; // use actual CSS prop
+    span.dataset.token = token;
+    span.dataset.family = family || '';
+
+    // For non-spacing props, we still want the prop name to be the CSS property
+    // Fix: use the actual prop (could differ from label for background-color→background)
+    const cssProp = label === 'background' ? 'background-color' : label;
+    span.dataset.prop = cssProp;
+
+    attachTokenStepHandlers(span, targetEl);
+    row.appendChild(span);
+    return row;
+  }
+
+  function buildValueRow(prop, val, targetEl, step) {
+    const row = el('div', {
+      display: 'flex', gap: '6px', alignItems: 'center',
+      padding: '2px 0', fontSize: '11px',
+    });
+    row.classList.add('dt-prop-row');
+
+    const nameSpan = el('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    nameSpan.textContent = prop;
+    row.appendChild(nameSpan);
+
+    const input = el('span', {
+      color: '#7dd3fc', fontSize: '11px', whiteSpace: 'nowrap',
+      cursor: 'text', padding: '4px 10px', borderRadius: '4px',
+      background: 'rgba(125,211,252,0.08)', minWidth: '60px',
+      textAlign: 'center', outline: 'none', marginLeft: 'auto',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0', contenteditable: 'true' });
+    // Show simplified value (extract number if possible)
+    const numVal = parseFloat(val);
+    input.textContent = isNaN(numVal) ? val : numVal.toString();
+    input.classList.add('dt-value-input');
+    input.dataset.prop = prop;
+
+    attachValueInputHandlers(input, targetEl, step);
+    row.appendChild(input);
+    return row;
+  }
+
+  function buildStaticRow(label, val) {
+    const row = el('div', {
+      display: 'flex', gap: '6px', alignItems: 'baseline',
+      padding: '2px 0', fontSize: '11px',
+    });
+    const nameSpan = el('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    nameSpan.textContent = label;
+    const valSpan = el('span', { color: 'rgba(255,255,255,0.8)', marginLeft: 'auto' });
+    valSpan.textContent = truncate(val, 30);
+    row.appendChild(nameSpan);
+    row.appendChild(valSpan);
+    return row;
+  }
+
+  // --- Value input handlers ---
+
+  function attachValueInputHandlers(input, targetEl, step) {
+    const prop = input.dataset.prop;
+
+    input.addEventListener('focus', () => {
+      input.style.background = 'rgba(125,211,252,0.18)';
+      input.style.boxShadow = '0 0 0 2px rgba(125,211,252,0.6)';
+      // Select all
+      const range = document.createRange();
+      range.selectNodeContents(input);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+
+    input.addEventListener('blur', () => {
+      input.style.background = 'rgba(125,211,252,0.08)';
+      input.style.boxShadow = '';
+      const val = input.textContent.trim();
+      if (!val || val === '\u2014') {
+        input.textContent = '\u2014';
+        input.style.color = 'rgba(255,255,255,0.3)';
+        resetProp(targetEl, prop);
+      } else {
+        input.style.color = '#7dd3fc';
+        applyRawValue(targetEl, prop, val);
+      }
+    });
+
+    input.addEventListener('mouseenter', () => {
+      if (document.activeElement !== input) {
+        input.style.background = 'rgba(125,211,252,0.15)';
+        input.style.boxShadow = '0 0 0 1px rgba(125,211,252,0.3)';
+      }
+    });
+
+    input.addEventListener('mouseleave', () => {
+      if (document.activeElement !== input) {
+        input.style.background = 'rgba(125,211,252,0.08)';
+        input.style.boxShadow = '';
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();
+      } else if (e.key === 'Escape') {
+        input.blur();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const val = input.textContent.trim();
+        if (val && val !== '\u2014') applyRawValue(targetEl, prop, val);
+        cycleControl(input, e.shiftKey);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const num = parseFloat(input.textContent);
+        if (!isNaN(num)) {
+          const s = e.shiftKey && step === 1 ? 10 : step;
+          input.textContent = parseFloat((num + s).toFixed(2)).toString();
+          applyRawValue(targetEl, prop, input.textContent);
         }
-
-        groupDiv.appendChild(rowDiv);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const num = parseFloat(input.textContent);
+        if (!isNaN(num)) {
+          const s = e.shiftKey && step === 1 ? 10 : step;
+          input.textContent = parseFloat(Math.max(0, num - s).toFixed(2)).toString();
+          applyRawValue(targetEl, prop, input.textContent);
+        }
       }
-      content.appendChild(groupDiv);
-    }
-
-    // Custom properties defined on the element
-    const customProps = getInlineCustomProps(el);
-    if (customProps.length > 0) {
-      const cpDiv = document.createElement('div');
-      cpDiv.style.marginBottom = '8px';
-      const cpLabel = document.createElement('div');
-      Object.assign(cpLabel.style, { fontSize: '9px', fontWeight: '700', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px', marginBottom: '4px' });
-      cpLabel.textContent = 'CUSTOM PROPERTIES';
-      cpDiv.appendChild(cpLabel);
-
-      for (const { name, value } of customProps) {
-        const row = document.createElement('div');
-        Object.assign(row.style, { display: 'flex', gap: '6px', alignItems: 'baseline', padding: '2px 0', fontSize: '11px' });
-        const nameSpan = document.createElement('span');
-        nameSpan.style.color = '#fbbf24';
-        nameSpan.textContent = name;
-        const valSpan = document.createElement('span');
-        valSpan.style.color = '#fff';
-        valSpan.textContent = truncate(value, 60);
-        row.appendChild(nameSpan);
-        row.appendChild(valSpan);
-        cpDiv.appendChild(row);
-      }
-      content.appendChild(cpDiv);
-    }
+    });
   }
 
-  function getInlineCustomProps(el) {
-    const props = [];
-    if (!el.style || !el.style.length) return props;
-    for (let i = 0; i < el.style.length; i++) {
-      const name = el.style[i];
-      if (name.startsWith('--')) {
-        props.push({ name, value: el.style.getPropertyValue(name) });
-      }
-    }
-    return props;
+  // --- Tab cycling ---
+
+  function wireTabCycling() {
+    // Tab cycling is handled in each keydown handler via cycleControl()
   }
+
+  function cycleControl(current, reverse) {
+    const all = [...content.querySelectorAll('.dt-token-step, .dt-value-input')];
+    const i = all.indexOf(current);
+    if (i < 0) return;
+    const next = reverse
+      ? all[(i - 1 + all.length) % all.length]
+      : all[(i + 1) % all.length];
+    next.focus();
+  }
+
+  // --- Utility ---
 
   function truncate(str, max) {
-    return str.length > max ? str.slice(0, max) + '…' : str;
+    return str.length > max ? str.slice(0, max) + '\u2026' : str;
   }
 
   // --- Selection tracking ---
@@ -584,9 +890,9 @@
   const plugin = {
     id: 'inspector-panel',
     label: 'Inspector Panel',
+    // No icon — not a toolbar mode. Shows automatically when an element is selected.
 
     init(_api) {
-      console.log('[inspector-panel] Plugin initialized');
       api = _api;
       panel = api.createPanel({
         title: 'Inspector',
@@ -598,19 +904,20 @@
         maxHeight: '60vh',
         overflowY: 'auto',
         overflowX: 'hidden',
+        scrollbarWidth: 'none',
       });
       panel.style.display = 'none';
       startPolling();
-
-      // Initialize change tracking
       window.DomTools._inspectorChanges = changes;
     },
 
-    enable() {},
+    enable() {
+      startPolling();
+    },
 
     disable() {
       stopPolling();
-      closePicker();
+      clearOverlay();
       if (panel) panel.style.display = 'none';
     },
   };
