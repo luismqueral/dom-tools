@@ -114,6 +114,17 @@ function buildSections(filterEls) {
     if (!entry.classDiff) entry.classDiff = { added, removed };
   });
 
+  // Inspector panel token/style changes.
+  const inspectorChanges = window.DomTools && window.DomTools._inspectorChanges;
+  if (inspectorChanges && inspectorChanges.length) {
+    inspectorChanges.forEach(({ el, prop, from, to }) => {
+      if (!overlaps([el])) return;
+      const entry = ensureEntry(el);
+      if (!entry.styleDiffs) entry.styleDiffs = [];
+      entry.styleDiffs.push({ prop, from, to });
+    });
+  }
+
   const sections = [];
 
   groupNotes.forEach(g => {
@@ -128,6 +139,12 @@ function buildSections(filterEls) {
     if (entry.note) lines.push(`Note: ${entry.note}`);
     if (entry.textDiff) lines.push(formatTextDiff(entry.textDiff.before, entry.textDiff.after));
     if (entry.classDiff) lines.push(formatClassDiff(entry.classDiff.added, entry.classDiff.removed));
+    if (entry.styleDiffs) {
+      lines.push('Styles:');
+      entry.styleDiffs.forEach(d => {
+        lines.push(`  ${d.prop}: ${d.from} → ${d.to}`);
+      });
+    }
     if (lines.length === 1) return;
     sections.push(lines.join('\n'));
   });

@@ -1,0 +1,213 @@
+/* nyt.css -- a design token library for Times-ian documents
+ *
+ * FONTS -- Load from the NYT CDN. Add this to your <head>:
+ *
+ *   <link rel="preconnect" href="https://g1.nyt.com" crossorigin>
+ *   <link rel="stylesheet" href="https://g1.nyt.com/fonts/css/web-fonts.c851560786173ad206e1f76c1901be7e096e8f8b.css">
+ *
+ * Do NOT bundle font files locally -- use the CDN link above.
+ *
+ * FONT USAGE GUIDELINES:
+ *
+ *   nyt-franklin        -- Primary UI font. Navigation, buttons, labels, product body text.
+ *   nyt-franklin-small  -- Smaller optical size of Franklin for fine print, captions.
+ *   nyt-cheltenham      -- Journalism headlines. Article titles, section headers on nytimes.com.
+ *   nyt-cheltenham-cond -- Condensed headlines where space is tight.
+ *   nyt-cheltenham-wide -- Wide setting for display headlines.
+ *   nyt-cheltenham-small -- Small optical size for bylines, credits.
+ *   nyt-cheltenham-scaps -- Small caps variant for labels, kickers.
+ *   nyt-imperial        -- Article body text. Long-form reading on nytimes.com.
+ *   nyt-karnak          -- Display/statement type. Large headlines, masthead, section fronts.
+ *   nyt-karnak-cond     -- Condensed display for narrow spaces (e.g. Games).
+ *   nyt-karnak-small    -- Smaller optical size of Karnak.
+ *   nyt-kippenberger    -- NYT Magazine. Covers, features, pull quotes.
+ *   nyt-kippenberger-condensed -- Magazine condensed variant.
+ *   nyt-kippenberger-poster    -- Magazine poster/display size.
+ *   nyt-magsans         -- Magazine sans-serif for captions, credits.
+ *   nyt-magserif        -- Magazine serif for body text.
+ *   nyt-magslab         -- Magazine slab for callouts.
+ *   nyt-fact            -- Wirecutter / product reviews. Clean modern sans.
+ *   nyt-fact-display    -- Wirecutter display headlines.
+ *   nyt-athletic-slab   -- The Athletic. Sports headlines and branding.
+ *   nyt-schnyder-s      -- Decorative serif for special features.
+ *   nyt-ibm-plex        -- Monospace. Code blocks, data tables, technical content.
+ */
+
+:root {
+  /* Colors */
+  --nyt-fg: #121212;
+  --nyt-fg-dim: #5a5a5a;
+  --nyt-fg-faint: #8b8b8b;
+  --nyt-bg: #ffffff;
+  --nyt-bg-alt: #f5f5f2;
+  --nyt-border: #ececec;
+  --nyt-border-strong: #c7c7c7;
+  --nyt-accent: #326891;
+  --nyt-red: #c13b2a;
+  --nyt-orange: #b87a00;
+  --nyt-green: #3f7f63;
+
+  /* Data Viz -- Stela categorical palette */
+  --viz-1: #2A6586;
+  --viz-2: #6CBAAB;
+  --viz-3: #B2A5E7;
+  --viz-4: #F66043;
+  --viz-5: #D2E463;
+  --viz-6: #F1A05B;
+  --viz-7: #657D53;
+  --viz-8: #BD5D91;
+
+  /* Data Viz -- Sequential scales */
+  --viz-blue-1: #242b40;
+  --viz-blue-2: #1f497d;
+  --viz-blue-3: #00577e;
+  --viz-blue-4: #80b0c1;
+  --viz-green-1: #437661;
+  --viz-green-2: #6a9b87;
+  --viz-green-3: #a8ddc7;
+  --viz-green-4: #e2eceb;
+
+  /* Data Viz -- Product colors */
+  --viz-core: #2F3E7A;
+  --viz-cooking: #f9351a;
+  --viz-games: #F8CD0F;
+  --viz-athletic: #30522D;
+  --viz-wirecutter: #6085ff;
+  --viz-audio: #357a8a;
+
+  /* Fonts -- Primary stacks */
+  --nyt-sans: 'nyt-franklin', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --nyt-sans-small: 'nyt-franklin-small', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --nyt-serif: 'nyt-cheltenham', Georgia, "Times New Roman", serif;
+  --nyt-serif-cond: 'nyt-cheltenham-cond', Georgia, "Times New Roman", serif;
+  --nyt-serif-wide: 'nyt-cheltenham-wide', Georgia, "Times New Roman", serif;
+  --nyt-serif-small: 'nyt-cheltenham-small', Georgia, "Times New Roman", serif;
+  --nyt-serif-scaps: 'nyt-cheltenham-scaps', Georgia, "Times New Roman", serif;
+  --nyt-imperial: 'nyt-imperial', Georgia, "Times New Roman", serif;
+  --nyt-display: 'nyt-karnak', Georgia, serif;
+  --nyt-display-cond: 'nyt-karnak-cond', Georgia, serif;
+  --nyt-display-small: 'nyt-karnak-small', Georgia, serif;
+
+  /* Fonts -- Magazine */
+  --nyt-mag: 'nyt-kippenberger', Georgia, serif;
+  --nyt-mag-cond: 'nyt-kippenberger-condensed', Georgia, serif;
+  --nyt-mag-poster: 'nyt-kippenberger-poster', Georgia, serif;
+  --nyt-mag-sans: 'nyt-magsans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --nyt-mag-serif: 'nyt-magserif', Georgia, serif;
+  --nyt-mag-slab: 'nyt-magslab', Georgia, serif;
+
+  /* Fonts -- Products */
+  --nyt-fact: 'nyt-fact', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --nyt-fact-display: 'nyt-fact-display', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --nyt-athletic: 'nyt-athletic-slab', Georgia, serif;
+  --nyt-schnyder: 'nyt-schnyder-s', Georgia, serif;
+  --nyt-mono: 'nyt-ibm-plex', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+
+  /* Spacing scale */
+  --sp-0: 0;
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+  --sp-8: 4rem;
+  --sp-10: 5rem;
+  --sp-12: 6rem;
+  --sp-16: 8rem;
+
+  /* Type scale */
+  --ts-xs: 11px;
+  --ts-sm: 13px;
+  --ts-base: 15px;
+  --ts-md: 17px;
+  --ts-lg: 20px;
+  --ts-xl: 26px;
+  --ts-2xl: 34px;
+  --ts-3xl: 42px;
+
+  /* Line height */
+  --lh-solid: 1;
+  --lh-title: 1.2;
+  --lh-heading: 1.3;
+  --lh-copy: 1.55;
+  --lh-loose: 1.8;
+
+  /* Letter spacing */
+  --ls-tight: -0.02em;
+  --ls-none: 0;
+  --ls-tracked: 0.05em;
+  --ls-mega: 0.15em;
+
+  /* Border radius */
+  --br-0: 0;
+  --br-1: 2px;
+  --br-2: 4px;
+  --br-3: 8px;
+  --br-4: 12px;
+  --br-5: 16px;
+  --br-pill: 9999px;
+  --br-full: 100%;
+
+  /* Box shadow */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow-3: 0 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-4: 0 8px 16px rgba(0, 0, 0, 0.14);
+  --shadow-5: 0 16px 32px rgba(0, 0, 0, 0.16);
+
+  /* Border width */
+  --bw-0: 0;
+  --bw-1: 1px;
+  --bw-2: 2px;
+  --bw-3: 4px;
+  --bw-4: 8px;
+
+  /* Transition */
+  --ease-fast: 0.1s ease;
+  --ease-normal: 0.2s ease;
+  --ease-slow: 0.4s ease;
+
+  /* Max-width */
+  --mw-narrow: 560px;
+  --mw-container: 760px;
+  --mw-wide: 960px;
+  --mw-full: 1200px;
+
+  /* Sizing -- proportional */
+  --size-quarter: 25%;
+  --size-third: 33.333%;
+  --size-half: 50%;
+  --size-two-thirds: 66.666%;
+  --size-three-quarters: 75%;
+  --size-full: 100%;
+}
+
+/* Document defaults */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  font-family: var(--nyt-sans);
+  font-weight: 500;
+  font-size: var(--ts-base);
+  line-height: 1.55;
+  color: var(--nyt-fg);
+  background: var(--nyt-bg);
+  margin: 0;
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+
+/* Typography defaults */
+h1, h2, h3, h4, h5, h6 { font-family: var(--nyt-sans); font-weight: 700; line-height: 1.2; margin: 0; }
+h1 { font-size: var(--ts-2xl); }
+h2 { font-size: var(--ts-lg); }
+h3 { font-size: var(--ts-md); }
+p { margin: 0 0 1em; }
+a { color: var(--nyt-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: var(--nyt-mono); font-size: 0.88em; background: var(--nyt-bg-alt); padding: 1px 4px; border-radius: 3px; border: 1px solid var(--nyt-border); }
+hr { border: none; border-top: 1px solid var(--nyt-border); margin: var(--sp-6) 0; }
+
+/* Utility: max-width container */
+.container { max-width: var(--mw-container); margin: 0 auto; padding: 0 var(--sp-6); }
+.container-wide { max-width: var(--mw-wide); margin: 0 auto; padding: 0 var(--sp-6); }
