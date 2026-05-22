@@ -540,19 +540,26 @@
     span.addEventListener('keydown', (e) => {
       const family = span.dataset.family;
       const scale = getFamilyByName(family);
-      if (!scale || !scale.length) return;
 
       if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
         e.preventDefault();
-        stepToken(span, scale, 1, targetEl);
+        if (scale && scale.length) {
+          stepToken(span, scale, 1, targetEl);
+        } else {
+          stepRawPx(span, 1, targetEl, e.shiftKey);
+        }
       } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
         e.preventDefault();
-        stepToken(span, scale, -1, targetEl);
+        if (scale && scale.length) {
+          stepToken(span, scale, -1, targetEl);
+        } else {
+          stepRawPx(span, -1, targetEl, e.shiftKey);
+        }
       } else if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault();
         resetProp(targetEl, prop);
-        span.textContent = '\u2014';
-        span.style.color = 'rgba(255,255,255,0.3)';
+        span.textContent = '0';
+        span.style.color = 'rgba(255,255,255,0.4)';
         span.dataset.token = '';
       } else if (e.key === 'Escape') {
         span.blur();
@@ -561,6 +568,20 @@
         cycleControl(span, e.shiftKey);
       }
     });
+  }
+
+  function stepRawPx(span, dir, targetEl, shiftKey) {
+    const prop = span.dataset.prop;
+    const current = parseFloat(span.textContent) || 0;
+    const step = shiftKey ? 10 : 1;
+    const next = Math.max(0, current + dir * step);
+    const val = next + 'px';
+    span.textContent = val;
+    span.style.color = '#7dd3fc';
+    applyRawValue(targetEl, prop, val);
+    if (prop.startsWith('padding') || prop.startsWith('margin')) {
+      showSpacingOverlay(prop, targetEl);
+    }
   }
 
   function stepToken(span, scale, dir, targetEl) {
