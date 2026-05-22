@@ -658,6 +658,9 @@ function onMouseDown(e) {
   if (editingEl && (e.target === editingEl || editingEl.contains(e.target))) return;
   if (e.button !== 0) return;
 
+  // Prevent link navigation and text-selection while selecting elements
+  e.preventDefault();
+
   // Clicking outside the editing element — force exit edit mode
   if (editingEl) editingEl.blur();
 
@@ -1022,6 +1025,11 @@ const moduleSpec = {
     ensurePlexMono();
     initMarquee();
     document.addEventListener('mousedown', onMouseDown, true);
+    document.addEventListener('click', (e) => {
+      if (!activeMode || isInspectorUI(e.target)) return;
+      // Suppress link navigation while selecting elements
+      if (e.target.closest('a')) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
     document.addEventListener('mousemove', (e) => { onDragMove(e); onMove(e); }, true);
     document.addEventListener('mouseup', onMouseUp, true);
     document.addEventListener('dblclick', onDblClick, true);
