@@ -69,6 +69,7 @@ const EXPERIMENT_DEFS = [
   // Plugins
   { id: 'hd-capture', label: 'HD Capture', category: 'plugins', description: 'Tiled rendering for sharp full-page screenshots on very tall pages.', default: true },
   { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false },
+  { id: 'inspector-panel', label: 'Inspector Panel', category: 'plugins', description: 'Shows computed styles and CSS tokens for the selected element.', default: true },
 ];
 
 export function isExperimentEnabled(id) {

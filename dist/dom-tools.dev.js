@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-20T14:28:21.097Z
+ * Built: 2026-05-22T01:11:31.724Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -105,11 +105,12 @@
 
   function showToast(msg) {
     if (!toast) return;
-    toast.textContent = msg;
+    toast.innerHTML = msg.replace(/\[([^\]]+)\]/g,
+      '<kbd style="display:inline-block;padding:2px 6px;margin:0 2px;background:#444;border:1px solid #555;border-radius:4px;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;line-height:1.3">$1</kbd>');
     toast.style.display = 'block';
     toast.style.opacity = '1';
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.style.display = 'none', 200); }, 2000);
+    toast._t = setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.style.display = 'none', 200); }, 6000);
   }
 
   // --- Tooltip ---
@@ -143,9 +144,9 @@
     toast = document.createElement('div');
     Object.assign(toast.style, {
       position: 'fixed', top: '16px', left: '50%', transform: 'translateX(-50%)',
-      background: '#222', color: '#fff', padding: '8px 16px', borderRadius: '6px',
-      fontSize: '13px', fontFamily: 'monospace', zIndex: String(Z.toolbar), display: 'none',
-      transition: 'opacity 0.2s', whiteSpace: 'nowrap', maxWidth: '90vw', overflow: 'hidden', textOverflow: 'ellipsis'
+      background: 'rgba(30,30,30,0.95)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', color: '#fff', padding: '8px 16px', borderRadius: '6px',
+      fontSize: '13px', fontFamily: 'system-ui, -apple-system, sans-serif', zIndex: String(Z.toolbar), display: 'none',
+      transition: 'opacity 0.2s', whiteSpace: 'nowrap', maxWidth: '90vw'
     });
     document.body.appendChild(toast);
     inspectorUI.add(toast);
@@ -1198,9 +1199,8 @@
     },
     // Plugins
     { id: 'hd-capture', label: 'HD Capture', category: 'plugins', description: 'Tiled rendering for sharp full-page screenshots on very tall pages.', default: true },
-    { id: 'dom-xray', label: 'DOM X-Ray', category: 'plugins', description: 'Visualize box model — content, padding, border, and margin as colored overlays.', default: false, beta: true },
-    { id: 'spacing-debugger', label: 'Spacing Debugger', category: 'plugins', description: 'Show all margins and paddings across the page simultaneously.', default: false, beta: true },
     { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false },
+    { id: 'inspector-panel', label: 'Inspector Panel', category: 'plugins', description: 'Shows computed styles and CSS tokens for the selected element.', default: true },
   ];
 
   function isExperimentEnabled(id) {
@@ -1394,10 +1394,12 @@
 
   // --- Tab: About ---
   function buildAboutTab(container) {
-    // Version
+    // Version + build date
     const version = el('div', { marginBottom: '20px' });
     version.appendChild(el('div', { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }, 'DOM-Tools'));
-    version.appendChild(el('div', { fontSize: '11px', color: '#888' }, 'v1.0.0'));
+    const buildDate = "2026-05-22T01:11:31.724Z" ;
+    const dateLabel = new Date(buildDate).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) ;
+    version.appendChild(el('div', { fontSize: '11px', color: '#888' }, `Release: ${dateLabel}`));
     container.appendChild(version);
 
     // Shortcuts
@@ -1429,24 +1431,18 @@
       paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
     }, 'Links'));
 
-    const links = [
-      ['GitHub', 'https://github.com/luismqueral/dom-tools'],
-      ['Documentation', 'https://queral.studio/notes/dom-tools'],
-    ];
-    links.forEach(([label, href]) => {
-      const a = document.createElement('a');
-      a.href = href;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      a.textContent = label;
-      Object.assign(a.style, {
-        display: 'block', fontSize: '12px', color: getSelectionColor(),
-        textDecoration: 'none', padding: '4px 0',
-      });
-      a.addEventListener('mouseenter', () => { a.style.textDecoration = 'underline'; });
-      a.addEventListener('mouseleave', () => { a.style.textDecoration = 'none'; });
-      container.appendChild(a);
+    const ghLink = document.createElement('a');
+    ghLink.href = 'https://github.com/luismqueral/dom-tools';
+    ghLink.target = '_blank';
+    ghLink.rel = 'noopener';
+    ghLink.textContent = 'GitHub';
+    Object.assign(ghLink.style, {
+      display: 'block', fontSize: '12px', color: getSelectionColor(),
+      textDecoration: 'none', padding: '4px 0',
     });
+    ghLink.addEventListener('mouseenter', () => { ghLink.style.textDecoration = 'underline'; });
+    ghLink.addEventListener('mouseleave', () => { ghLink.style.textDecoration = 'none'; });
+    container.appendChild(ghLink);
 
     // Reset
     container.appendChild(el('div', {
@@ -2021,6 +2017,234 @@
     els[0].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
+  // --- Double-Shift spacing inspection -------------------------------------
+  // Double-tap Shift while hovering to toggle padding (green) and margin
+  // (orange) overlays on the hovered element. Double-tap again to dismiss.
+
+  let spacingContainer = null;
+  let spacingEl = null;
+  let spacingActive = false;
+  let lastShiftUp = 0;
+  const SHIFT_DOUBLE_TAP_MS = 350;
+
+  const SPACING_PADDING_COLOR = 'rgba(144, 238, 144, 0.4)';
+  const SPACING_MARGIN_COLOR = 'rgba(255, 165, 0, 0.35)';
+
+  // --- CSS token resolution helpers -------------------------------------------
+
+  const TOKEN_RE = /var\((--[\w-]+)/;
+
+  function extractToken(value) {
+    if (!value) return null;
+    const m = value.match(TOKEN_RE);
+    return m ? m[1] : null;
+  }
+
+  function splitShorthandValue(value) {
+    const parts = [];
+    let current = '', depth = 0;
+    for (let i = 0; i < value.length; i++) {
+      const ch = value[i];
+      if (ch === '(') { depth++; current += ch; }
+      else if (ch === ')') { depth--; current += ch; }
+      else if (/\s/.test(ch) && depth === 0) {
+        if (current) { parts.push(current); current = ''; }
+      } else { current += ch; }
+    }
+    if (current) parts.push(current);
+    return parts;
+  }
+
+  function expandBoxShorthand(value) {
+    const parts = splitShorthandValue(value);
+    let top, right, bottom, left;
+    if (parts.length === 1) { top = right = bottom = left = parts[0]; }
+    else if (parts.length === 2) { top = bottom = parts[0]; right = left = parts[1]; }
+    else if (parts.length === 3) { top = parts[0]; right = left = parts[1]; bottom = parts[2]; }
+    else { top = parts[0]; right = parts[1]; bottom = parts[2]; left = parts[3]; }
+    return { top, right, bottom, left };
+  }
+
+  function collectRuleTokens(style, el, tokens) {
+    // Check shorthand first
+    for (const prop of ['padding', 'margin']) {
+      const raw = style.getPropertyValue(prop);
+      if (raw && TOKEN_RE.test(raw)) {
+        const expanded = expandBoxShorthand(raw);
+        const prefix = prop === 'padding' ? 'padding' : 'margin';
+        tokens[prefix + 'Top'] = extractToken(expanded.top);
+        tokens[prefix + 'Right'] = extractToken(expanded.right);
+        tokens[prefix + 'Bottom'] = extractToken(expanded.bottom);
+        tokens[prefix + 'Left'] = extractToken(expanded.left);
+      }
+    }
+    // Longhand overrides shorthand
+    for (const [cssProp, key] of [
+      ['padding-top', 'paddingTop'], ['padding-right', 'paddingRight'],
+      ['padding-bottom', 'paddingBottom'], ['padding-left', 'paddingLeft'],
+      ['margin-top', 'marginTop'], ['margin-right', 'marginRight'],
+      ['margin-bottom', 'marginBottom'], ['margin-left', 'marginLeft'],
+    ]) {
+      const raw = style.getPropertyValue(cssProp);
+      if (raw && TOKEN_RE.test(raw)) {
+        tokens[key] = extractToken(raw);
+      }
+    }
+  }
+
+  function processRules(rules, el, tokens) {
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      if (rule instanceof CSSMediaRule) {
+        if (window.matchMedia(rule.conditionText).matches) {
+          processRules(rule.cssRules, el, tokens);
+        }
+      } else if (rule instanceof CSSStyleRule) {
+        try { if (!el.matches(rule.selectorText)) continue; } catch (_) { continue; }
+        collectRuleTokens(rule.style, el, tokens);
+      }
+    }
+  }
+
+  function resolveTokensForElement(el) {
+    const tokens = {
+      paddingTop: null, paddingRight: null, paddingBottom: null, paddingLeft: null,
+      marginTop: null, marginRight: null, marginBottom: null, marginLeft: null,
+    };
+    // Iterate stylesheets (later rules / sheets override earlier — cascade approximation)
+    for (let s = 0; s < document.styleSheets.length; s++) {
+      let rules;
+      try { rules = document.styleSheets[s].cssRules; } catch (_) { continue; }
+      if (!rules) continue;
+      processRules(rules, el, tokens);
+    }
+    // Inline styles always win
+    if (el.style) collectRuleTokens(el.style, el, tokens);
+    return tokens;
+  }
+
+  // --- Spacing overlay rendering -----------------------------------------------
+
+  function ensureSpacingContainer() {
+    if (spacingContainer) return;
+    spacingContainer = document.createElement('div');
+    spacingContainer.setAttribute('data-dt-spacing-overlay', '');
+    Object.assign(spacingContainer.style, {
+      position: 'fixed', top: '0', left: '0',
+      width: '100%', height: '100%',
+      pointerEvents: 'none',
+      zIndex: String(Z.badge - 3),
+    });
+    document.body.appendChild(spacingContainer);
+    inspectorUI.add(spacingContainer);
+  }
+
+  const spacingLabels = [];
+
+  const LABEL_BG_PADDING = 'rgba(30, 90, 50, 0.9)';
+  const LABEL_BG_MARGIN = 'rgba(140, 70, 0, 0.9)';
+
+  function addSpacingBox(x, y, w, h, color, label, tokenName, isPadding) {
+    if (w <= 0 || h <= 0) return;
+    const d = document.createElement('div');
+    Object.assign(d.style, {
+      position: 'fixed',
+      top: y + 'px', left: x + 'px',
+      width: w + 'px', height: h + 'px',
+      background: color,
+    });
+    spacingContainer.appendChild(d);
+    // Queue label to be rendered in a second pass on top of all boxes
+    if (label > 0 && (w >= 14 || h >= 14)) {
+      const showToken = (w >= 20 || h >= 20) ? (tokenName || null) : null;
+      const bg = isPadding ? LABEL_BG_PADDING : LABEL_BG_MARGIN;
+      spacingLabels.push({ x: x + w / 2, y: y + h / 2, value: Math.round(label), token: showToken, bg });
+    }
+  }
+
+  function flushSpacingLabels() {
+    spacingLabels.forEach(({ x, y, value, token, bg }) => {
+      const lbl = document.createElement('span');
+      Object.assign(lbl.style, {
+        position: 'fixed',
+        top: y + 'px', left: x + 'px',
+        transform: 'translate(-50%, -50%)',
+        font: '9px/1 "IBM Plex Mono", ui-monospace, Menlo, monospace',
+        color: '#fff',
+        background: bg,
+        padding: '2px 4px', borderRadius: '2px',
+        whiteSpace: 'nowrap',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        gap: '1px',
+      });
+      if (token) {
+        const tokSpan = document.createElement('span');
+        tokSpan.textContent = token;
+        lbl.appendChild(tokSpan);
+        const valSpan = document.createElement('span');
+        valSpan.textContent = value;
+        Object.assign(valSpan.style, { fontSize: '7px', opacity: '0.7' });
+        lbl.appendChild(valSpan);
+      } else {
+        const valSpan = document.createElement('span');
+        valSpan.textContent = value;
+        lbl.appendChild(valSpan);
+      }
+      spacingContainer.appendChild(lbl);
+    });
+    spacingLabels.length = 0;
+  }
+
+  function showSpacingOverlay(el, force) {
+    if (spacingEl === el && !force) return;
+    ensureSpacingContainer();
+    spacingContainer.innerHTML = '';
+    spacingEl = el;
+
+    const cs = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const p = (v) => parseFloat(v) || 0;
+
+    const mt = p(cs.marginTop), mr = p(cs.marginRight);
+    const mb = p(cs.marginBottom), ml = p(cs.marginLeft);
+    const pt = p(cs.paddingTop), pr = p(cs.paddingRight);
+    const pb = p(cs.paddingBottom), pl = p(cs.paddingLeft);
+
+    // Padding (inside the element border)
+    const bt = p(cs.borderTopWidth), blw = p(cs.borderLeftWidth);
+    const br = p(cs.borderRightWidth), bb = p(cs.borderBottomWidth);
+
+    const innerTop = rect.top + bt;
+    const innerLeft = rect.left + blw;
+    const innerW = rect.width - blw - br;
+    const innerH = rect.height - bt - bb;
+
+    // Resolve CSS custom property tokens for this element
+    const tokens = resolveTokensForElement(el);
+
+    // Padding boxes
+    if (pt > 0) addSpacingBox(innerLeft, innerTop, innerW, pt, SPACING_PADDING_COLOR, pt, tokens.paddingTop, true);
+    if (pb > 0) addSpacingBox(innerLeft, innerTop + innerH - pb, innerW, pb, SPACING_PADDING_COLOR, pb, tokens.paddingBottom, true);
+    if (pl > 0) addSpacingBox(innerLeft, innerTop + pt, pl, innerH - pt - pb, SPACING_PADDING_COLOR, pl, tokens.paddingLeft, true);
+    if (pr > 0) addSpacingBox(innerLeft + innerW - pr, innerTop + pt, pr, innerH - pt - pb, SPACING_PADDING_COLOR, pr, tokens.paddingRight, true);
+
+    // Margin boxes
+    if (mt > 0) addSpacingBox(rect.left, rect.top - mt, rect.width, mt, SPACING_MARGIN_COLOR, mt, tokens.marginTop, false);
+    if (mb > 0) addSpacingBox(rect.left, rect.bottom, rect.width, mb, SPACING_MARGIN_COLOR, mb, tokens.marginBottom, false);
+    if (ml > 0) addSpacingBox(rect.left - ml, rect.top - mt, ml, rect.height + mt + mb, SPACING_MARGIN_COLOR, ml, tokens.marginLeft, false);
+    if (mr > 0) addSpacingBox(rect.right, rect.top - mt, mr, rect.height + mt + mb, SPACING_MARGIN_COLOR, mr, tokens.marginRight, false);
+
+    // Render labels in second pass so they sit above all colored boxes
+    flushSpacingLabels();
+  }
+
+  function clearSpacingOverlay() {
+    if (!spacingContainer) return;
+    spacingContainer.innerHTML = '';
+    spacingEl = null;
+    spacingActive = false;
+  }
+
   // --- Hover highlight -----------------------------------------------------
   // Two flavors:
   //   - block-ish (containers, images, etc): a soft tinted background +
@@ -2039,6 +2263,9 @@
     applyOutline(hoveredEl$1);
     hoveredEl$1 = null;
     refreshTagLabels();
+    // Clear the spacing target (boxes) but preserve spacingActive state
+    // so the next hovered element gets spacing too
+    if (spacingContainer) { spacingContainer.innerHTML = ''; spacingEl = null; }
   }
 
   function onMove$1(e) {
@@ -2057,7 +2284,10 @@
       clearHover$1();
       return;
     }
-    if (el === hoveredEl$1) return;
+    if (el === hoveredEl$1) {
+      if (spacingActive) showSpacingOverlay(hoveredEl$1);
+      return;
+    }
     clearHover$1();
     // Don't hover-paint elements that are already selected.
     if (selected.find(s => s.el === el)) return;
@@ -2068,6 +2298,7 @@
     el.style.outline = '2.5px solid ' + withAlpha(color, 0.55);
     el.style.backgroundColor = getOrigBackground(el);
     refreshTagLabels();
+    if (spacingActive) showSpacingOverlay(el);
   }
 
   // --- Drag-to-select (marquee) --------------------------------------------
@@ -2476,6 +2707,28 @@
       window.addEventListener('scroll', repositionAllTagLabels, true);
       window.addEventListener('resize', repositionAllTagLabels);
 
+      // Double-tap Shift to toggle spacing overlay
+      document.addEventListener('keyup', (e) => {
+        if (e.key !== 'Shift' || !activeMode$1) return;
+        const now = Date.now();
+        if (now - lastShiftUp < SHIFT_DOUBLE_TAP_MS) {
+          lastShiftUp = 0;
+          if (spacingActive) {
+            clearSpacingOverlay();
+            showToast('Show Spacing OFF');
+          } else {
+            spacingActive = true;
+            if (hoveredEl$1) showSpacingOverlay(hoveredEl$1);
+            showToast('Show Spacing ON — [Shift]+[Shift] to toggle');
+          }
+        } else {
+          lastShiftUp = now;
+        }
+      }, true);
+      // Reposition spacing overlay on scroll/resize
+      window.addEventListener('scroll', () => { if (spacingEl) showSpacingOverlay(spacingEl, true); }, true);
+      window.addEventListener('resize', () => { if (spacingEl) showSpacingOverlay(spacingEl, true); });
+
       // Live theme updates: re-paint selected outlines, editable-text
       // backgrounds, tag-label backgrounds, and the toolbar button
       // (when active) so a color swap from settings takes effect
@@ -2496,7 +2749,7 @@
       state.styleModActive = true;
       document.body.style.cursor = '';
       document.documentElement.classList.add('dt-comment-active');
-      showToast('Click to select, drag to group');
+      showToast('Select ON — Click to select, drag to group');
     },
 
     deactivate() {
@@ -2507,6 +2760,7 @@
       if (marqueeBox) marqueeBox.style.display = 'none';
       document.body.style.cursor = '';
       document.documentElement.classList.remove('dt-comment-active');
+      clearSpacingOverlay();
       clearHover$1();
       clearSelection();
       hideTagLabels();
@@ -3281,6 +3535,17 @@
       if (!entry.classDiff) entry.classDiff = { added, removed };
     });
 
+    // Inspector panel token/style changes.
+    const inspectorChanges = window.DomTools && window.DomTools._inspectorChanges;
+    if (inspectorChanges && inspectorChanges.length) {
+      inspectorChanges.forEach(({ el, prop, from, to }) => {
+        if (!overlaps([el])) return;
+        const entry = ensureEntry(el);
+        if (!entry.styleDiffs) entry.styleDiffs = [];
+        entry.styleDiffs.push({ prop, from, to });
+      });
+    }
+
     const sections = [];
 
     groupNotes.forEach(g => {
@@ -3295,6 +3560,12 @@
       if (entry.note) lines.push(`Note: ${entry.note}`);
       if (entry.textDiff) lines.push(formatTextDiff(entry.textDiff.before, entry.textDiff.after));
       if (entry.classDiff) lines.push(formatClassDiff(entry.classDiff.added, entry.classDiff.removed));
+      if (entry.styleDiffs) {
+        lines.push('Styles:');
+        entry.styleDiffs.forEach(d => {
+          lines.push(`  ${d.prop}: ${d.from} → ${d.to}`);
+        });
+      }
       if (lines.length === 1) return;
       sections.push(lines.join('\n'));
     });
@@ -3379,12 +3650,12 @@
       document.documentElement.classList.remove('dt-disabled');
       activateModule(HOME_ID);
       setActiveButton(HOME_ID);
-      showToast('DOM-Tools on');
+      showToast('DOM-Tools ON — [Esc]+[Esc] to toggle');
     } else {
       closeEditor();
       getModules().forEach(m => { if (m.deactivate) m.deactivate(); });
       document.documentElement.classList.add('dt-disabled');
-      showToast('DOM-Tools off');
+      showToast('DOM-Tools OFF — [Esc]+[Esc] to toggle');
     }
   }
 
@@ -3858,6 +4129,7 @@
     withAlpha,
     onColorChange,
     createPanel,
+    getSelected,
     Z,
     COLORS,
   };
@@ -4150,7 +4422,7 @@
       state.cameraMode = true;
       state.active = true;
       document.body.style.cursor = 'crosshair';
-      showToast('Camera ON — click element, drag area, or Cmd+Shift+S full page');
+      showToast('Camera ON — Click element, drag area, or [Cmd+Shift+S]. [Esc] to exit');
     },
 
     deactivate() {
@@ -4490,7 +4762,7 @@
       if (!drawPanel) drawPanel = createDrawPanel();
       drawPanel.style.display = 'block';
       renderPanelState();
-      showToast('Draw mode');
+      showToast('Draw ON — [A] or [Esc] to exit');
     },
 
     deactivate() {
@@ -4935,7 +5207,7 @@
     activate() {
       activeMode = true;
       state.editMode = true;
-      showToast('Edit Text — click any text to edit it inline');
+      showToast('Edit Text ON — Click any text to edit. [Esc] to exit');
     },
 
     deactivate() {
@@ -6180,6 +6452,12 @@
     updateMinimap();
 
     const zoomed = scale !== 1;
+    const wasZoomed = wrapper.dataset.dtBgSet === '1';
+    if (zoomed && !wasZoomed) {
+      showToast('Canvas ON — [Cmd]+Scroll to zoom, [Space] to pan. [Cmd+0] to reset');
+    } else if (!zoomed && wasZoomed) {
+      showToast('Canvas OFF');
+    }
     if (zoomed) {
       if (!wrapper.dataset.dtBgSet) {
         snapshotDocBg();

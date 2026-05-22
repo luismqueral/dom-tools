@@ -10,6 +10,7 @@ import { activateModule, isEnabled } from './registry.js';
 import { showToast, addTooltip, nudge, flashElement, copyText, getSelector, getContext, isInspectorUI } from './helpers.js';
 import { setActiveButton } from '../toolbar.js';
 import { getSelectionColor, withAlpha, onColorChange } from './theme.js';
+import { getSelected } from '../features/style-modifier.js';
 
 /**
  * createPanel — reusable draggable floating panel factory.
@@ -119,6 +120,7 @@ export const pluginAPI = {
   withAlpha,
   onColorChange,
   createPanel,
+  getSelected,
   Z,
   COLORS,
 };
