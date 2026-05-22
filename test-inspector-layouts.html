@@ -1,0 +1,2733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inspector Panel — Layout Experiments</title>
+<style>
+  @font-face { font-family: 'nyt-franklin'; src: url(fonts/franklin-normal-500.woff2) format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+  @font-face { font-family: 'nyt-franklin'; src: url(fonts/_franklin_600.woff2) format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+  @font-face { font-family: 'nyt-franklin'; src: url(fonts/_franklin_700.woff2) format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+
+  :root {
+    --sp-1: 0.25rem;
+    --sp-2: 0.5rem;
+    --sp-3: 0.75rem;
+    --sp-4: 1rem;
+    --sp-5: 1.5rem;
+    --sp-6: 2rem;
+    --sp-7: 3rem;
+    --sp-8: 4rem;
+    --sp-10: 5rem;
+    --sp-12: 6rem;
+    --sp-16: 8rem;
+
+    --ts-xs: 11px;
+    --ts-sm: 13px;
+    --ts-base: 15px;
+    --ts-md: 17px;
+    --ts-lg: 20px;
+    --ts-xl: 26px;
+    --ts-2xl: 34px;
+    --ts-3xl: 42px;
+
+    --nyt-fg: #121212;
+    --nyt-fg-dim: #5a5a5a;
+    --nyt-fg-faint: #8b8b8b;
+    --nyt-bg: #ffffff;
+    --nyt-bg-alt: #f5f5f2;
+    --nyt-border: #ececec;
+    --nyt-border-strong: #c7c7c7;
+    --nyt-accent: #326891;
+
+    --nyt-sans: 'nyt-franklin', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+
+    --panel-bg: rgba(30,30,30,0.92);
+    --panel-border: rgba(255,255,255,0.1);
+    --panel-text: #fff;
+    --panel-dim: rgba(255,255,255,0.5);
+    --panel-token: #fbbf24;
+    --panel-value: #7dd3fc;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    font-family: var(--nyt-sans);
+    font-weight: 500;
+    margin: 0;
+    padding: var(--sp-6);
+    color: var(--nyt-fg);
+    font-size: var(--ts-base);
+    line-height: 1.6;
+    background: var(--nyt-bg-alt);
+  }
+
+  /* --- Page structure --- */
+  .page-header {
+    max-width: 900px;
+    margin: 0 auto var(--sp-8);
+  }
+  .page-header h1 {
+    font-size: var(--ts-2xl);
+    font-weight: 700;
+    margin: 0 0 var(--sp-2);
+  }
+  .page-header p {
+    color: var(--nyt-fg-dim);
+    margin: 0;
+  }
+
+  /* --- Wireframe container --- */
+  .experiment {
+    max-width: 900px;
+    margin: 0 auto var(--sp-8);
+    background: var(--nyt-bg);
+    border: 1px solid var(--nyt-border);
+    border-radius: var(--sp-3);
+    overflow: hidden;
+  }
+  .experiment-header {
+    padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--nyt-border);
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-4);
+  }
+  .experiment-header h2 {
+    font-size: var(--ts-md);
+    font-weight: 700;
+    margin: 0;
+  }
+  .experiment-header .tag {
+    font-size: var(--ts-xs);
+    font-weight: 600;
+    padding: var(--sp-1) var(--sp-3);
+    border-radius: var(--sp-1);
+    background: var(--nyt-bg-alt);
+    color: var(--nyt-fg-dim);
+  }
+  .experiment-body {
+    padding: var(--sp-5);
+  }
+  .experiment-notes {
+    padding: var(--sp-4) var(--sp-5);
+    border-top: 1px solid var(--nyt-border);
+    font-size: var(--ts-sm);
+    color: var(--nyt-fg-dim);
+  }
+
+  /* --- ASCII wireframe block --- */
+  .wireframe {
+    background: #1a1a2e;
+    color: #a8d8b9;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: var(--sp-5);
+    border-radius: var(--sp-2);
+    overflow-x: auto;
+    white-space: pre;
+    margin-bottom: var(--sp-5);
+  }
+
+  /* --- Live mockup panels --- */
+  .mockup-container {
+    position: relative;
+    min-height: 300px;
+    background: #2a2a2a;
+    border-radius: var(--sp-2);
+    padding: var(--sp-5);
+    display: flex;
+    gap: var(--sp-5);
+  }
+
+  /* Simulated page content inside mockup */
+  .mock-page {
+    flex: 1;
+    background: var(--nyt-bg);
+    border-radius: var(--sp-2);
+    padding: var(--sp-5);
+  }
+  .mock-page h3 { font-size: var(--ts-lg); margin: 0 0 var(--sp-3); }
+  .mock-page p { color: var(--nyt-fg-dim); font-size: var(--ts-sm); margin: var(--sp-2) 0; }
+  .mock-card {
+    background: var(--nyt-bg-alt);
+    border: 1px solid var(--nyt-border);
+    border-radius: var(--sp-2);
+    padding: var(--sp-4);
+    margin-top: var(--sp-4);
+  }
+  .mock-card strong { display: block; margin-bottom: var(--sp-1); }
+  .mock-card span { font-size: var(--ts-sm); color: var(--nyt-fg-dim); }
+
+  /* --- Panel mockup styles (simulating the actual panel look) --- */
+  .panel-mock {
+    background: var(--panel-bg);
+    backdrop-filter: blur(12px);
+    border-radius: 10px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 12px;
+    color: var(--panel-text);
+    user-select: none;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .panel-mock-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--panel-border);
+    cursor: grab;
+  }
+  .panel-mock-header .grip { color: rgba(255,255,255,0.35); font-size: 18px; }
+  .panel-mock-header .title { font-weight: 600; font-size: 11px; letter-spacing: 0.3px; }
+  .panel-mock-content {
+    padding: 10px 12px;
+    max-height: 400px;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .panel-mock-content::-webkit-scrollbar { display: none; }
+  .panel-mock .section-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+    margin-top: 8px;
+  }
+  .panel-mock .section-label:first-child { margin-top: 0; }
+  .panel-mock .prop-row {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 2px 0;
+    font-size: 11px;
+  }
+  .panel-mock .prop-name {
+    color: rgba(255,255,255,0.6);
+    min-width: 90px;
+    flex-shrink: 0;
+  }
+  .panel-mock .prop-value {
+    color: #fff;
+  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  .panel-mock .prop-token {
+    color: var(--panel-token);
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(251,191,36,0.08);
+    margin-left: auto;
+    min-width: 100px;
+    text-align: center;
+    transition: background 0.12s, box-shadow 0.12s;
+  }
+  .panel-mock .prop-token:hover {
+    background: rgba(251,191,36,0.18);
+    box-shadow: 0 0 0 1px rgba(251,191,36,0.3);
+  }
+
+  /* Token step — click to focus, arrow keys to change */
+  .panel-mock .token-step {
+    color: var(--panel-token);
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(251,191,36,0.08);
+    min-width: 100px;
+    text-align: center;
+    transition: background 0.12s, box-shadow 0.12s;
+    outline: none;
+  }
+  .panel-mock .token-step:hover {
+    background: rgba(251,191,36,0.18);
+    box-shadow: 0 0 0 1px rgba(251,191,36,0.3);
+  }
+  .panel-mock .token-step:focus, .panel-mock .token-step.active {
+    background: rgba(251,191,36,0.22);
+    box-shadow: 0 0 0 2px rgba(251,191,36,0.6);
+  }
+
+  /* Raw value input — editable inline */
+  .panel-mock .value-input {
+    color: var(--panel-value);
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: text;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(125,211,252,0.08);
+    min-width: 60px;
+    text-align: center;
+    transition: background 0.12s, box-shadow 0.12s;
+    outline: none;
+  }
+  .panel-mock .value-input:hover {
+    background: rgba(125,211,252,0.15);
+    box-shadow: 0 0 0 1px rgba(125,211,252,0.3);
+  }
+  .panel-mock .value-input:focus {
+    background: rgba(125,211,252,0.18);
+    box-shadow: 0 0 0 2px rgba(125,211,252,0.6);
+  }
+  .panel-mock .selector-block {
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .panel-mock .selector-label { font-size: 10px; color: var(--panel-dim); margin-bottom: 2px; }
+  .panel-mock .selector-value { font-size: 11px; color: var(--panel-value); word-break: break-all; font-family: ui-monospace, monospace; }
+  .panel-mock .tag-line { font-size: 11px; margin-bottom: 10px; }
+  .panel-mock .tag-name { color: #c084fc; }
+  .panel-mock .tag-class { color: #86efac; }
+
+  /* --- Variant-specific panel styles --- */
+  .panel-mock.compact .prop-row { padding: 1px 0; font-size: 10px; }
+  .panel-mock.compact .prop-name { min-width: 70px; }
+  .panel-mock.wide { width: 380px; }
+  .panel-mock.narrow { width: 260px; }
+  .panel-mock.standard { width: 320px; }
+
+  /* Bottom-docked variant */
+  .mockup-container.bottom-dock {
+    flex-direction: column;
+  }
+  .panel-mock.docked {
+    border-radius: 10px;
+    width: 100%;
+  }
+  .panel-mock.docked .panel-mock-content {
+    display: flex;
+    gap: 24px;
+    max-height: none;
+    flex-wrap: wrap;
+  }
+  .panel-mock.docked .prop-group {
+    min-width: 180px;
+  }
+
+  /* Inline token picker mockup */
+  .token-picker-mock {
+    background: rgba(20,20,20,0.98);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    font-size: 11px;
+    color: #fff;
+    overflow: hidden;
+    width: 200px;
+    margin-top: 4px;
+  }
+  .token-picker-mock input {
+    width: 100%;
+    padding: 8px 10px;
+    background: rgba(255,255,255,0.05);
+    border: none;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    color: #fff;
+    font-size: 11px;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .token-picker-mock .picker-list { max-height: 160px; overflow-y: auto; padding: 4px 0; scrollbar-width: none; }
+  .token-picker-mock .picker-list::-webkit-scrollbar { display: none; }
+  .token-picker-mock .picker-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  .token-picker-mock .picker-item:hover { background: rgba(255,255,255,0.1); }
+  .token-picker-mock .picker-item.active {
+    background: rgba(251,191,36,0.1);
+    border-left-color: #fbbf24;
+  }
+  .token-picker-mock .picker-item.active .picker-name { color: #fbbf24; font-weight: 600; }
+  .token-picker-mock .picker-name { color: #fff; }
+  .token-picker-mock .picker-val { color: rgba(255,255,255,0.4); font-size: 10px; }
+
+  /* Slider variant */
+  .token-slider-mock {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    padding: 6px 10px;
+    background: rgba(20,20,20,0.98);
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .token-slider-mock input[type="range"] {
+    flex: 1;
+    accent-color: #fbbf24;
+    height: 4px;
+  }
+  .token-slider-mock .slider-label {
+    font-size: 10px;
+    color: #fbbf24;
+    min-width: 50px;
+    text-align: right;
+  }
+
+  /* Direct manipulation experiments (K, L, M) */
+  .direct-target {
+    position: relative;
+    padding: var(--sp-5);
+    margin: var(--sp-4);
+    background: var(--nyt-bg);
+    border: 1px solid var(--nyt-border);
+    border-radius: var(--sp-2);
+    transition: padding 0.15s, margin 0.15s;
+    user-select: none;
+  }
+  .direct-target h3 { margin: 0 0 var(--sp-2); font-size: var(--ts-lg); }
+  .direct-target p { margin: 0; color: var(--nyt-fg-dim); font-size: var(--ts-sm); }
+
+  /* Edge drag handles */
+  .edge-handle {
+    position: absolute;
+    background: transparent;
+    transition: background 0.15s;
+    z-index: 10;
+  }
+  .edge-handle:hover, .edge-handle.active {
+    background: rgba(80,200,120,0.25);
+  }
+  .edge-handle.top { top: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
+  .edge-handle.bottom { bottom: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
+  .edge-handle.left { left: 0; top: 8px; bottom: 8px; width: 6px; cursor: ew-resize; }
+  .edge-handle.right { right: 0; top: 8px; bottom: 8px; width: 6px; cursor: ew-resize; }
+  .edge-handle .edge-label {
+    position: absolute;
+    font-size: 9px;
+    color: rgba(80,200,120,0.9);
+    background: rgba(30,30,30,0.85);
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .edge-handle:hover .edge-label, .edge-handle.active .edge-label { opacity: 1; }
+  .edge-handle.top .edge-label { top: 8px; left: 50%; transform: translateX(-50%); }
+  .edge-handle.bottom .edge-label { bottom: 8px; left: 50%; transform: translateX(-50%); }
+  .edge-handle.left .edge-label { left: 8px; top: 50%; transform: translateY(-50%); }
+  .edge-handle.right .edge-label { right: 8px; top: 50%; transform: translateY(-50%); }
+
+  /* Scroll-to-cycle indicator */
+  .scroll-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(30,30,30,0.9);
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: system-ui, sans-serif;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+    z-index: 100;
+  }
+  .scroll-indicator.visible { opacity: 1; }
+
+  /* Context zones overlay */
+  .zone-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .zone-overlay.active { pointer-events: auto; }
+  .zone-margin {
+    position: absolute;
+    inset: 0;
+    border: 2px dashed transparent;
+    transition: border-color 0.15s, background 0.15s;
+    border-radius: 4px;
+  }
+  .zone-margin:hover, .zone-margin.highlighted {
+    border-color: rgba(255,150,50,0.6);
+    background: rgba(255,150,50,0.05);
+  }
+  .zone-padding {
+    position: absolute;
+    inset: 12px;
+    border: 2px dashed transparent;
+    transition: border-color 0.15s, background 0.15s;
+    border-radius: 3px;
+  }
+  .zone-padding:hover, .zone-padding.highlighted {
+    border-color: rgba(80,200,120,0.6);
+    background: rgba(80,200,120,0.05);
+  }
+  .zone-content {
+    position: absolute;
+    inset: 28px;
+    border: 2px dashed transparent;
+    transition: border-color 0.15s, background 0.15s;
+    border-radius: 2px;
+  }
+  .zone-content:hover, .zone-content.highlighted {
+    border-color: rgba(100,150,255,0.6);
+    background: rgba(100,150,255,0.05);
+  }
+  .zone-label {
+    position: absolute;
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 1px 4px;
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .zone-margin .zone-label { top: 2px; left: 4px; color: rgba(255,150,50,0.8); }
+  .zone-padding .zone-label { top: 2px; left: 4px; color: rgba(80,200,120,0.8); }
+  .zone-content .zone-label { top: 2px; left: 4px; color: rgba(100,150,255,0.8); }
+  .zone-margin:hover .zone-label,
+  .zone-padding:hover .zone-label,
+  .zone-content:hover .zone-label { opacity: 1; }
+
+  /* Token stepper (inline for zones) */
+  .token-stepper {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(30,30,30,0.92);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    color: #fbbf24;
+    position: absolute;
+    z-index: 200;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+  }
+  .token-stepper.visible { opacity: 1; pointer-events: auto; }
+  .token-stepper button {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #fff;
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .token-stepper button:hover { background: rgba(255,255,255,0.2); }
+
+  /* Box model (Experiment H) */
+  .box-val {
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .box-val:hover { background: rgba(255,255,255,0.1); }
+  .box-val-padding { color: rgba(80,200,120,0.9); }
+  .box-val-margin { color: rgba(255,150,50,0.9); }
+  .box-val .box-token { color: var(--panel-token); font-size: 9px; margin-left: 2px; }
+
+  /* Quad-value row (Experiment J) */
+  .quad-val {
+    display: inline-block;
+    width: 32px;
+    text-align: center;
+    font-size: 10px;
+    color: rgba(255,255,255,0.7);
+    padding: 1px 2px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .quad-val:hover { background: rgba(255,255,255,0.1); }
+  .quad-val.has-token { color: var(--panel-token); text-decoration: underline; text-underline-offset: 2px; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Inspector Panel — Layout Experiments</h1>
+  <p>Testing panel position, property row layout, and token picker UX variations.
+     Use DOM-Tools to annotate which layouts work best and suggest modifications.</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT A: Standard floating panel (current implementation) -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>A. Floating Panel — Right (current)</h2>
+    <span class="tag">POSITION</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">┌─────────────────────────────────────────┐  ┌──────────────────┐
+│                                         │  │ ⠿ Inspector      │
+│          PAGE CONTENT                   │  ├──────────────────┤
+│                                         │  │ SELECTOR         │
+│    ┌─────────────────────────┐          │  │ .hero > h1       │
+│    │   selected element      │──────────│──│                  │
+│    └─────────────────────────┘          │  │ SPACING          │
+│                                         │  │ padding-top  24px│
+│                                         │  │   ▸ --sp-5 ▾     │
+│                                         │  │ margin-bot   32px│
+│                                         │  │   ▸ --sp-6 ▾     │
+│                                         │  │                  │
+│                                         │  │ TYPOGRAPHY       │
+│                                         │  │ font-size   42px │
+│                                         │  │   ▸ --ts-3xl ▾   │
+│                                         │  │ font-wt      700 │
+│                                         │  │                  │
+└─────────────────────────────────────────┘  └──────────────────┘</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 style="padding: var(--sp-5); margin-bottom: var(--sp-4); background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Heading Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4);">This card simulates a selected element. The inspector panel floats to the right showing its properties.</p>
+        <div class="mock-card" style="padding: var(--sp-5); margin-top: var(--sp-4);">
+          <strong style="font-size: var(--ts-md);">Feature Card</strong>
+          <span>With spacing tokens applied throughout</span>
+        </div>
+      </div>
+
+      <div class="panel-mock standard">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="selector-block">
+            <div class="selector-label">SELECTOR</div>
+            <div class="selector-value">.mock-page > h3</div>
+          </div>
+          <div class="tag-line">
+            <span class="tag-name">h3</span>
+          </div>
+          <div class="section-label">SPACING</div>
+          <div class="prop-row"><span class="prop-name">padding-top</span><span class="prop-value">24px</span><span class="prop-token">--sp-5 ▾</span></div>
+          <div class="prop-row"><span class="prop-name">padding-right</span><span class="prop-value">16px</span><span class="prop-token">--sp-4 ▾</span></div>
+          <div class="prop-row"><span class="prop-name">padding-bottom</span><span class="prop-value">24px</span><span class="prop-token">--sp-5 ▾</span></div>
+          <div class="prop-row"><span class="prop-name">padding-left</span><span class="prop-value">16px</span><span class="prop-token">--sp-4 ▾</span></div>
+          <div class="prop-row"><span class="prop-name">margin-bottom</span><span class="prop-value">16px</span><span class="prop-token">--sp-4 ▾</span></div>
+          <div class="section-label">TYPOGRAPHY</div>
+          <div class="prop-row"><span class="prop-name">font-size</span><span class="prop-value">20px</span><span class="prop-token">--ts-lg ▾</span></div>
+          <div class="prop-row"><span class="prop-name">font-weight</span><span class="prop-value">700</span></div>
+          <div class="section-label">BACKGROUND & BORDER</div>
+          <div class="prop-row"><span class="prop-name">background</span><span class="prop-value">#f5f5f2</span><span class="prop-token">--nyt-bg-alt ▾</span></div>
+          <div class="prop-row"><span class="prop-name">border-radius</span><span class="prop-value">8px</span><span class="prop-token">--sp-2 ▾</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Always visible, no occlusion of selected element. Con: Takes horizontal space, may overlap on narrow viewports.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT B: Bottom-docked panel (horizontal layout) -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>B. Bottom-Docked Panel — Horizontal Groups</h2>
+    <span class="tag">POSITION</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│                       PAGE CONTENT                              │
+│                                                                 │
+│    ┌─────────────────────────────────────┐                      │
+│    │        selected element             │                      │
+│    └─────────────────────────────────────┘                      │
+│                                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ ⠿ Inspector  │  SPACING          │  TYPOGRAPHY     │  BG/BORDER│
+│              │  pt  24  --sp-5 ▾ │  size 20 --ts-lg│  bg  #f5  │
+│ .hero > h1   │  pr  16  --sp-4 ▾ │  wt   700       │  rad  8px │
+│              │  pb  24  --sp-5 ▾ │  lh   1.6       │           │
+│              │  mb  32  --sp-6 ▾ │                 │           │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+    <div class="mockup-container bottom-dock">
+      <div class="mock-page">
+        <h3 style="padding: var(--sp-5); margin-bottom: var(--sp-6); background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Heading Element</h3>
+        <p style="padding: var(--sp-3);">Content remains fully visible above. Panel docks at the bottom of the viewport.</p>
+      </div>
+
+      <div class="panel-mock docked">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+          <span style="margin-left:12px;font-size:10px;color:rgba(255,255,255,0.4)">.mock-page > h3</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="prop-group">
+            <div class="section-label">SPACING</div>
+            <div class="prop-row"><span class="prop-name">padding-top</span><span class="prop-value">24px</span><span class="prop-token">--sp-5 ▾</span></div>
+            <div class="prop-row"><span class="prop-name">padding-right</span><span class="prop-value">16px</span><span class="prop-token">--sp-4 ▾</span></div>
+            <div class="prop-row"><span class="prop-name">padding-bottom</span><span class="prop-value">24px</span><span class="prop-token">--sp-5 ▾</span></div>
+            <div class="prop-row"><span class="prop-name">margin-bottom</span><span class="prop-value">48px</span><span class="prop-token">--sp-6 ▾</span></div>
+          </div>
+          <div class="prop-group">
+            <div class="section-label">TYPOGRAPHY</div>
+            <div class="prop-row"><span class="prop-name">font-size</span><span class="prop-value">20px</span><span class="prop-token">--ts-lg ▾</span></div>
+            <div class="prop-row"><span class="prop-name">font-weight</span><span class="prop-value">700</span></div>
+            <div class="prop-row"><span class="prop-name">line-height</span><span class="prop-value">1.6</span></div>
+          </div>
+          <div class="prop-group">
+            <div class="section-label">BACKGROUND & BORDER</div>
+            <div class="prop-row"><span class="prop-name">background</span><span class="prop-value">#f5f5f2</span><span class="prop-token">--nyt-bg-alt ▾</span></div>
+            <div class="prop-row"><span class="prop-name">border-radius</span><span class="prop-value">8px</span><span class="prop-token">--sp-2 ▾</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Full page width for property groups side-by-side, no horizontal occlusion. Con: Reduces vertical viewport, harder to compare element with panel for tall pages.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT C: Compact / minimal row layout -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>C. Compact Row Layout — Token-First</h2>
+    <span class="tag">ROW LAYOUT</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">┌──────────────────────┐
+│ ⠿ Inspector          │
+├──────────────────────┤
+│ .hero > h1           │
+│ h3                   │
+├──────────────────────┤
+│ --sp-5 ▾  padding    │  ← token is primary, property is secondary
+│ --sp-4 ▾  margin-bot │
+│ --ts-lg ▾ font-size  │
+│ --nyt-bg-alt ▾  bg   │
+│ 700        font-wt   │  ← no token = just value
+│ 1.6        line-ht   │
+└──────────────────────┘</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 style="padding: var(--sp-5); margin-bottom: var(--sp-4); font-size: var(--ts-lg); background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4); color: var(--nyt-fg-dim);">Token-first layout puts the editable value in the primary position.</p>
+      </div>
+
+      <div class="panel-mock narrow">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="selector-block">
+            <div class="selector-value">.mock-page > h3</div>
+          </div>
+          <div class="prop-row"><span class="prop-token" style="min-width:90px;margin-left:0">--sp-5 ▾</span><span class="prop-name" style="min-width:0">padding</span></div>
+          <div class="prop-row"><span class="prop-token" style="min-width:90px;margin-left:0">--sp-4 ▾</span><span class="prop-name" style="min-width:0">margin-bot</span></div>
+          <div class="prop-row"><span class="prop-token" style="min-width:90px;margin-left:0">--ts-lg ▾</span><span class="prop-name" style="min-width:0">font-size</span></div>
+          <div class="prop-row"><span class="prop-token" style="min-width:90px;margin-left:0">--nyt-bg-alt ▾</span><span class="prop-name" style="min-width:0">bg</span></div>
+          <div class="prop-row"><span class="prop-value" style="min-width:90px">700</span><span class="prop-name" style="min-width:0">font-weight</span></div>
+          <div class="prop-row"><span class="prop-value" style="min-width:90px">1.6</span><span class="prop-name" style="min-width:0">line-height</span></div>
+          <div class="prop-row"><span class="prop-value" style="min-width:90px">8px</span><span class="prop-name" style="min-width:0">border-radius</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Token is the hero — most scannable for "what design decisions are applied here". Con: Loses computed pixel value at a glance, mixes token/value in same column.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT D: Token picker — Dropdown (current) -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>D. Token Picker — Dropdown List</h2>
+    <span class="tag">PICKER UX</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">┌──────────────────────┐
+│ padding-top    24px  │
+│          --sp-5 ▾────│──┐
+│ padding-right  16px  │  │
+│          --sp-4 ▾    │  │  ┌─────────────────┐
+│                      │  └──│ Filter tokens…  │
+│                      │     ├─────────────────┤
+│                      │     │ ▸ --sp-1   4px  │
+│                      │     │   --sp-2   8px  │
+│                      │     │   --sp-3  12px  │
+│                      │     │   --sp-4  16px  │
+│                      │     │ ● --sp-5  24px  │ ← current
+│                      │     │   --sp-6  32px  │
+│                      │     │   --sp-7  48px  │
+│                      │     │   --sp-8  64px  │
+│                      │     └─────────────────┘
+└──────────────────────┘</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 style="padding: var(--sp-5); background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4);">Click a token to open the picker dropdown.</p>
+      </div>
+
+      <div class="panel-mock standard">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="section-label">SPACING</div>
+          <div class="prop-row"><span class="prop-name">padding-top</span><span class="prop-value">24px</span><span class="prop-token">--sp-5 ▾</span></div>
+          <div style="margin-left: 60px;">
+            <div class="token-picker-mock">
+              <input type="text" placeholder="Filter tokens…" value="">
+              <div class="picker-list">
+                <div class="picker-item"><span class="picker-name">--sp-1</span><span class="picker-val">4px</span></div>
+                <div class="picker-item"><span class="picker-name">--sp-2</span><span class="picker-val">8px</span></div>
+                <div class="picker-item"><span class="picker-name">--sp-3</span><span class="picker-val">12px</span></div>
+                <div class="picker-item"><span class="picker-name">--sp-4</span><span class="picker-val">16px</span></div>
+                <div class="picker-item active"><span class="picker-name">--sp-5</span><span class="picker-val">24px</span></div>
+                <div class="picker-item"><span class="picker-name">--sp-6</span><span class="picker-val">32px</span></div>
+                <div class="picker-item"><span class="picker-name">--sp-7</span><span class="picker-val">48px</span></div>
+                <div class="picker-item"><span class="picker-name">--sp-8</span><span class="picker-val">64px</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="prop-row"><span class="prop-name">padding-right</span><span class="prop-value">16px</span><span class="prop-token">--sp-4 ▾</span></div>
+          <div class="prop-row"><span class="prop-name">margin-bottom</span><span class="prop-value">16px</span><span class="prop-token">--sp-4 ▾</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Full list visible, type to filter, shows resolved values. Con: Tall dropdown may overflow panel, needs scroll management.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT E: Token picker — Inline slider for numeric scales -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>E. Token Picker — Scale Slider</h2>
+    <span class="tag">PICKER UX</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">┌──────────────────────────────────────┐
+│ padding-top    24px                  │
+│          --sp-5 ▾                    │
+│ ┌──────────────────────────────────┐ │
+│ │ ○───────────●────────○    --sp-5 │ │  ← drag to change
+│ │ 4  8  12  16  24  32  48  64     │ │
+│ └──────────────────────────────────┘ │
+│ padding-right  16px                  │
+│          --sp-4 ▾                    │
+│                                      │
+│ TYPOGRAPHY                           │
+│ font-size     20px                   │
+│          --ts-lg ▾                   │
+│ ┌──────────────────────────────────┐ │
+│ │ ○────●───────────○       --ts-lg │ │
+│ │ 11  13  15  17  20  26  34  42   │ │
+│ └──────────────────────────────────┘ │
+└──────────────────────────────────────┘</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 style="padding: var(--sp-5); background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4);">Slider snaps between token values in the scale.</p>
+      </div>
+
+      <div class="panel-mock wide">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="section-label">SPACING</div>
+          <div class="prop-row"><span class="prop-name">padding-top</span><span class="prop-value">24px</span><span class="prop-token">--sp-5 ▾</span></div>
+          <div class="token-slider-mock">
+            <input type="range" min="0" max="10" value="5" step="1">
+            <span class="slider-label">--sp-5</span>
+          </div>
+          <div class="prop-row" style="margin-top:6px"><span class="prop-name">padding-right</span><span class="prop-value">16px</span><span class="prop-token">--sp-4 ▾</span></div>
+
+          <div class="section-label">TYPOGRAPHY</div>
+          <div class="prop-row"><span class="prop-name">font-size</span><span class="prop-value">20px</span><span class="prop-token">--ts-lg ▾</span></div>
+          <div class="token-slider-mock">
+            <input type="range" min="0" max="7" value="4" step="1">
+            <span class="slider-label">--ts-lg</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Fastest iteration for ordered scales (spacing, type), very visual. Con: Only works for linear/ordered token sets, not colors or fonts. Could combine with dropdown for non-ordered sets.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT F: Hybrid — Slider + dropdown depending on token type -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>F. Hybrid Picker — Adaptive by Token Type</h2>
+    <span class="tag">PICKER UX</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">┌──────────────────────────────────────┐
+│ ⠿ Inspector                          │
+├──────────────────────────────────────┤
+│ SPACING                              │
+│ padding  --sp-5 ▾                    │
+│ ┌────────────────────────────────┐   │  Ordered scale → slider
+│ │ ●═══════●═════●═══○   --sp-5  │   │
+│ └────────────────────────────────┘   │
+│                                      │
+│ TYPOGRAPHY                           │
+│ font-size  --ts-lg ▾                 │
+│ ┌────────────────────────────────┐   │  Ordered scale → slider
+│ │ ○══●═══════════○       --ts-lg │   │
+│ └────────────────────────────────┘   │
+│                                      │
+│ COLORS                               │
+│ color  --nyt-fg ▾                    │
+│ ┌──────────────────┐                 │  Unordered → dropdown
+│ │ ■ --nyt-fg       │                 │
+│ │ ■ --nyt-fg-dim   │                 │
+│ │ ■ --nyt-fg-faint │                 │
+│ │ ■ --nyt-accent   │                 │
+│ └──────────────────┘                 │
+│                                      │
+│ BACKGROUND                           │
+│ bg  --nyt-bg-alt ▾                   │
+│ ┌──────────────────┐                 │  Unordered → dropdown w/ swatches
+│ │ □ --nyt-bg       │                 │
+│ │ ■ --nyt-bg-alt   │                 │
+│ └──────────────────┘                 │
+└──────────────────────────────────────┘</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 style="padding: var(--sp-5); margin-bottom: var(--sp-4); font-size: var(--ts-lg); color: var(--nyt-fg); background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4); color: var(--nyt-fg-dim);">Hybrid approach: slider for numeric scales, dropdown with swatches for colors.</p>
+      </div>
+
+      <div class="panel-mock wide">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="section-label">SPACING</div>
+          <div class="prop-row"><span class="prop-name">padding</span><span class="prop-token" style="margin-left:0">--sp-5 ▾</span></div>
+          <div class="token-slider-mock">
+            <input type="range" min="0" max="10" value="5" step="1">
+            <span class="slider-label">--sp-5</span>
+          </div>
+
+          <div class="section-label">TYPOGRAPHY</div>
+          <div class="prop-row"><span class="prop-name">font-size</span><span class="prop-token" style="margin-left:0">--ts-lg ▾</span></div>
+          <div class="token-slider-mock">
+            <input type="range" min="0" max="7" value="4" step="1">
+            <span class="slider-label">--ts-lg</span>
+          </div>
+
+          <div class="section-label">COLORS</div>
+          <div class="prop-row"><span class="prop-name">color</span><span class="prop-token" style="margin-left:0">--nyt-fg ▾</span></div>
+          <div class="token-picker-mock" style="width:180px;margin-top:4px">
+            <div class="picker-list" style="max-height:none">
+              <div class="picker-item active"><span style="display:inline-block;width:10px;height:10px;background:#121212;border-radius:2px;margin-right:6px"></span><span class="picker-name">--nyt-fg</span></div>
+              <div class="picker-item"><span style="display:inline-block;width:10px;height:10px;background:#5a5a5a;border-radius:2px;margin-right:6px"></span><span class="picker-name">--nyt-fg-dim</span></div>
+              <div class="picker-item"><span style="display:inline-block;width:10px;height:10px;background:#8b8b8b;border-radius:2px;margin-right:6px"></span><span class="picker-name">--nyt-fg-faint</span></div>
+              <div class="picker-item"><span style="display:inline-block;width:10px;height:10px;background:#326891;border-radius:2px;margin-right:6px"></span><span class="picker-name">--nyt-accent</span></div>
+            </div>
+          </div>
+
+          <div class="section-label" style="margin-top:12px">BACKGROUND</div>
+          <div class="prop-row"><span class="prop-name">background</span><span class="prop-token" style="margin-left:0">--nyt-bg-alt ▾</span></div>
+          <div class="token-picker-mock" style="width:180px;margin-top:4px">
+            <div class="picker-list" style="max-height:none">
+              <div class="picker-item"><span style="display:inline-block;width:10px;height:10px;background:#ffffff;border:1px solid #ccc;border-radius:2px;margin-right:6px"></span><span class="picker-name">--nyt-bg</span></div>
+              <div class="picker-item active"><span style="display:inline-block;width:10px;height:10px;background:#f5f5f2;border-radius:2px;margin-right:6px"></span><span class="picker-name">--nyt-bg-alt</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Best of both worlds — fastest input for each token type. Slider for scales, swatches for colors.
+    Con: More complex implementation, needs heuristic to detect "is this an ordered numeric scale or an unordered set?".
+    Heuristic: if all resolved values parse as lengths (px/rem/em) → slider. If any resolve to colors → swatch dropdown.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT G: Wide panel with inline editing -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>G. Wide Panel — Inline Value Editing</h2>
+    <span class="tag">ROW LAYOUT</span>
+    <span class="tag">PICKER UX</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">┌───────────────────────────────────────────┐
+│ ⠿ Inspector                               │
+├───────────────────────────────────────────┤
+│ .mock-page > h3                            │
+├───────────────────────────────────────────┤
+│ SPACING                                    │
+│ padding-top   │ [  24px  ] │ [--sp-5  ▾ ] │  ← both editable
+│ padding-right │ [  16px  ] │ [--sp-4  ▾ ] │
+│ margin-bottom │ [  16px  ] │ [--sp-4  ▾ ] │
+│                                            │
+│ TYPOGRAPHY                                 │
+│ font-size     │ [  20px  ] │ [--ts-lg ▾ ] │
+│ font-weight   │ [  700   ] │              │  ← no token, just value
+│ line-height   │ [  1.6   ] │              │
+│                                            │
+│ COLORS                                     │
+│ color         │ [■ #121212] │ [--nyt-fg▾ ]│
+│ background    │ [■ #f5f5f2] │ [--bg-alt▾ ]│
+└───────────────────────────────────────────┘</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 style="padding: var(--sp-5); margin-bottom: var(--sp-4); font-size: var(--ts-lg); background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4); color: var(--nyt-fg-dim);">Both the computed value and the token are editable fields. Type a raw value or pick from the token dropdown.</p>
+      </div>
+
+      <div class="panel-mock wide">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="selector-block">
+            <div class="selector-value">.mock-page > h3</div>
+          </div>
+          <div class="section-label">SPACING</div>
+          <div class="prop-row" style="gap:4px">
+            <span class="prop-name" style="min-width:90px">padding-top</span>
+            <span style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:10px;font-family:monospace">24px</span>
+            <span class="prop-token">--sp-5 ▾</span>
+          </div>
+          <div class="prop-row" style="gap:4px">
+            <span class="prop-name" style="min-width:90px">padding-right</span>
+            <span style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:10px;font-family:monospace">16px</span>
+            <span class="prop-token">--sp-4 ▾</span>
+          </div>
+          <div class="prop-row" style="gap:4px">
+            <span class="prop-name" style="min-width:90px">margin-bottom</span>
+            <span style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:10px;font-family:monospace">16px</span>
+            <span class="prop-token">--sp-4 ▾</span>
+          </div>
+          <div class="section-label">TYPOGRAPHY</div>
+          <div class="prop-row" style="gap:4px">
+            <span class="prop-name" style="min-width:90px">font-size</span>
+            <span style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:10px;font-family:monospace">20px</span>
+            <span class="prop-token">--ts-lg ▾</span>
+          </div>
+          <div class="prop-row" style="gap:4px">
+            <span class="prop-name" style="min-width:90px">font-weight</span>
+            <span style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:10px;font-family:monospace">700</span>
+          </div>
+          <div class="section-label">COLORS</div>
+          <div class="prop-row" style="gap:4px">
+            <span class="prop-name" style="min-width:90px">color</span>
+            <span style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:10px;font-family:monospace;display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:8px;height:8px;background:#121212;border-radius:2px"></span>#121212</span>
+            <span class="prop-token">--nyt-fg ▾</span>
+          </div>
+          <div class="prop-row" style="gap:4px">
+            <span class="prop-name" style="min-width:90px">background</span>
+            <span style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:10px;font-family:monospace;display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:8px;height:8px;background:#f5f5f2;border-radius:2px"></span>#f5f5f2</span>
+            <span class="prop-token">--nyt-bg-alt ▾</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Both raw value and token are editable — maximum flexibility. Good for power users who want to type "32px" directly.
+    Con: More complex, busier UI. Might be overkill if most edits are token-to-token swaps.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT H: Box Model Visual -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>H. Box Model Visual</h2>
+    <span class="tag">SPACING UX</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">┌─────────── margin ────────────────┐
+│         16 (--sp-4)               │
+│  ┌──────── padding ──────────┐    │
+│  │  24         24            │    │
+│  │ (--sp-5)  (--sp-5)       │    │
+│  │                           │    │
+│  │       [ element ]         │    │
+│  │                           │    │
+│  │  24         24            │    │
+│  └───────────────────────────┘    │
+│         32 (--sp-6)               │
+└───────────────────────────────────┘
+
+Click any value to open token picker for that side.</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 id="box-target" style="padding: var(--sp-5); margin: var(--sp-4) 0 var(--sp-6) 0; background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4); color: var(--nyt-fg-dim);">Click any number in the box model to change that side's token.</p>
+      </div>
+
+      <div class="panel-mock standard">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="selector-block">
+            <div class="selector-value">.mock-page > h3</div>
+          </div>
+          <!-- Box model diagram -->
+          <div class="box-model" style="font-family:ui-monospace,monospace;font-size:10px;text-align:center;margin:8px 0">
+            <!-- Margin box -->
+            <div style="border:1px dashed rgba(255,150,50,0.5);padding:6px;border-radius:4px;position:relative">
+              <div style="position:absolute;top:-8px;left:4px;font-size:8px;color:rgba(255,150,50,0.7)">margin</div>
+              <div data-box-slot="margin-top" data-target="box-target" class="box-val box-val-margin" style="margin-bottom:4px">16 <span class="box-token">--sp-4</span></div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <div data-box-slot="margin-left" data-target="box-target" class="box-val box-val-margin">0</div>
+                <!-- Padding box -->
+                <div style="flex:1;border:1px dashed rgba(80,200,120,0.5);padding:6px;border-radius:3px;position:relative">
+                  <div style="position:absolute;top:-8px;left:4px;font-size:8px;color:rgba(80,200,120,0.7)">padding</div>
+                  <div data-box-slot="padding-top" data-target="box-target" class="box-val box-val-padding">24 <span class="box-token">--sp-5</span></div>
+                  <div style="display:flex;align-items:center;gap:4px;margin:6px 0">
+                    <div data-box-slot="padding-left" data-target="box-target" class="box-val box-val-padding">24 <span class="box-token">--sp-5</span></div>
+                    <div style="flex:1;background:rgba(100,150,255,0.15);border-radius:2px;padding:8px 4px;color:rgba(255,255,255,0.5);font-size:9px">element</div>
+                    <div data-box-slot="padding-right" data-target="box-target" class="box-val box-val-padding">24 <span class="box-token">--sp-5</span></div>
+                  </div>
+                  <div data-box-slot="padding-bottom" data-target="box-target" class="box-val box-val-padding">24 <span class="box-token">--sp-5</span></div>
+                </div>
+                <div data-box-slot="margin-right" data-target="box-target" class="box-val box-val-margin">0</div>
+              </div>
+              <div data-box-slot="margin-bottom" data-target="box-target" class="box-val box-val-margin" style="margin-top:4px">32 <span class="box-token">--sp-6</span></div>
+            </div>
+          </div>
+
+          <div class="section-label">TYPOGRAPHY</div>
+          <div class="prop-row"><span class="prop-name">font-size</span><span class="prop-value">20px</span><span class="prop-token">--ts-lg ▾</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Spatial — immediately shows which sides have values and which are zero. Familiar from DevTools. Very compact for showing 8 values.
+    Con: Clicking tiny numbers may be fiddly. Hard to show non-token values elegantly.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT I: Shorthand with Expansion -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>I. Shorthand with Expansion</h2>
+    <span class="tag">SPACING UX</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">SPACING
+padding   --sp-5 ▾          ← all sides same, one line
+margin    mixed ▸            ← click to expand
+  ├ top     --sp-4 ▾
+  ├ right   0
+  ├ bottom  --sp-6 ▾
+  └ left    0</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 id="shorthand-target" style="padding: var(--sp-5); margin: var(--sp-4) 0 var(--sp-6) 0; background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4); color: var(--nyt-fg-dim);">Collapsed when uniform, expandable when sides differ.</p>
+      </div>
+
+      <div class="panel-mock standard">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="selector-block">
+            <div class="selector-value">.mock-page > h3</div>
+          </div>
+          <div class="section-label">SPACING</div>
+
+          <!-- Padding — all same → collapsed -->
+          <div class="prop-row shorthand-row" data-target="shorthand-target" data-prop="padding">
+            <span class="prop-name" style="min-width:70px">padding</span>
+            <span class="prop-token" data-shorthand-token="--sp-5">--sp-5 ▾</span>
+            <span style="font-size:9px;color:rgba(255,255,255,0.3);margin-left:4px">(all)</span>
+          </div>
+
+          <!-- Margin — mixed → expandable -->
+          <div class="prop-row shorthand-toggle" style="cursor:pointer" data-expanded="false">
+            <span class="prop-name" style="min-width:70px">margin</span>
+            <span style="color:rgba(255,255,255,0.5);font-size:10px">mixed</span>
+            <span class="expand-arrow" style="margin-left:auto;color:rgba(255,255,255,0.4);font-size:10px;transition:transform 0.15s">▸</span>
+          </div>
+          <div class="shorthand-details" style="display:none;padding-left:16px;border-left:1px solid rgba(255,255,255,0.08);margin-left:8px;margin-bottom:4px">
+            <div class="prop-row" data-prop="margin-top" data-target="shorthand-target"><span class="prop-name" style="min-width:50px;font-size:10px">top</span><span class="prop-token">--sp-4 ▾</span></div>
+            <div class="prop-row" data-prop="margin-right" data-target="shorthand-target"><span class="prop-name" style="min-width:50px;font-size:10px">right</span><span class="prop-value" style="font-size:10px">0</span></div>
+            <div class="prop-row" data-prop="margin-bottom" data-target="shorthand-target"><span class="prop-name" style="min-width:50px;font-size:10px">bottom</span><span class="prop-token">--sp-6 ▾</span></div>
+            <div class="prop-row" data-prop="margin-left" data-target="shorthand-target"><span class="prop-name" style="min-width:50px;font-size:10px">left</span><span class="prop-value" style="font-size:10px">0</span></div>
+          </div>
+
+          <!-- Gap — single value -->
+          <div class="prop-row">
+            <span class="prop-name" style="min-width:70px">gap</span>
+            <span class="prop-token">--sp-4 ▾</span>
+          </div>
+
+          <div class="section-label">TYPOGRAPHY</div>
+          <div class="prop-row"><span class="prop-name">font-size</span><span class="prop-value">20px</span><span class="prop-token">--ts-lg ▾</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Minimal by default — 1 line when all sides match. Only expands when there's real complexity.
+    Con: "mixed" hides values until clicked — extra step to see details. Needs logic to detect uniform vs mixed.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT J: Quad-Value Row -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>J. Quad-Value Row (T R B L)</h2>
+    <span class="tag">SPACING UX</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">SPACING                   T    R    B    L
+padding  --sp-5 ▾        24   24   24   24    ← uniform
+margin   mixed           16    0   32    0    ← per-side
+                        --sp-4     --sp-6
+
+Click any individual number to override just that side.
+Click the token name to change all sides at once.</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 id="quad-target" style="padding: var(--sp-5); margin: var(--sp-4) 0 var(--sp-6) 0; background: var(--nyt-bg-alt); border-radius: var(--sp-2);">Selected Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4); color: var(--nyt-fg-dim);">All four sides visible at once. Click individual values or the shared token.</p>
+      </div>
+
+      <div class="panel-mock wide">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="selector-block">
+            <div class="selector-value">.mock-page > h3</div>
+          </div>
+          <div class="section-label" style="display:flex;gap:0">
+            <span style="min-width:130px">SPACING</span>
+            <span style="display:flex;gap:12px;color:rgba(255,255,255,0.25);font-weight:400;font-size:8px;letter-spacing:0">
+              <span style="width:32px;text-align:center">T</span>
+              <span style="width:32px;text-align:center">R</span>
+              <span style="width:32px;text-align:center">B</span>
+              <span style="width:32px;text-align:center">L</span>
+            </span>
+          </div>
+
+          <!-- Padding — uniform -->
+          <div class="prop-row" style="gap:0">
+            <span class="prop-name" style="min-width:60px">padding</span>
+            <span class="prop-token" style="min-width:70px;margin-left:0">--sp-5 ▾</span>
+            <span style="display:flex;gap:12px;margin-left:auto">
+              <span class="quad-val" data-prop="padding-top" data-target="quad-target">24</span>
+              <span class="quad-val" data-prop="padding-right" data-target="quad-target">24</span>
+              <span class="quad-val" data-prop="padding-bottom" data-target="quad-target">24</span>
+              <span class="quad-val" data-prop="padding-left" data-target="quad-target">24</span>
+            </span>
+          </div>
+
+          <!-- Margin — mixed -->
+          <div class="prop-row" style="gap:0">
+            <span class="prop-name" style="min-width:60px">margin</span>
+            <span style="min-width:70px;color:rgba(255,255,255,0.4);font-size:10px">mixed</span>
+            <span style="display:flex;gap:12px;margin-left:auto">
+              <span class="quad-val has-token" data-prop="margin-top" data-target="quad-target" data-token="--sp-4">16</span>
+              <span class="quad-val" data-prop="margin-right" data-target="quad-target">0</span>
+              <span class="quad-val has-token" data-prop="margin-bottom" data-target="quad-target" data-token="--sp-6">32</span>
+              <span class="quad-val" data-prop="margin-left" data-target="quad-target">0</span>
+            </span>
+          </div>
+
+          <div class="section-label" style="margin-top:12px">TYPOGRAPHY</div>
+          <div class="prop-row"><span class="prop-name">font-size</span><span class="prop-value">20px</span><span class="prop-token">--ts-lg ▾</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Everything visible in one glance — no expanding, no hiding. Easy to spot asymmetry.
+    Con: Wider panel needed. Individual values are small click targets. Needs color coding or underline to indicate which have tokens.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT N: Token-First + Shorthand Expand (C + I hybrid) -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>N. Token-First + Collapsible Shorthand</h2>
+    <span class="tag">HYBRID</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">┌──────────────────────────────┐
+│ ⠿ Inspector                  │
+├──────────────────────────────┤
+│ .hero > h1                   │
+│ h3                           │
+├──────────────────────────────┤
+│ SPACING                      │
+│ padding                      │  ← label, always expanded
+│ │ top          [--sp-5]      │  ← click to focus, ↑↓ to step
+│ │ right        [--sp-5]      │
+│ │ bottom       [--sp-5]      │
+│ │ left         [--sp-5]      │
+│ margin                       │
+│ │ top          [--sp-4]      │
+│ │ right        [  0   ]      │
+│ │ bottom       [--sp-6]      │
+│ │ left         [  0   ]      │
+│ gap            [--sp-4]      │
+├──────────────────────────────┤
+│ TYPOGRAPHY                   │
+│ font-size      --ts-lg ▾     │
+│ font-weight    700           │
+│ line-height    1.6           │
+├──────────────────────────────┤
+│ APPEARANCE                   │
+│ background     --nyt-bg-alt ▾│
+│ border-radius  --sp-2 ▾      │
+└──────────────────────────────┘
+
+Label (property name) on the left for scannability.
+Token/value on the right — clickable for editing.
+Shorthand spacing collapses when uniform, expands when mixed.</div>
+
+    <div class="mockup-container">
+      <div class="mock-page">
+        <h3 id="hybrid-target" style="padding: var(--sp-5); margin: var(--sp-4) 0 var(--sp-6) 0; gap: var(--sp-4); font-size: var(--ts-lg); background: var(--nyt-bg-alt); border-radius: var(--sp-2); font-weight: 700; line-height: 1.6;">Selected Element</h3>
+        <p style="padding: var(--sp-3) var(--sp-4); color: var(--nyt-fg-dim);">Token-first with collapsible spacing. Best of C and I.</p>
+      </div>
+
+      <div class="panel-mock" style="width:320px">
+        <div class="panel-mock-header">
+          <span class="grip">⠿</span>
+          <span class="title">Inspector</span>
+        </div>
+        <div class="panel-mock-content">
+          <div class="selector-block">
+            <div class="selector-value">.mock-page > h3</div>
+          </div>
+
+          <div class="section-label">SPACING</div>
+
+          <!-- Padding — plus/cross layout -->
+          <div class="spacing-cross" data-spacing-type="padding" style="margin-bottom:10px">
+            <div class="spacing-cross-label" style="font-size:9px;color:rgba(80,200,120,0.7);margin-bottom:4px;font-weight:600;letter-spacing:0.3px;text-align:center">padding</div>
+            <div class="cross-grid" style="display:grid;grid-template-columns:1fr auto 1fr;grid-template-rows:auto auto auto;gap:2px;align-items:center;justify-items:center;max-width:220px;margin:0 auto">
+              <!-- top -->
+              <div style="grid-column:2;grid-row:1">
+                <span class="token-step" data-prop="padding-top" data-target="hybrid-target" data-token="--sp-5" data-family="sp" tabindex="0" style="font-size:10px;min-width:70px;padding:3px 6px">--sp-5</span>
+              </div>
+              <!-- left / all / right -->
+              <div style="grid-column:1;grid-row:2">
+                <span class="token-step" data-prop="padding-left" data-target="hybrid-target" data-token="--sp-5" data-family="sp" tabindex="0" style="font-size:10px;min-width:70px;padding:3px 6px">--sp-5</span>
+              </div>
+              <div style="grid-column:2;grid-row:2">
+                <span class="token-step cross-all" data-prop="padding" data-target="hybrid-target" data-token="--sp-5" data-family="sp" tabindex="0" style="font-size:10px;min-width:50px;padding:3px 6px;background:rgba(80,200,120,0.15);color:rgba(80,200,120,0.9)">all</span>
+              </div>
+              <div style="grid-column:3;grid-row:2">
+                <span class="token-step" data-prop="padding-right" data-target="hybrid-target" data-token="--sp-5" data-family="sp" tabindex="0" style="font-size:10px;min-width:70px;padding:3px 6px">--sp-5</span>
+              </div>
+              <!-- bottom -->
+              <div style="grid-column:2;grid-row:3">
+                <span class="token-step" data-prop="padding-bottom" data-target="hybrid-target" data-token="--sp-5" data-family="sp" tabindex="0" style="font-size:10px;min-width:70px;padding:3px 6px">--sp-5</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Margin — plus/cross layout -->
+          <div class="spacing-cross" data-spacing-type="margin" style="margin-bottom:10px">
+            <div class="spacing-cross-label" style="font-size:9px;color:rgba(255,165,0,0.7);margin-bottom:4px;font-weight:600;letter-spacing:0.3px;text-align:center">margin</div>
+            <div class="cross-grid" style="display:grid;grid-template-columns:1fr auto 1fr;grid-template-rows:auto auto auto;gap:2px;align-items:center;justify-items:center;max-width:220px;margin:0 auto">
+              <!-- top -->
+              <div style="grid-column:2;grid-row:1">
+                <span class="token-step" data-prop="margin-top" data-target="hybrid-target" data-token="--sp-4" data-family="sp" tabindex="0" style="font-size:10px;min-width:70px;padding:3px 6px">--sp-4</span>
+              </div>
+              <!-- left / all / right -->
+              <div style="grid-column:1;grid-row:2">
+                <span class="token-step" data-prop="margin-left" data-target="hybrid-target" data-token="--sp-1" data-family="sp" tabindex="0" style="font-size:10px;min-width:70px;padding:3px 6px;color:rgba(255,255,255,0.4)">0</span>
+              </div>
+              <div style="grid-column:2;grid-row:2">
+                <span class="token-step cross-all" data-prop="margin" data-target="hybrid-target" data-token="" data-family="sp" tabindex="0" style="font-size:10px;min-width:50px;padding:3px 6px;background:rgba(255,165,0,0.15);color:rgba(255,165,0,0.9)">all</span>
+              </div>
+              <div style="grid-column:3;grid-row:2">
+                <span class="token-step" data-prop="margin-right" data-target="hybrid-target" data-token="--sp-1" data-family="sp" tabindex="0" style="font-size:10px;min-width:70px;padding:3px 6px;color:rgba(255,255,255,0.4)">0</span>
+              </div>
+              <!-- bottom -->
+              <div style="grid-column:2;grid-row:3">
+                <span class="token-step" data-prop="margin-bottom" data-target="hybrid-target" data-token="--sp-6" data-family="sp" tabindex="0" style="font-size:10px;min-width:70px;padding:3px 6px">--sp-6</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Gap -->
+          <div class="prop-row" data-prop="gap" data-target="hybrid-target">
+            <span class="prop-name" style="min-width:70px">gap</span>
+            <span class="token-step" data-prop="gap" data-target="hybrid-target" data-token="--sp-4" data-family="sp" tabindex="0" style="margin-left:auto">--sp-4</span>
+          </div>
+
+          <div class="section-label">TYPOGRAPHY</div>
+          <div class="prop-row" data-prop="font-family" data-target="hybrid-target"><span class="prop-name" style="min-width:70px">font-family</span><span class="token-step" data-prop="font-family" data-target="hybrid-target" data-token="--nyt-sans" data-family="nyt-sans" tabindex="0" style="margin-left:auto">--nyt-sans</span></div>
+          <div class="prop-row" data-prop="font-size" data-target="hybrid-target"><span class="prop-name" style="min-width:70px">font-size</span><span class="token-step" data-prop="font-size" data-target="hybrid-target" data-token="--ts-lg" data-family="ts" tabindex="0" style="margin-left:auto">--ts-lg</span></div>
+          <div class="prop-row" data-prop="font-weight" data-target="hybrid-target"><span class="prop-name" style="min-width:70px">font-weight</span><span class="value-input" data-prop="font-weight" data-target="hybrid-target" tabindex="0" contenteditable="true" style="margin-left:auto">700</span></div>
+          <div class="prop-row" data-prop="line-height" data-target="hybrid-target"><span class="prop-name" style="min-width:70px">line-height</span><span class="value-input" data-prop="line-height" data-target="hybrid-target" tabindex="0" contenteditable="true" style="margin-left:auto">1.6</span></div>
+          <div class="prop-row" data-prop="color" data-target="hybrid-target"><span class="prop-name" style="min-width:70px">color</span><span class="color-swatch" style="width:12px;height:12px;border-radius:3px;background:#121212;border:1px solid rgba(255,255,255,0.2);margin-left:auto;flex-shrink:0"></span><span class="token-step" data-prop="color" data-target="hybrid-target" data-token="--nyt-fg" data-family="nyt-fg" tabindex="0">--nyt-fg</span></div>
+
+          <div class="section-label">APPEARANCE</div>
+          <div class="prop-row" data-prop="background" data-target="hybrid-target"><span class="prop-name" style="min-width:70px">background</span><span class="color-swatch" style="width:12px;height:12px;border-radius:3px;background:#f5f5f2;border:1px solid rgba(255,255,255,0.2);margin-left:auto;flex-shrink:0"></span><span class="token-step" data-prop="background" data-target="hybrid-target" data-token="--nyt-bg-alt" data-family="nyt-bg" tabindex="0">--nyt-bg-alt</span></div>
+          <div class="prop-row" data-prop="border-radius" data-target="hybrid-target"><span class="prop-name" style="min-width:70px">border-radius</span><span class="token-step" data-prop="border-radius" data-target="hybrid-target" data-token="--sp-2" data-family="sp" tabindex="0" style="margin-left:auto">--sp-2</span></div>
+          <div class="prop-row" data-prop="border-color" data-target="hybrid-target"><span class="prop-name" style="min-width:70px">border-color</span><span class="color-swatch" style="width:12px;height:12px;border-radius:3px;background:#ececec;border:1px solid rgba(255,255,255,0.2);margin-left:auto;flex-shrink:0"></span><span class="token-step" data-prop="border-color" data-target="hybrid-target" data-token="--nyt-border" data-family="nyt-border" tabindex="0">--nyt-border</span></div>
+          <div class="prop-row" data-prop="border-width" data-target="hybrid-target"><span class="prop-name" style="min-width:70px">border-width</span><span class="value-input" data-prop="border-width" data-target="hybrid-target" tabindex="0" contenteditable="true" style="margin-left:auto">0</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Token is the hero — you scan the left column for design decisions. Spacing stays compact (1 line) when uniform but expands only when there's real complexity to reveal. Clean semantic grouping.
+    Con: "mixed" label is less informative than showing all 4 values upfront. Two column ordering (token-first vs value-first for non-token props) needs consistent visual treatment.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT K: Edge Drag — Resize Spacing by Dragging Edges -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>K. Edge Drag</h2>
+    <span class="tag">DIRECT MANIPULATION</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">         hover edge → spacing overlay appears (all sides)
+                    ← drag edge to resize padding →
+         ┌───────────────────────────────────────────────┐
+         │░░░░ margin (orange) ░░░░░░░░░░░░░░░░░░░░░░░░│
+         │  ┌─────────────────────────────────────────┐  │
+         │  │▓▓▓▓ padding (green, active side bright) │  │
+         │  │                                         │  │
+         │  │         Element content                 │  │
+         │  │                                         │  │
+         │  │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│  │
+         │  └─────────────────────────────────────────┘  │
+         │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│
+         └───────────────────────────────────────────────┘
+         Labels show token name + px value on each side.
+
+Hover edge → full spacing overlay (green padding, orange margin).
+Drag → resize that side, snaps to token scale. Active side glows brighter.
+Hold Shift while dragging → margin instead of padding.</div>
+
+    <div style="padding: 24px; background: var(--nyt-bg-alt); border-radius: 8px; position: relative;">
+      <div class="direct-target" id="edge-drag-target">
+        <div class="edge-handle top"><span class="edge-label">padding-top: --sp-5</span></div>
+        <div class="edge-handle bottom"><span class="edge-label">padding-bottom: --sp-5</span></div>
+        <div class="edge-handle left"><span class="edge-label">padding-left: --sp-5</span></div>
+        <div class="edge-handle right"><span class="edge-label">padding-right: --sp-5</span></div>
+        <h3>Drag My Edges</h3>
+        <p>Hover near any edge to see the green handle. Drag to resize padding — snaps to design tokens.</p>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Most intuitive — works like resizing in Figma. Immediate spatial feedback. No panel needed for quick tweaks.
+    Con: Small hit target (edge handles). Needs clear affordance. Only works for spacing, not color/type.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT L: Scroll-to-Cycle — Mouse Wheel Steps Through Scale -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>L. Scroll-to-Cycle</h2>
+    <span class="tag">DIRECT MANIPULATION</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">         Hover over element + scroll wheel
+         ┌──────────────────────────────────┐
+         │                                  │
+         │     ┌─── tooltip ────────┐       │
+         │     │ padding: --sp-6 ▲  │       │  ← scroll up = bigger
+         │     └────────────────────┘       │     scroll down = smaller
+         │                                  │
+         └──────────────────────────────────┘
+
+Modifier keys change what property gets cycled:
+  No modifier  →  padding (all sides)
+  Shift        →  margin (all sides)
+  Alt/Option   →  font-size
+  Ctrl/Cmd     →  gap</div>
+
+    <div style="padding: 24px; background: var(--nyt-bg-alt); border-radius: 8px;">
+      <div class="direct-target" id="scroll-cycle-target" tabindex="0" style="cursor:crosshair; outline: none;">
+        <div class="scroll-indicator" id="scroll-indicator">padding: --sp-5</div>
+        <h3>Scroll On Me</h3>
+        <p>Hover here and use the scroll wheel to cycle through spacing tokens. Hold Shift for margin, Alt for font-size.</p>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Zero clicks — fastest possible interaction. Familiar from Figma number inputs. Keeps hands in position.
+    Con: Fights page scroll — needs clear activation (maybe only when element is "selected"). Discoverability is low.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- EXPERIMENT M: Context Zones — Click Zones on the Element -->
+<!-- ============================================================ -->
+<div class="experiment">
+  <div class="experiment-header">
+    <h2>M. Context Zones</h2>
+    <span class="tag">DIRECT MANIPULATION</span>
+  </div>
+  <div class="experiment-body">
+    <div class="wireframe">     Click activates the element, then zones appear:
+
+     ┌────────── margin zone (orange) ──────────┐
+     │  ┌──────── padding zone (green) ────────┐ │
+     │  │  ┌────── content zone (blue) ──────┐ │ │
+     │  │  │                                  │ │ │
+     │  │  │    [ text / font controls ]      │ │ │
+     │  │  │                                  │ │ │
+     │  │  └──────────────────────────────────┘ │ │
+     │  └──────────────────────────────────────┘ │
+     └──────────────────────────────────────────┘
+
+Click a zone → inline stepper with ◀ token-name ▶ appears.
+Each zone controls its own property family.</div>
+
+    <div style="padding: 24px; background: var(--nyt-bg-alt); border-radius: 8px;">
+      <p style="font-size: 11px; color: var(--nyt-fg-dim); margin: 0 0 12px;">Click the element to activate zones. Then click a zone (margin/padding/content) to get a token stepper.</p>
+      <div class="direct-target" id="zone-target" style="position:relative; padding: var(--sp-5); margin: var(--sp-4);">
+        <div class="zone-overlay" id="zone-overlay">
+          <div class="zone-margin" data-zone="margin">
+            <span class="zone-label">margin</span>
+          </div>
+          <div class="zone-padding" data-zone="padding">
+            <span class="zone-label">padding</span>
+          </div>
+          <div class="zone-content" data-zone="content">
+            <span class="zone-label">content</span>
+          </div>
+        </div>
+        <div class="token-stepper" id="zone-stepper">
+          <button class="step-down">◀</button>
+          <span class="step-label">--sp-5</span>
+          <button class="step-up">▶</button>
+        </div>
+        <h3>Click to Activate Zones</h3>
+        <p>Once active, the element shows layered zones. Click margin (outer), padding (middle), or content (inner) to get an inline token stepper.</p>
+      </div>
+    </div>
+  </div>
+  <div class="experiment-notes">
+    Pro: Spatial metaphor matches CSS box model. No panel needed. Visual clarity about what you're editing.
+    Con: Overlapping zones need careful hit-testing. Stepper limited to stepping — no jump-to-token. Needs activation step.
+  </div>
+</div>
+
+<!-- Interactivity for mockup panels -->
+<script>
+(() => {
+  'use strict';
+
+  // --- Token scale definitions ---
+  const TOKENS = {
+    sp: [
+      { name: '--sp-1', value: '0.25rem', px: 4 },
+      { name: '--sp-2', value: '0.5rem', px: 8 },
+      { name: '--sp-3', value: '0.75rem', px: 12 },
+      { name: '--sp-4', value: '1rem', px: 16 },
+      { name: '--sp-5', value: '1.5rem', px: 24 },
+      { name: '--sp-6', value: '2rem', px: 32 },
+      { name: '--sp-7', value: '3rem', px: 48 },
+      { name: '--sp-8', value: '4rem', px: 64 },
+      { name: '--sp-10', value: '5rem', px: 80 },
+      { name: '--sp-12', value: '6rem', px: 96 },
+      { name: '--sp-16', value: '8rem', px: 128 },
+    ],
+    ts: [
+      { name: '--ts-xs', value: '11px', px: 11 },
+      { name: '--ts-sm', value: '13px', px: 13 },
+      { name: '--ts-base', value: '15px', px: 15 },
+      { name: '--ts-md', value: '17px', px: 17 },
+      { name: '--ts-lg', value: '20px', px: 20 },
+      { name: '--ts-xl', value: '26px', px: 26 },
+      { name: '--ts-2xl', value: '34px', px: 34 },
+      { name: '--ts-3xl', value: '42px', px: 42 },
+    ],
+    'nyt-fg': [
+      { name: '--nyt-fg', value: '#121212', color: '#121212' },
+      { name: '--nyt-fg-dim', value: '#5a5a5a', color: '#5a5a5a' },
+      { name: '--nyt-fg-faint', value: '#8b8b8b', color: '#8b8b8b' },
+      { name: '--nyt-accent', value: '#326891', color: '#326891' },
+    ],
+    'nyt-bg': [
+      { name: '--nyt-bg', value: '#ffffff', color: '#ffffff' },
+      { name: '--nyt-bg-alt', value: '#f5f5f2', color: '#f5f5f2' },
+    ],
+    'nyt-border': [
+      { name: '--nyt-border', value: '#ececec', color: '#ececec' },
+      { name: '--nyt-border-strong', value: '#c7c7c7', color: '#c7c7c7' },
+    ],
+    'nyt-sans': [
+      { name: '--nyt-sans', value: 'nyt-franklin, system-ui, sans-serif' },
+    ],
+  };
+
+  function getFamily(tokenName) {
+    const bare = tokenName.replace(/^--/, '');
+    const parts = bare.split('-');
+    // Try progressively longer prefixes
+    for (let len = parts.length - 1; len >= 1; len--) {
+      const prefix = parts.slice(0, len).join('-');
+      if (TOKENS[prefix]) return prefix;
+    }
+    return parts[0];
+  }
+
+  // --- Make all .prop-token spans clickable (dropdown experiments) ---
+  document.querySelectorAll('.panel-mock .prop-token').forEach(span => {
+    const tokenName = span.textContent.replace(' ▾', '').trim();
+    span.style.cursor = 'pointer';
+    span.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPicker(span, tokenName);
+    });
+  });
+
+  let activePicker = null;
+
+  function closePicker() {
+    if (activePicker) { activePicker.remove(); activePicker = null; }
+    document.removeEventListener('mousedown', outsideClick, true);
+  }
+
+  function outsideClick(e) {
+    if (activePicker && !activePicker.contains(e.target)) closePicker();
+  }
+
+  function openPicker(anchor, currentToken) {
+    closePicker();
+    const family = getFamily(currentToken);
+    const tokens = TOKENS[family];
+    if (!tokens) return;
+
+    const isColor = !!tokens[0].color;
+
+    const picker = document.createElement('div');
+    activePicker = picker;
+    Object.assign(picker.style, {
+      position: 'absolute',
+      zIndex: '999999',
+      width: '180px',
+      background: 'rgba(20,20,20,0.98)',
+      border: '1px solid rgba(255,255,255,0.15)',
+      borderRadius: '6px',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontSize: '11px',
+      color: '#fff',
+      overflow: 'hidden',
+    });
+
+    // Filter input
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Filter…';
+    Object.assign(input.style, {
+      width: '100%', padding: '8px 10px',
+      background: 'rgba(255,255,255,0.05)', border: 'none',
+      borderBottom: '1px solid rgba(255,255,255,0.1)',
+      color: '#fff', fontSize: '11px', outline: 'none', boxSizing: 'border-box',
+    });
+    picker.appendChild(input);
+
+    // List
+    const list = document.createElement('div');
+    Object.assign(list.style, { maxHeight: '180px', overflowY: 'auto', padding: '4px 0', scrollbarWidth: 'none' });
+    list.style.cssText += '-webkit-overflow-scrolling:touch;';
+    list.classList.add('no-scrollbar');
+    picker.appendChild(list);
+
+    // Resolve CSS property and target element.
+    // Check anchor, then closest .prop-row / .shorthand-row for data attributes.
+    const row = anchor.closest('[data-prop]');
+    let cssProp = anchor.dataset.prop || anchor.dataset.boxSlot || (row && row.dataset.prop) || null;
+    if (!cssProp) {
+      const propRow = anchor.closest('.prop-row');
+      const propName = propRow ? propRow.querySelector('.prop-name') : null;
+      cssProp = propName ? propName.textContent.trim() : null;
+    }
+
+    // Find target element — data-target on anchor, parent row, or .mock-page fallback
+    let targetEl = null;
+    const targetId = anchor.dataset.target || (row && row.dataset.target) || null;
+    if (targetId) {
+      targetEl = document.getElementById(targetId);
+    }
+    if (!targetEl) {
+      const mockContainer = anchor.closest('.mockup-container');
+      targetEl = mockContainer ? mockContainer.querySelector('.mock-page > *') : null;
+    }
+
+    // Store original value for live preview revert
+    const originalValue = targetEl && cssProp ? targetEl.style.getPropertyValue(cssProp) : '';
+
+    function renderItems(filter) {
+      list.innerHTML = '';
+      const filtered = tokens.filter(t =>
+        t.name.includes(filter) || t.value.includes(filter)
+      );
+      filtered.forEach(t => {
+        const item = document.createElement('div');
+        const isCurrent = t.name === currentToken;
+        Object.assign(item.style, {
+          display: 'flex', alignItems: 'center', gap: '6px',
+          padding: '5px 10px', cursor: 'pointer',
+          borderLeft: isCurrent ? '2px solid #fbbf24' : '2px solid transparent',
+          background: isCurrent ? 'rgba(251,191,36,0.1)' : 'transparent',
+        });
+        item.addEventListener('mouseenter', () => {
+          item.style.background = 'rgba(251,191,36,0.12)';
+          item.style.borderLeftColor = '#fbbf24';
+          // Highlight token name
+          const nameSpan = item.querySelector('[data-token-name]');
+          if (nameSpan) nameSpan.style.color = '#fbbf24';
+          // Live preview on target
+          if (targetEl && cssProp) {
+            targetEl.style.setProperty(cssProp, `var(${t.name})`);
+          }
+        });
+        item.addEventListener('mouseleave', () => {
+          item.style.background = isCurrent ? 'rgba(251,191,36,0.1)' : 'transparent';
+          item.style.borderLeftColor = isCurrent ? '#fbbf24' : 'transparent';
+          // Revert name color
+          const nameSpan = item.querySelector('[data-token-name]');
+          if (nameSpan) nameSpan.style.color = isCurrent ? '#fbbf24' : '#fff';
+          // Revert preview
+          if (targetEl && cssProp) {
+            targetEl.style.setProperty(cssProp, originalValue || `var(${currentToken})`);
+          }
+        });
+        item.addEventListener('click', () => {
+          currentToken = t.name;
+
+          // Update anchor display based on element type
+          if (anchor.classList.contains('box-val')) {
+            // Box model: show px value + token name
+            let tokenSpan = anchor.querySelector('.box-token');
+            if (!tokenSpan) {
+              tokenSpan = document.createElement('span');
+              tokenSpan.className = 'box-token';
+              anchor.textContent = '';
+              anchor.appendChild(document.createTextNode(''));
+              anchor.appendChild(tokenSpan);
+            }
+            tokenSpan.textContent = t.name;
+            anchor.firstChild.textContent = (t.px || t.value) + ' ';
+          } else if (anchor.classList.contains('quad-val')) {
+            // Quad value: show px value, update data-token
+            anchor.textContent = t.px || t.value;
+            anchor.dataset.token = t.name;
+          } else {
+            // Standard prop-token: name + chevron
+            anchor.textContent = t.name + ' ▾';
+            // Update the value span in the row
+            const propRow = anchor.closest('.prop-row');
+            if (propRow) {
+              const valSpan = propRow.querySelector('.prop-value');
+              if (valSpan) valSpan.textContent = t.px ? t.px + 'px' : t.value;
+            }
+          }
+
+          // Apply to the target element
+          if (targetEl && cssProp) {
+            targetEl.style.setProperty(cssProp, `var(${t.name})`);
+          }
+
+          closePicker();
+        });
+
+        if (isColor) {
+          const swatch = document.createElement('span');
+          Object.assign(swatch.style, {
+            display: 'inline-block', width: '10px', height: '10px',
+            background: t.color, borderRadius: '2px', flexShrink: '0',
+            border: t.color === '#ffffff' ? '1px solid #666' : 'none',
+          });
+          item.appendChild(swatch);
+        }
+
+        const name = document.createElement('span');
+        name.setAttribute('data-token-name', '');
+        name.textContent = t.name;
+        name.style.color = isCurrent ? '#fbbf24' : '#fff';
+        name.style.fontWeight = isCurrent ? '600' : '400';
+        item.appendChild(name);
+
+        const val = document.createElement('span');
+        val.textContent = t.px ? t.px + 'px' : t.value;
+        Object.assign(val.style, { color: 'rgba(255,255,255,0.4)', fontSize: '10px', marginLeft: 'auto' });
+        item.appendChild(val);
+
+        list.appendChild(item);
+      });
+    }
+
+    input.addEventListener('input', () => renderItems(input.value));
+    renderItems('');
+
+    // Position
+    const rect = anchor.getBoundingClientRect();
+    picker.style.position = 'fixed';
+    picker.style.top = (rect.bottom + 4) + 'px';
+    picker.style.left = Math.max(8, rect.left - 40) + 'px';
+    document.body.appendChild(picker);
+    input.focus();
+
+    setTimeout(() => document.addEventListener('mousedown', outsideClick, true), 0);
+  }
+
+  // --- Make sliders interactive (Experiment E & F) ---
+  document.querySelectorAll('.token-slider-mock').forEach(sliderWrap => {
+    const range = sliderWrap.querySelector('input[type="range"]');
+    const label = sliderWrap.querySelector('.slider-label');
+    if (!range || !label) return;
+
+    // Determine which scale this slider controls
+    const currentToken = label.textContent.trim();
+    const family = getFamily(currentToken);
+    const tokens = TOKENS[family];
+    if (!tokens) return;
+
+    range.min = 0;
+    range.max = tokens.length - 1;
+    range.value = tokens.findIndex(t => t.name === currentToken);
+    if (range.value < 0) range.value = 0;
+
+    // Find the target element and prop
+    const mockContainer = sliderWrap.closest('.mockup-container');
+    const targetEl = mockContainer ? mockContainer.querySelector('.mock-page > *') : null;
+    const prevRow = sliderWrap.previousElementSibling;
+    const propNameEl = prevRow ? prevRow.querySelector('.prop-name') : null;
+    const cssProp = propNameEl ? propNameEl.textContent.trim() : null;
+
+    range.addEventListener('input', () => {
+      const idx = parseInt(range.value);
+      const token = tokens[idx];
+      if (!token) return;
+      label.textContent = token.name;
+
+      // Update value in the prop row above
+      if (prevRow) {
+        const valEl = prevRow.querySelector('.prop-value');
+        if (valEl) valEl.textContent = token.px ? token.px + 'px' : token.value;
+        const tokenEl = prevRow.querySelector('.prop-token');
+        if (tokenEl) tokenEl.textContent = token.name + ' ▾';
+      }
+
+      // Apply live
+      if (targetEl && cssProp) {
+        targetEl.style.setProperty(cssProp, `var(${token.name})`);
+      }
+    });
+  });
+
+  // --- Make color picker items interactive (Experiment F) ---
+  document.querySelectorAll('.token-picker-mock .picker-item').forEach(item => {
+    item.style.cursor = 'pointer';
+    item.addEventListener('click', () => {
+      const pickerMock = item.closest('.token-picker-mock');
+      const allItems = pickerMock.querySelectorAll('.picker-item');
+      allItems.forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+
+      // Find which token was picked
+      const nameEl = item.querySelector('.picker-name');
+      if (!nameEl) return;
+      const tokenName = nameEl.textContent.trim();
+
+      // Find the prop row above this picker
+      const prevSibling = pickerMock.previousElementSibling;
+      if (prevSibling && prevSibling.classList.contains('prop-row')) {
+        const tokenEl = prevSibling.querySelector('.prop-token');
+        if (tokenEl) tokenEl.textContent = tokenName + ' ▾';
+      }
+
+      // Apply to target
+      const mockContainer = item.closest('.mockup-container');
+      const targetEl = mockContainer ? mockContainer.querySelector('.mock-page > *') : null;
+      const propRow = pickerMock.previousElementSibling;
+      const propNameEl = propRow ? propRow.querySelector('.prop-name') : null;
+      const cssProp = propNameEl ? propNameEl.textContent.trim() : null;
+
+      if (targetEl && cssProp && tokenName) {
+        targetEl.style.setProperty(cssProp, `var(${tokenName})`);
+      }
+    });
+  });
+
+  // --- Experiment D: make static picker items clickable too ---
+  document.querySelectorAll('.experiment:nth-child(4) .picker-item').forEach(item => {
+    item.style.cursor = 'pointer';
+    item.addEventListener('click', () => {
+      const list = item.closest('.picker-list');
+      list.querySelectorAll('.picker-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+
+      const nameEl = item.querySelector('.picker-name');
+      if (!nameEl) return;
+      const tokenName = nameEl.textContent.trim();
+
+      // Update the prop row above
+      const mockContent = item.closest('.panel-mock-content');
+      const firstRow = mockContent.querySelector('.prop-row');
+      if (firstRow) {
+        const tokenSpan = firstRow.querySelector('.prop-token');
+        const valSpan = firstRow.querySelector('.prop-value');
+        if (tokenSpan) tokenSpan.textContent = tokenName + ' ▾';
+        const family = getFamily(tokenName);
+        const t = TOKENS[family] && TOKENS[family].find(tk => tk.name === tokenName);
+        if (valSpan && t) valSpan.textContent = t.px ? t.px + 'px' : t.value;
+      }
+
+      // Apply to the element
+      const mockContainer = item.closest('.mockup-container');
+      const targetEl = mockContainer ? mockContainer.querySelector('.mock-page > *') : null;
+      if (targetEl) {
+        targetEl.style.setProperty('padding-top', `var(${tokenName})`);
+      }
+    });
+  });
+
+  // --- Experiment H: Box model clickable values ---
+  document.querySelectorAll('.box-val[data-box-slot]').forEach(val => {
+    val.style.cursor = 'pointer';
+    val.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tokenEl = val.querySelector('.box-token');
+      const currentToken = tokenEl ? tokenEl.textContent.trim() : '--sp-1';
+      openPicker(val, currentToken);
+    });
+  });
+
+  // --- Experiment I: Shorthand expand/collapse ---
+  document.querySelectorAll('.shorthand-toggle').forEach(toggle => {
+    const details = toggle.nextElementSibling;
+    const arrow = toggle.querySelector('.expand-arrow');
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.dataset.expanded === 'true';
+      toggle.dataset.expanded = expanded ? 'false' : 'true';
+      details.style.display = expanded ? 'none' : 'block';
+      arrow.style.transform = expanded ? '' : 'rotate(90deg)';
+    });
+  });
+
+  // --- Experiment J: Quad-value clickable ---
+  document.querySelectorAll('.quad-val').forEach(val => {
+    val.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const token = val.dataset.token;
+      if (token) {
+        openPicker(val, token);
+      } else {
+        // No token — open spacing scale picker to assign one
+        openPicker(val, '--sp-4');
+      }
+    });
+  });
+
+  // =====================================================================
+  // EXPERIMENT N: Row hover → highlight property on target element
+  // =====================================================================
+  (() => {
+    const panel = document.querySelector('#hybrid-target')?.closest('.mockup-container')?.querySelector('.panel-mock-content');
+    const target = document.getElementById('hybrid-target');
+    if (!panel || !target) return;
+
+    // Colors matching DOM-Tools spacing overlay
+    const PAD_COLOR = 'rgba(144, 238, 144, 0.4)';
+    const MAR_COLOR = 'rgba(255, 165, 0, 0.35)';
+    const PAD_LABEL_BG = 'rgba(30, 90, 50, 0.9)';
+    const MAR_LABEL_BG = 'rgba(140, 70, 0, 0.9)';
+    const TYPE_COLOR = 'rgba(100, 150, 255, 0.15)';
+    const APPEARANCE_COLOR = 'rgba(200, 100, 255, 0.1)';
+
+    let highlightEl = null;
+
+    function clearHighlight() {
+      if (highlightEl) { highlightEl.remove(); highlightEl = null; }
+      target.style.removeProperty('outline');
+      target.style.removeProperty('outline-offset');
+    }
+
+    function showSpacingHighlight(prop) {
+      clearHighlight();
+      const cs = getComputedStyle(target);
+      const rect = target.getBoundingClientRect();
+      const p = (v) => parseFloat(v) || 0;
+
+      const isPadding = prop.startsWith('padding');
+      const isMargin = prop.startsWith('margin');
+      const color = isPadding ? PAD_COLOR : MAR_COLOR;
+      const brightColor = isPadding ? 'rgba(144, 238, 144, 0.6)' : 'rgba(255, 165, 0, 0.55)';
+      const labelBg = isPadding ? PAD_LABEL_BG : MAR_LABEL_BG;
+
+      // Determine which side(s) to highlight
+      const sides = prop === 'padding' || prop === 'margin'
+        ? ['top', 'right', 'bottom', 'left']
+        : [prop.split('-')[1]];
+
+      const container = document.createElement('div');
+      Object.assign(container.style, {
+        position: 'fixed', top: '0', left: '0',
+        width: '100%', height: '100%',
+        pointerEvents: 'none', zIndex: '99998',
+      });
+
+      sides.forEach(side => {
+        const fullProp = (isPadding ? 'padding-' : 'margin-') + side;
+        const val = p(cs.getPropertyValue(fullProp));
+        if (val <= 0) return;
+
+        let x, y, w, h;
+        if (isPadding) {
+          const pt = p(cs.paddingTop), pr = p(cs.paddingRight), pb = p(cs.paddingBottom), pl = p(cs.paddingLeft);
+          if (side === 'top') { x = rect.left; y = rect.top; w = rect.width; h = pt; }
+          else if (side === 'bottom') { x = rect.left; y = rect.bottom - pb; w = rect.width; h = pb; }
+          else if (side === 'left') { x = rect.left; y = rect.top + pt; w = pl; h = rect.height - pt - pb; }
+          else { x = rect.right - pr; y = rect.top + pt; w = pr; h = rect.height - pt - pb; }
+        } else {
+          const mt = p(cs.marginTop), mr = p(cs.marginRight), mb = p(cs.marginBottom), ml = p(cs.marginLeft);
+          if (side === 'top') { x = rect.left; y = rect.top - mt; w = rect.width; h = mt; }
+          else if (side === 'bottom') { x = rect.left; y = rect.bottom; w = rect.width; h = mb; }
+          else if (side === 'left') { x = rect.left - ml; y = rect.top - mt; w = ml; h = rect.height + mt + mb; }
+          else { x = rect.right; y = rect.top - mt; w = mr; h = rect.height + mt + mb; }
+        }
+
+        // Colored box
+        const box = document.createElement('div');
+        Object.assign(box.style, {
+          position: 'fixed', top: y + 'px', left: x + 'px',
+          width: w + 'px', height: h + 'px',
+          background: sides.length === 1 ? brightColor : color,
+        });
+        container.appendChild(box);
+
+        // Label
+        if (w >= 14 || h >= 14) {
+          const lbl = document.createElement('span');
+          Object.assign(lbl.style, {
+            position: 'fixed',
+            top: (y + h / 2) + 'px', left: (x + w / 2) + 'px',
+            transform: 'translate(-50%, -50%)',
+            font: '9px/1 ui-monospace, Menlo, monospace',
+            color: '#fff', background: labelBg,
+            padding: '2px 5px', borderRadius: '2px',
+            whiteSpace: 'nowrap',
+          });
+          lbl.textContent = Math.round(val) + 'px';
+          container.appendChild(lbl);
+        }
+      });
+
+      document.body.appendChild(container);
+      highlightEl = container;
+    }
+
+    function showGenericHighlight(prop) {
+      clearHighlight();
+      const isType = ['font-size', 'font-weight', 'line-height'].includes(prop);
+      const color = isType ? TYPE_COLOR : APPEARANCE_COLOR;
+      const borderColor = isType ? 'rgba(100, 150, 255, 0.5)' : 'rgba(200, 100, 255, 0.4)';
+      target.style.outline = `2px solid ${borderColor}`;
+      target.style.outlineOffset = '-2px';
+
+      // Flash overlay on the element
+      const rect = target.getBoundingClientRect();
+      const container = document.createElement('div');
+      Object.assign(container.style, {
+        position: 'fixed', top: rect.top + 'px', left: rect.left + 'px',
+        width: rect.width + 'px', height: rect.height + 'px',
+        background: color, pointerEvents: 'none', zIndex: '99998',
+        borderRadius: getComputedStyle(target).borderRadius,
+      });
+      document.body.appendChild(container);
+      highlightEl = container;
+    }
+
+    // Attach hover listeners to all prop-rows in experiment N
+    panel.querySelectorAll('.prop-row[data-prop]').forEach(row => {
+      row.addEventListener('mouseenter', () => {
+        const prop = row.dataset.prop;
+        if (prop.startsWith('padding') || prop.startsWith('margin')) {
+          showSpacingHighlight(prop);
+        } else {
+          showGenericHighlight(prop);
+        }
+      });
+      row.addEventListener('mouseleave', clearHighlight);
+    });
+
+    // Shorthand toggles (padding/margin as a whole)
+    panel.querySelectorAll('.shorthand-toggle').forEach(toggle => {
+      const nameEl = toggle.querySelector('.prop-name');
+      if (!nameEl) return;
+      const prop = nameEl.textContent.trim(); // "padding" or "margin"
+      toggle.addEventListener('mouseenter', () => {
+        if (prop === 'padding' || prop === 'margin') {
+          showSpacingHighlight(prop);
+        }
+      });
+      toggle.addEventListener('mouseleave', clearHighlight);
+    });
+
+    // Cross-grid token steps — hover to show spacing highlight
+    panel.querySelectorAll('.spacing-cross .token-step').forEach(step => {
+      const prop = step.dataset.prop;
+      if (!prop) return;
+      step.addEventListener('mouseenter', () => {
+        if (prop.startsWith('padding') || prop.startsWith('margin') || prop === 'padding' || prop === 'margin') {
+          showSpacingHighlight(prop);
+        }
+      });
+      step.addEventListener('mouseleave', clearHighlight);
+    });
+
+    // --- Token step: click to focus, arrow keys to step through scale ---
+    panel.querySelectorAll('.token-step').forEach(step => {
+      const family = step.dataset.family;
+      const scale = TOKENS[family];
+      if (!scale) return;
+
+      const prop = step.dataset.prop;
+      const targetId = step.dataset.target;
+      const targetEl = targetId ? document.getElementById(targetId) : null;
+      const isAllControl = step.classList.contains('cross-all');
+
+      function getIndex() {
+        const token = step.dataset.token;
+        const idx = scale.findIndex(t => t.name === token);
+        return idx >= 0 ? idx : 0;
+      }
+
+      function apply(idx) {
+        idx = Math.max(0, Math.min(scale.length - 1, idx));
+        const token = scale[idx];
+        step.dataset.token = token.name;
+        step.textContent = token.name;
+        step.style.color = ''; // reset
+
+        // Update adjacent color swatch if present
+        if (token.color) {
+          const row = step.closest('.prop-row');
+          const swatch = row && row.querySelector('.color-swatch');
+          if (swatch) swatch.style.background = token.color;
+        }
+
+        if (targetEl && prop) {
+          if (isAllControl) {
+            // "all" — set all 4 sides + update sibling token-steps in the cross
+            const sides = ['top', 'right', 'bottom', 'left'];
+            sides.forEach(side => {
+              targetEl.style.setProperty(`${prop}-${side}`, `var(${token.name})`);
+            });
+            // Sync sibling steps in the same cross-grid
+            const grid = step.closest('.cross-grid');
+            if (grid) {
+              grid.querySelectorAll('.token-step:not(.cross-all)').forEach(sib => {
+                sib.dataset.token = token.name;
+                sib.textContent = token.name;
+                sib.style.color = '';
+              });
+            }
+            showSpacingHighlight(prop);
+          } else {
+            targetEl.style.setProperty(prop, `var(${token.name})`);
+            // Show spacing highlight while stepping
+            if (prop.startsWith('padding') || prop.startsWith('margin')) {
+              showSpacingHighlight(prop);
+            }
+          }
+        }
+      }
+
+      step.addEventListener('click', (e) => {
+        e.stopPropagation();
+        step.focus();
+      });
+
+      step.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          apply(getIndex() + 1);
+        } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          apply(getIndex() - 1);
+        } else if (e.key === 'Tab') {
+          // Cycle within all editable controls
+          e.preventDefault();
+          const all = [...panel.querySelectorAll('.token-step, .value-input')];
+          const i = all.indexOf(step);
+          const next = e.shiftKey
+            ? all[(i - 1 + all.length) % all.length]
+            : all[(i + 1) % all.length];
+          next.focus();
+        } else if (e.key === 'Backspace' || e.key === 'Delete') {
+          e.preventDefault();
+          // Reset — remove inline style
+          if (targetEl && prop) {
+            if (isAllControl) {
+              ['top', 'right', 'bottom', 'left'].forEach(side => {
+                targetEl.style.removeProperty(`${prop}-${side}`);
+              });
+              const grid = step.closest('.cross-grid');
+              if (grid) {
+                grid.querySelectorAll('.token-step:not(.cross-all)').forEach(sib => {
+                  sib.textContent = '—';
+                  sib.style.color = 'rgba(255,255,255,0.3)';
+                  sib.dataset.token = '';
+                });
+              }
+            } else {
+              targetEl.style.removeProperty(prop);
+            }
+          }
+          step.textContent = '—';
+          step.style.color = 'rgba(255,255,255,0.3)';
+          step.dataset.token = '';
+        } else if (e.key === 'Escape') {
+          step.blur();
+        }
+      });
+
+      step.addEventListener('focus', () => {
+        step.classList.add('active');
+        if (prop.startsWith('padding') || prop.startsWith('margin')) {
+          showSpacingHighlight(prop);
+        }
+      });
+
+      step.addEventListener('blur', () => {
+        step.classList.remove('active');
+        clearHighlight();
+      });
+    });
+
+    // --- Value inputs: editable raw values (font-weight, line-height, etc.) ---
+    panel.querySelectorAll('.value-input').forEach(input => {
+      const prop = input.dataset.prop;
+      const targetId = input.dataset.target;
+      const targetEl = targetId ? document.getElementById(targetId) : null;
+
+      function applyValue() {
+        const val = input.textContent.trim();
+        if (targetEl && prop && val) {
+          targetEl.style.setProperty(prop, val);
+        }
+      }
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          applyValue();
+          input.blur();
+        } else if (e.key === 'Tab') {
+          e.preventDefault();
+          applyValue();
+          const all = [...panel.querySelectorAll('.token-step, .value-input')];
+          const i = all.indexOf(input);
+          const next = e.shiftKey
+            ? all[(i - 1 + all.length) % all.length]
+            : all[(i + 1) % all.length];
+          next.focus();
+        } else if (e.key === 'Escape') {
+          input.blur();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          const num = parseFloat(input.textContent);
+          if (!isNaN(num)) {
+            const step = prop === 'font-weight' ? 100 : prop === 'line-height' ? 0.1 : (e.shiftKey ? 10 : 1);
+            input.textContent = parseFloat((num + step).toFixed(2)).toString();
+            applyValue();
+          }
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          const num = parseFloat(input.textContent);
+          if (!isNaN(num)) {
+            const step = prop === 'font-weight' ? 100 : prop === 'line-height' ? 0.1 : (e.shiftKey ? 10 : 1);
+            input.textContent = parseFloat(Math.max(0, num - step).toFixed(2)).toString();
+            applyValue();
+          }
+        }
+      });
+
+      input.addEventListener('input', () => {
+        // If fully cleared, reset the property
+        if (!input.textContent.trim()) {
+          if (targetEl && prop) {
+            targetEl.style.removeProperty(prop);
+          }
+        }
+      });
+
+      input.addEventListener('blur', () => {
+        if (!input.textContent.trim()) {
+          input.textContent = '—';
+          input.style.color = 'rgba(255,255,255,0.3)';
+          if (targetEl && prop) {
+            targetEl.style.removeProperty(prop);
+          }
+        } else {
+          input.style.color = '';
+          applyValue();
+        }
+      });
+
+      // Select all on focus for easy replacement
+      input.addEventListener('focus', () => {
+        const range = document.createRange();
+        range.selectNodeContents(input);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      });
+    });
+  })();
+
+  // =====================================================================
+  // EXPERIMENT K: Edge Drag — resize padding by dragging element edges
+  // =====================================================================
+  const spScale = TOKENS.sp;
+
+  function closestTokenIndex(px) {
+    let best = 0, bestDist = Infinity;
+    spScale.forEach((t, i) => {
+      const d = Math.abs(t.px - px);
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    return best;
+  }
+
+  // --- Spacing overlay (matches DOM-Tools spacing mode visuals) ---
+  const SPACING_PADDING_COLOR = 'rgba(144, 238, 144, 0.4)';
+  const SPACING_MARGIN_COLOR = 'rgba(255, 165, 0, 0.35)';
+  const LABEL_BG_PADDING = 'rgba(30, 90, 50, 0.9)';
+  const LABEL_BG_MARGIN = 'rgba(140, 70, 0, 0.9)';
+
+  let spacingOverlay = null;
+
+  function ensureSpacingOverlay() {
+    if (spacingOverlay) return spacingOverlay;
+    spacingOverlay = document.createElement('div');
+    Object.assign(spacingOverlay.style, {
+      position: 'fixed', top: '0', left: '0',
+      width: '100%', height: '100%',
+      pointerEvents: 'none',
+      zIndex: '99999',
+    });
+    document.body.appendChild(spacingOverlay);
+    return spacingOverlay;
+  }
+
+  function clearSpacingOverlay() {
+    if (spacingOverlay) { spacingOverlay.remove(); spacingOverlay = null; }
+  }
+
+  function renderSpacingOverlay(el, highlightSide, isMargin) {
+    ensureSpacingOverlay();
+    spacingOverlay.innerHTML = '';
+
+    const cs = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const p = (v) => parseFloat(v) || 0;
+
+    const pt = p(cs.paddingTop), pr = p(cs.paddingRight);
+    const pb = p(cs.paddingBottom), pl = p(cs.paddingLeft);
+    const mt = p(cs.marginTop), mr = p(cs.marginRight);
+    const mb = p(cs.marginBottom), ml = p(cs.marginLeft);
+
+    // Inner content box (inside padding)
+    const innerTop = rect.top;
+    const innerLeft = rect.left;
+    const innerW = rect.width;
+    const innerH = rect.height;
+
+    // Render padding boxes
+    const padColor = SPACING_PADDING_COLOR;
+    const padBoxes = [
+      { side: 'top', x: innerLeft, y: innerTop, w: innerW, h: pt, val: pt },
+      { side: 'bottom', x: innerLeft, y: innerTop + innerH - pb, w: innerW, h: pb, val: pb },
+      { side: 'left', x: innerLeft, y: innerTop + pt, w: pl, h: innerH - pt - pb, val: pl },
+      { side: 'right', x: innerLeft + innerW - pr, y: innerTop + pt, w: pr, h: innerH - pt - pb, val: pr },
+    ];
+
+    // Render margin boxes
+    const marColor = SPACING_MARGIN_COLOR;
+    const marBoxes = [
+      { side: 'top', x: rect.left, y: rect.top - mt, w: rect.width, h: mt, val: mt },
+      { side: 'bottom', x: rect.left, y: rect.bottom, w: rect.width, h: mb, val: mb },
+      { side: 'left', x: rect.left - ml, y: rect.top - mt, w: ml, h: rect.height + mt + mb, val: ml },
+      { side: 'right', x: rect.right, y: rect.top - mt, w: mr, h: rect.height + mt + mb, val: mr },
+    ];
+
+    const labels = [];
+
+    function addBox(box, color, labelBg, isPadding, isActive) {
+      if (box.w <= 0 || box.h <= 0) return;
+      const d = document.createElement('div');
+      const activeAlpha = isActive ? 1.6 : 1; // brighter when actively dragged
+      const adjustedColor = isActive
+        ? (isPadding ? 'rgba(144, 238, 144, 0.6)' : 'rgba(255, 165, 0, 0.55)')
+        : color;
+      Object.assign(d.style, {
+        position: 'fixed',
+        top: box.y + 'px', left: box.x + 'px',
+        width: box.w + 'px', height: box.h + 'px',
+        background: adjustedColor,
+        borderRadius: '1px',
+      });
+      spacingOverlay.appendChild(d);
+
+      // Label
+      if (box.val > 0 && (box.w >= 14 || box.h >= 14)) {
+        const tokenName = resolveToken(el, isPadding ? 'padding-' + box.side : 'margin-' + box.side);
+        labels.push({
+          x: box.x + box.w / 2, y: box.y + box.h / 2,
+          value: Math.round(box.val), token: tokenName,
+          bg: labelBg, isActive
+        });
+      }
+    }
+
+    padBoxes.forEach(box => {
+      const active = !isMargin && box.side === highlightSide;
+      addBox(box, padColor, LABEL_BG_PADDING, true, active);
+    });
+    marBoxes.forEach(box => {
+      const active = isMargin && box.side === highlightSide;
+      addBox(box, marColor, LABEL_BG_MARGIN, false, active);
+    });
+
+    // Render labels on top
+    labels.forEach(({ x, y, value, token, bg, isActive }) => {
+      const lbl = document.createElement('span');
+      Object.assign(lbl.style, {
+        position: 'fixed',
+        top: y + 'px', left: x + 'px',
+        transform: 'translate(-50%, -50%)',
+        font: '9px/1 ui-monospace, "IBM Plex Mono", Menlo, monospace',
+        color: '#fff',
+        background: bg,
+        padding: '2px 5px', borderRadius: '2px',
+        whiteSpace: 'nowrap',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        gap: '1px',
+        boxShadow: isActive ? '0 0 0 1px rgba(255,255,255,0.4)' : 'none',
+      });
+      if (token) {
+        const tokSpan = document.createElement('span');
+        tokSpan.textContent = token;
+        lbl.appendChild(tokSpan);
+        const valSpan = document.createElement('span');
+        valSpan.textContent = value;
+        Object.assign(valSpan.style, { fontSize: '7px', opacity: '0.7' });
+        lbl.appendChild(valSpan);
+      } else {
+        lbl.textContent = value;
+      }
+      spacingOverlay.appendChild(lbl);
+    });
+  }
+
+  // Resolve token name for a given CSS property on an element
+  function resolveToken(el, prop) {
+    // Check inline style for var() reference
+    const inline = el.style.getPropertyValue(prop);
+    const m = inline && inline.match(/var\((--[^)]+)\)/);
+    if (m) return m[1];
+    return null;
+  }
+
+  // --- Edge drag handlers ---
+  document.querySelectorAll('#edge-drag-target .edge-handle').forEach(handle => {
+    const target = document.getElementById('edge-drag-target');
+    const label = handle.querySelector('.edge-label');
+    const side = handle.classList.contains('top') ? 'top'
+               : handle.classList.contains('bottom') ? 'bottom'
+               : handle.classList.contains('left') ? 'left' : 'right';
+    const isVertical = side === 'top' || side === 'bottom';
+
+    let dragging = false, startPos = 0, startPx = 0, useMargin = false;
+
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      useMargin = e.shiftKey;
+      const prop = (useMargin ? 'margin-' : 'padding-') + side;
+      handle.classList.add('active');
+      startPos = isVertical ? e.clientY : e.clientX;
+      startPx = parseInt(getComputedStyle(target).getPropertyValue(prop)) || 0;
+
+      // Show full spacing overlay immediately
+      renderSpacingOverlay(target, side, useMargin);
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    function onMove(e) {
+      if (!dragging) return;
+      const prop = (useMargin ? 'margin-' : 'padding-') + side;
+      const delta = (isVertical ? e.clientY : e.clientX) - startPos;
+      const sign = (side === 'top' || side === 'left') ? -1 : 1;
+      const newPx = Math.max(0, startPx + delta * sign);
+      const idx = closestTokenIndex(newPx);
+      const token = spScale[idx];
+      target.style.setProperty(prop, `var(${token.name})`);
+      label.textContent = `${prop}: ${token.name} (${token.px}px)`;
+
+      // Re-render overlay with updated values
+      renderSpacingOverlay(target, side, useMargin);
+    }
+
+    function onUp() {
+      dragging = false;
+      handle.classList.remove('active');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      // Keep overlay visible briefly, then fade
+      setTimeout(clearSpacingOverlay, 600);
+    }
+
+    // Show overlay on hover too (read-only preview)
+    handle.addEventListener('mouseenter', () => {
+      if (!dragging) renderSpacingOverlay(target, side, false);
+    });
+    handle.addEventListener('mouseleave', () => {
+      if (!dragging) clearSpacingOverlay();
+    });
+  });
+
+  // =====================================================================
+  // EXPERIMENT L: Scroll-to-Cycle — scroll wheel steps through token scale
+  // =====================================================================
+  (() => {
+    const target = document.getElementById('scroll-cycle-target');
+    const indicator = document.getElementById('scroll-indicator');
+    if (!target || !indicator) return;
+
+    const props = {
+      none: { prop: 'padding', label: 'padding', scale: TOKENS.sp },
+      shift: { prop: 'margin', label: 'margin', scale: TOKENS.sp },
+      alt: { prop: 'font-size', label: 'font-size', scale: TOKENS.ts },
+    };
+
+    // Track current index per property
+    const indices = { padding: 4, margin: 3, 'font-size': 4 }; // starting positions
+
+    let hideTimeout = null;
+
+    function showIndicator(text) {
+      indicator.textContent = text;
+      indicator.classList.add('visible');
+      clearTimeout(hideTimeout);
+      hideTimeout = setTimeout(() => indicator.classList.remove('visible'), 1200);
+    }
+
+    target.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const mode = e.altKey ? 'alt' : e.shiftKey ? 'shift' : 'none';
+      const { prop, label, scale } = props[mode];
+      let idx = indices[prop];
+
+      // Scroll down = smaller, scroll up = bigger
+      if (e.deltaY > 0) idx = Math.max(0, idx - 1);
+      else idx = Math.min(scale.length - 1, idx + 1);
+
+      indices[prop] = idx;
+      const token = scale[idx];
+
+      // Apply
+      if (prop === 'padding') {
+        target.style.padding = `var(${token.name})`;
+      } else if (prop === 'margin') {
+        target.style.margin = `var(${token.name})`;
+      } else {
+        target.style.fontSize = `var(${token.name})`;
+      }
+
+      const display = token.px ? `${token.px}px` : token.value;
+      showIndicator(`${label}: ${token.name} (${display})`);
+    }, { passive: false });
+  })();
+
+  // =====================================================================
+  // EXPERIMENT M: Context Zones — click zones for inline token stepper
+  // =====================================================================
+  (() => {
+    const target = document.getElementById('zone-target');
+    const overlay = document.getElementById('zone-overlay');
+    const stepper = document.getElementById('zone-stepper');
+    if (!target || !overlay || !stepper) return;
+
+    const stepLabel = stepper.querySelector('.step-label');
+    const stepDown = stepper.querySelector('.step-down');
+    const stepUp = stepper.querySelector('.step-up');
+
+    let activeZone = null;
+    let zoneIndex = 4; // default --sp-5
+    let activated = false;
+
+    // First click activates zones
+    target.addEventListener('click', (e) => {
+      if (!activated) {
+        activated = true;
+        overlay.classList.add('active');
+        return;
+      }
+    });
+
+    // Click outside deactivates
+    document.addEventListener('click', (e) => {
+      if (activated && !target.contains(e.target)) {
+        activated = false;
+        overlay.classList.remove('active');
+        stepper.classList.remove('visible');
+        activeZone = null;
+        overlay.querySelectorAll('.highlighted').forEach(el => el.classList.remove('highlighted'));
+      }
+    });
+
+    // Zone clicks
+    overlay.querySelectorAll('[data-zone]').forEach(zone => {
+      zone.style.cursor = 'pointer';
+      zone.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!activated) return;
+
+        // Highlight active zone
+        overlay.querySelectorAll('.highlighted').forEach(el => el.classList.remove('highlighted'));
+        zone.classList.add('highlighted');
+
+        activeZone = zone.dataset.zone; // 'margin', 'padding', or 'content'
+
+        // Determine current token index from computed style
+        const prop = activeZone === 'content' ? 'font-size' : activeZone;
+        const scale = activeZone === 'content' ? TOKENS.ts : TOKENS.sp;
+        const current = parseInt(getComputedStyle(target).getPropertyValue(prop === 'margin' ? 'margin-top' : prop));
+        zoneIndex = closestTokenIndex(current);
+        if (activeZone === 'content') {
+          // Find closest in ts scale
+          let best = 0, bestD = Infinity;
+          scale.forEach((t, i) => { const d = Math.abs(t.px - current); if (d < bestD) { bestD = d; best = i; } });
+          zoneIndex = best;
+        }
+
+        stepLabel.textContent = scale[zoneIndex].name;
+
+        // Position stepper near clicked zone
+        const zoneRect = zone.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        stepper.style.top = (zoneRect.top - targetRect.top + zoneRect.height / 2 - 12) + 'px';
+        stepper.style.left = (zoneRect.left - targetRect.left + zoneRect.width / 2 - 50) + 'px';
+        stepper.classList.add('visible');
+      });
+    });
+
+    function applyZone(direction) {
+      if (!activeZone) return;
+      const scale = activeZone === 'content' ? TOKENS.ts : TOKENS.sp;
+
+      zoneIndex = Math.max(0, Math.min(scale.length - 1, zoneIndex + direction));
+      const token = scale[zoneIndex];
+      stepLabel.textContent = token.name;
+
+      if (activeZone === 'padding') {
+        target.style.padding = `var(${token.name})`;
+      } else if (activeZone === 'margin') {
+        target.style.margin = `var(${token.name})`;
+      } else {
+        // content = font-size
+        target.querySelector('h3').style.fontSize = `var(${token.name})`;
+        target.querySelector('p').style.fontSize = `var(${token.name})`;
+      }
+    }
+
+    stepDown.addEventListener('click', (e) => { e.stopPropagation(); applyZone(-1); });
+    stepUp.addEventListener('click', (e) => { e.stopPropagation(); applyZone(1); });
+  })();
+})();
+</script>
+
+<!-- DOM-Tools available but not auto-active — double-tap Esc to activate -->
+<script src="dist/dom-tools.js"></script>
+<script src="plugins/hd-capture/hd-capture.js"></script>
+<script src="plugins/inspector-panel/inspector-panel.js"></script>
+</body>
+</html>
