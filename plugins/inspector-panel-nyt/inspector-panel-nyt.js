@@ -983,22 +983,26 @@
     const hasToken = !!token;
     const row = mkEl('div', {
       display: 'flex', gap: '6px', alignItems: 'center',
-      padding: '2px 0', fontSize: '11px',
+      padding: '3px 0', fontSize: '11px',
     });
     row.classList.add('dt-prop-row');
 
     row.appendChild(indicatorDot(hasToken));
-    const nameSpan = mkEl('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    const nameSpan = mkEl('span', {
+      color: 'rgba(255,255,255,0.6)', width: '90px', flexShrink: '0',
+      fontSize: '10px',
+    });
     nameSpan.textContent = label;
     row.appendChild(nameSpan);
 
     // Color swatch
-    if (hasColor && token) {
+    if (hasColor) {
+      const colorVal = hasToken ? resolveTokenColor(token) : val;
       const swatch = mkEl('span', {
         width: '12px', height: '12px', borderRadius: '3px',
         border: '1px solid rgba(255,255,255,0.2)',
-        marginLeft: 'auto', flexShrink: '0',
-        background: resolveTokenColor(token),
+        flexShrink: '0',
+        background: colorVal,
       });
       swatch.classList.add('dt-color-swatch');
       row.appendChild(swatch);
@@ -1008,14 +1012,14 @@
     const family = hasToken ? getFamily(token) : defaultFamily;
     const span = mkEl('span', {
       color: hasToken ? '#fbbf24' : 'rgba(255,255,255,0.5)',
-      fontSize: '11px', whiteSpace: 'nowrap',
-      cursor: 'pointer', padding: '4px 10px', borderRadius: '4px',
-      background: 'rgba(251,191,36,0.08)', minWidth: '100px',
+      fontSize: '10px', whiteSpace: 'nowrap',
+      cursor: 'pointer', padding: '4px 8px', borderRadius: '4px',
+      background: 'rgba(251,191,36,0.08)', minWidth: '110px',
       textAlign: 'center', outline: 'none',
-      marginLeft: hasColor ? '0' : 'auto',
+      marginLeft: 'auto', flexShrink: '0',
       transition: 'background 0.12s, box-shadow 0.12s',
     }, { tabindex: '0' });
-    span.textContent = hasToken ? token : truncate(val, 20);
+    span.textContent = hasToken ? token : truncate(cleanValue(val), 20);
     span.classList.add('dt-token-step');
     span.dataset.token = token || '';
     span.dataset.family = family || '';
@@ -1031,24 +1035,28 @@
   function buildValueRow(prop, val, targetEl, step) {
     const row = mkEl('div', {
       display: 'flex', gap: '6px', alignItems: 'center',
-      padding: '2px 0', fontSize: '11px',
+      padding: '3px 0', fontSize: '11px',
     });
     row.classList.add('dt-prop-row');
 
     row.appendChild(indicatorDot(false));
-    const nameSpan = mkEl('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    const nameSpan = mkEl('span', {
+      color: 'rgba(255,255,255,0.6)', width: '90px', flexShrink: '0',
+      fontSize: '10px',
+    });
     nameSpan.textContent = prop;
     row.appendChild(nameSpan);
 
     const input = mkEl('span', {
-      color: '#7dd3fc', fontSize: '11px', whiteSpace: 'nowrap',
-      cursor: 'text', padding: '4px 10px', borderRadius: '4px',
-      background: 'rgba(125,211,252,0.08)', minWidth: '60px',
+      color: '#7dd3fc', fontSize: '10px', whiteSpace: 'nowrap',
+      cursor: 'text', padding: '4px 8px', borderRadius: '4px',
+      background: 'rgba(125,211,252,0.08)', minWidth: '110px',
       textAlign: 'center', outline: 'none', marginLeft: 'auto',
+      flexShrink: '0',
       transition: 'background 0.12s, box-shadow 0.12s',
     }, { tabindex: '0', contenteditable: 'true' });
     const numVal = parseFloat(val);
-    input.textContent = isNaN(numVal) ? val : numVal.toString();
+    input.textContent = isNaN(numVal) ? val : parseFloat(numVal.toFixed(1)).toString();
     input.classList.add('dt-value-input');
     input.dataset.prop = prop;
 
@@ -1060,13 +1068,21 @@
   function buildStaticRow(label, val) {
     const row = mkEl('div', {
       display: 'flex', gap: '6px', alignItems: 'center',
-      padding: '2px 0', fontSize: '11px',
+      padding: '3px 0', fontSize: '11px',
     });
     row.appendChild(indicatorDot(false));
-    const nameSpan = mkEl('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    const nameSpan = mkEl('span', {
+      color: 'rgba(255,255,255,0.6)', width: '90px', flexShrink: '0',
+      fontSize: '10px',
+    });
     nameSpan.textContent = label;
-    const valSpan = mkEl('span', { color: 'rgba(255,255,255,0.8)', marginLeft: 'auto' });
-    valSpan.textContent = truncate(val, 30);
+    const valSpan = mkEl('span', {
+      color: 'rgba(255,255,255,0.5)', marginLeft: 'auto',
+      fontSize: '10px', padding: '4px 8px', borderRadius: '4px',
+      background: 'rgba(255,255,255,0.04)', minWidth: '110px',
+      textAlign: 'center', flexShrink: '0',
+    });
+    valSpan.textContent = truncate(cleanValue(val), 20);
     row.appendChild(nameSpan);
     row.appendChild(valSpan);
     return row;
@@ -1172,6 +1188,12 @@
 
   function truncate(str, max) {
     return str.length > max ? str.slice(0, max) + '\u2026' : str;
+  }
+
+  function cleanValue(val) {
+    if (!val) return val;
+    // Round long floating point values (40.299999px → 40.3px)
+    return val.replace(/(\d+\.\d{2})\d+/g, (_, short) => parseFloat(short).toString());
   }
 
   // --- Selection tracking ---
