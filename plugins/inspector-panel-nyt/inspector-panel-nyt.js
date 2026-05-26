@@ -1,16 +1,216 @@
 /**
- * Inspector Panel plugin — keyboard-first design token editor.
+ * Inspector Panel (NYT-CSS) — token audit variant with hardcoded NYT token families.
  *
- * Shows spacing (cross/plus layout), typography, and appearance controls
- * for the currently selected element. Token values are stepped with
- * arrow keys; raw values are editable inline.
- *
- * Prototype for issue #50.
+ * Knows which CSS properties SHOULD use NYT design tokens, so it can flag
+ * raw values even on pages that don't define :root custom properties.
+ * Extends the same keyboard-first editing UX as the universal inspector.
  */
 (function () {
   'use strict';
 
   const TOKEN_RE = /var\((--[\w-]+)/;
+
+  // --- NYT Token Definitions ---
+
+  const NYT_TOKENS = {
+    sp: [
+      { name: '--sp-0', value: '0' },
+      { name: '--sp-1', value: '0.25rem' },
+      { name: '--sp-2', value: '0.5rem' },
+      { name: '--sp-3', value: '0.75rem' },
+      { name: '--sp-4', value: '1rem' },
+      { name: '--sp-5', value: '1.5rem' },
+      { name: '--sp-6', value: '2rem' },
+      { name: '--sp-7', value: '3rem' },
+      { name: '--sp-8', value: '4rem' },
+      { name: '--sp-10', value: '5rem' },
+      { name: '--sp-12', value: '6rem' },
+      { name: '--sp-16', value: '8rem' },
+    ],
+    ts: [
+      { name: '--ts-xs', value: '11px' },
+      { name: '--ts-sm', value: '13px' },
+      { name: '--ts-base', value: '15px' },
+      { name: '--ts-md', value: '17px' },
+      { name: '--ts-lg', value: '20px' },
+      { name: '--ts-xl', value: '26px' },
+      { name: '--ts-2xl', value: '34px' },
+      { name: '--ts-3xl', value: '42px' },
+      { name: '--ts-4xl', value: '52px' },
+      { name: '--ts-5xl', value: '64px' },
+      { name: '--ts-6xl', value: '80px' },
+    ],
+    lh: [
+      { name: '--lh-solid', value: '1' },
+      { name: '--lh-title', value: '1.2' },
+      { name: '--lh-heading', value: '1.3' },
+      { name: '--lh-copy', value: '1.55' },
+      { name: '--lh-loose', value: '1.8' },
+    ],
+    ls: [
+      { name: '--ls-tight', value: '-0.02em' },
+      { name: '--ls-none', value: '0' },
+      { name: '--ls-tracked', value: '0.05em' },
+      { name: '--ls-mega', value: '0.15em' },
+    ],
+    br: [
+      { name: '--br-0', value: '0' },
+      { name: '--br-1', value: '2px' },
+      { name: '--br-2', value: '4px' },
+      { name: '--br-3', value: '8px' },
+      { name: '--br-4', value: '12px' },
+      { name: '--br-5', value: '16px' },
+      { name: '--br-pill', value: '9999px' },
+      { name: '--br-full', value: '100%' },
+    ],
+    bw: [
+      { name: '--bw-0', value: '0' },
+      { name: '--bw-1', value: '1px' },
+      { name: '--bw-2', value: '2px' },
+      { name: '--bw-3', value: '4px' },
+      { name: '--bw-4', value: '8px' },
+    ],
+    shadow: [
+      { name: '--shadow-1', value: '0 1px 2px rgba(0, 0, 0, 0.08)' },
+      { name: '--shadow-2', value: '0 2px 4px rgba(0, 0, 0, 0.1)' },
+      { name: '--shadow-3', value: '0 4px 8px rgba(0, 0, 0, 0.12)' },
+      { name: '--shadow-4', value: '0 8px 16px rgba(0, 0, 0, 0.14)' },
+      { name: '--shadow-5', value: '0 16px 32px rgba(0, 0, 0, 0.16)' },
+    ],
+    ease: [
+      { name: '--ease-fast', value: '0.1s ease' },
+      { name: '--ease-normal', value: '0.2s ease' },
+      { name: '--ease-slow', value: '0.4s ease' },
+    ],
+    mw: [
+      { name: '--mw-narrow', value: '560px' },
+      { name: '--mw-container', value: '760px' },
+      { name: '--mw-wide', value: '960px' },
+      { name: '--mw-full', value: '1200px' },
+    ],
+    'nyt-fg': [
+      { name: '--nyt-fg', value: '#121212' },
+      { name: '--nyt-fg-dim', value: '#5a5a5a' },
+      { name: '--nyt-fg-faint', value: '#8b8b8b' },
+    ],
+    'nyt-bg': [
+      { name: '--nyt-bg', value: '#ffffff' },
+      { name: '--nyt-bg-alt', value: '#f5f5f2' },
+    ],
+    'nyt-border': [
+      { name: '--nyt-border', value: '#ececec' },
+      { name: '--nyt-border-strong', value: '#c7c7c7' },
+    ],
+    'nyt-accent': [
+      { name: '--nyt-accent', value: '#326891' },
+      { name: '--nyt-red', value: '#c13b2a' },
+      { name: '--nyt-orange', value: '#b87a00' },
+      { name: '--nyt-green', value: '#3f7f63' },
+    ],
+    viz: [
+      { name: '--viz-1', value: '#2A6586' },
+      { name: '--viz-2', value: '#6CBAAB' },
+      { name: '--viz-3', value: '#B2A5E7' },
+      { name: '--viz-4', value: '#F66043' },
+      { name: '--viz-5', value: '#D2E463' },
+      { name: '--viz-6', value: '#F1A05B' },
+      { name: '--viz-7', value: '#657D53' },
+      { name: '--viz-8', value: '#BD5D91' },
+    ],
+    'viz-blue': [
+      { name: '--viz-blue-1', value: '#242b40' },
+      { name: '--viz-blue-2', value: '#1f497d' },
+      { name: '--viz-blue-3', value: '#00577e' },
+      { name: '--viz-blue-4', value: '#80b0c1' },
+    ],
+    'viz-green': [
+      { name: '--viz-green-1', value: '#437661' },
+      { name: '--viz-green-2', value: '#6a9b87' },
+      { name: '--viz-green-3', value: '#a8ddc7' },
+      { name: '--viz-green-4', value: '#e2eceb' },
+    ],
+    'viz-product': [
+      { name: '--viz-core', value: '#2F3E7A' },
+      { name: '--viz-cooking', value: '#f9351a' },
+      { name: '--viz-games', value: '#F8CD0F' },
+      { name: '--viz-athletic', value: '#30522D' },
+      { name: '--viz-wirecutter', value: '#6085ff' },
+      { name: '--viz-audio', value: '#357a8a' },
+    ],
+    'nyt-font': [
+      { name: '--nyt-sans', value: "'nyt-franklin', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" },
+      { name: '--nyt-sans-small', value: "'nyt-franklin-small', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" },
+      { name: '--nyt-serif', value: "'nyt-cheltenham', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-serif-cond', value: "'nyt-cheltenham-cond', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-serif-wide', value: "'nyt-cheltenham-wide', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-serif-small', value: "'nyt-cheltenham-small', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-serif-scaps', value: "'nyt-cheltenham-scaps', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-imperial', value: "'nyt-imperial', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-display', value: "'nyt-karnak', Georgia, serif" },
+      { name: '--nyt-display-cond', value: "'nyt-karnak-cond', Georgia, serif" },
+      { name: '--nyt-display-small', value: "'nyt-karnak-small', Georgia, serif" },
+      { name: '--nyt-mag', value: "'nyt-kippenberger', Georgia, serif" },
+      { name: '--nyt-mag-cond', value: "'nyt-kippenberger-condensed', Georgia, serif" },
+      { name: '--nyt-mag-poster', value: "'nyt-kippenberger-poster', Georgia, serif" },
+      { name: '--nyt-mag-sans', value: "'nyt-magsans', -apple-system, BlinkMacSystemFont, sans-serif" },
+      { name: '--nyt-mag-serif', value: "'nyt-magserif', Georgia, serif" },
+      { name: '--nyt-mag-slab', value: "'nyt-magslab', Georgia, serif" },
+      { name: '--nyt-fact', value: "'nyt-fact', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" },
+      { name: '--nyt-fact-display', value: "'nyt-fact-display', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" },
+      { name: '--nyt-athletic', value: "'nyt-athletic-slab', Georgia, serif" },
+      { name: '--nyt-schnyder', value: "'nyt-schnyder-s', Georgia, serif" },
+      { name: '--nyt-mono', value: "'nyt-ibm-plex', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace" },
+      { name: '--nyt-prototype', value: "'Comic Sans MS', 'Comic Sans', cursive" },
+    ],
+  };
+
+  // Maps CSS properties to their expected NYT token family
+  const PROP_FAMILY_MAP = {
+    'padding-top': 'sp', 'padding-right': 'sp', 'padding-bottom': 'sp', 'padding-left': 'sp',
+    'margin-top': 'sp', 'margin-right': 'sp', 'margin-bottom': 'sp', 'margin-left': 'sp',
+    'gap': 'sp',
+    'font-size': 'ts',
+    'line-height': 'lh',
+    'letter-spacing': 'ls',
+    'border-radius': 'br',
+    'border-top-left-radius': 'br', 'border-top-right-radius': 'br',
+    'border-bottom-left-radius': 'br', 'border-bottom-right-radius': 'br',
+    'border-width': 'bw',
+    'border-top-width': 'bw', 'border-right-width': 'bw',
+    'border-bottom-width': 'bw', 'border-left-width': 'bw',
+    'color': 'nyt-fg',
+    'background-color': 'nyt-bg',
+    'border-color': 'nyt-border',
+    'border-top-color': 'nyt-border', 'border-right-color': 'nyt-border',
+    'border-bottom-color': 'nyt-border', 'border-left-color': 'nyt-border',
+    'font-family': 'nyt-font',
+    'box-shadow': 'shadow',
+    'max-width': 'mw',
+    'transition': 'ease',
+  };
+
+  // --- Inject token CSS vars into page (so var() resolves on any page) ---
+
+  let injectedStyleEl = null;
+
+  function injectTokenStyles() {
+    if (injectedStyleEl) return;
+    const rules = [':root {'];
+    for (const family of Object.values(NYT_TOKENS)) {
+      for (const tok of family) {
+        rules.push(`  ${tok.name}: ${tok.value};`);
+      }
+    }
+    rules.push('}');
+    injectedStyleEl = document.createElement('style');
+    injectedStyleEl.id = 'dt-nyt-injected-tokens';
+    injectedStyleEl.textContent = rules.join('\n');
+    document.head.appendChild(injectedStyleEl);
+  }
+
+  function removeTokenStyles() {
+    if (injectedStyleEl) { injectedStyleEl.remove(); injectedStyleEl = null; }
+  }
 
   // --- Token resolution ---
 
@@ -45,37 +245,14 @@
     return { top, right, bottom, left };
   }
 
-  // --- Token discovery ---
-
-  let _familyCache = null;
-
-  function discoverTokenFamilies() {
-    if (_familyCache) return _familyCache;
-    const families = {};
-    const rootStyles = getComputedStyle(document.documentElement);
-    for (let s = 0; s < document.styleSheets.length; s++) {
-      let rules;
-      try { rules = document.styleSheets[s].cssRules; } catch (_) { continue; }
-      if (!rules) continue;
-      for (let i = 0; i < rules.length; i++) {
-        const rule = rules[i];
-        if (!(rule instanceof CSSStyleRule)) continue;
-        if (rule.selectorText !== ':root' && rule.selectorText !== 'html') continue;
-        for (let j = 0; j < rule.style.length; j++) {
-          const name = rule.style[j];
-          if (!name.startsWith('--')) continue;
-          const value = rootStyles.getPropertyValue(name).trim();
-          const family = getFamily(name);
-          if (!families[family]) families[family] = [];
-          families[family].push({ name, value });
-        }
-      }
-    }
-    _familyCache = families;
-    return families;
-  }
+  // --- Token discovery (uses hardcoded NYT tokens) ---
 
   function getFamily(tokenName) {
+    // Check if token belongs to any known family
+    for (const [familyName, tokens] of Object.entries(NYT_TOKENS)) {
+      if (tokens.some(t => t.name === tokenName)) return familyName;
+    }
+    // Fallback: split by last dash
     const bare = tokenName.replace(/^--/, '');
     const parts = bare.split('-');
     if (parts.length <= 1) return bare;
@@ -83,20 +260,29 @@
   }
 
   function getFamilyTokens(tokenName) {
-    const families = discoverTokenFamilies();
     const family = getFamily(tokenName);
-    return families[family] || [];
+    return NYT_TOKENS[family] || [];
   }
 
   function getFamilyByName(familyName) {
-    const families = discoverTokenFamilies();
-    return families[familyName] || [];
+    return NYT_TOKENS[familyName] || [];
   }
 
-  // Resolve a token name to its computed color value (for swatches)
+  function getExpectedFamily(cssProp) {
+    return PROP_FAMILY_MAP[cssProp] || null;
+  }
+
   function resolveTokenColor(tokenName) {
+    // Try computed style first, fall back to hardcoded
     const rootStyles = getComputedStyle(document.documentElement);
-    return rootStyles.getPropertyValue(tokenName).trim();
+    const computed = rootStyles.getPropertyValue(tokenName).trim();
+    if (computed) return computed;
+    // Look up in NYT_TOKENS
+    for (const family of Object.values(NYT_TOKENS)) {
+      const t = family.find(tok => tok.name === tokenName);
+      if (t) return t.value;
+    }
+    return '';
   }
 
   // --- Token resolution for an element ---
@@ -155,6 +341,23 @@
     }
   }
 
+  // --- Token usage indicators ---
+
+  const INDICATOR_TOKEN = '#4ade80';  // green-400
+  const INDICATOR_RAW = '#f59e0b';    // amber-500
+
+  function indicatorDot(isToken) {
+    const dot = mkEl('span', {
+      color: isToken ? INDICATOR_TOKEN : INDICATOR_RAW,
+      fontSize: '7px',
+      marginRight: '5px',
+      flexShrink: '0',
+      lineHeight: '1',
+    });
+    dot.textContent = '\u25CF';
+    return dot;
+  }
+
   // --- Change tracking ---
 
   const changes = [];
@@ -164,7 +367,14 @@
     if (!(cssProp in el._dtOrigStyles)) {
       el._dtOrigStyles[cssProp] = el.style.getPropertyValue(cssProp) || '';
     }
-    el.style.setProperty(cssProp, `var(${newToken})`);
+    // Set resolved value directly for immediate visual feedback,
+    // then layer var() on top. If var() resolves, it wins; if not, the raw value holds.
+    const resolved = resolveTokenColor(newToken);
+    if (resolved) {
+      el.style.setProperty(cssProp, resolved);
+    }
+    // Also set via var() so it stays linked to the token if defined
+    el.style.setProperty(cssProp, `var(${newToken}, ${resolved || ''})`);
     const existing = changes.find(c => c.el === el && c.prop === cssProp);
     if (existing) {
       existing.to = newToken;
@@ -209,23 +419,6 @@
     if (api.updateBadgeCount) api.updateBadgeCount();
   }
 
-  // --- Token usage indicators ---
-
-  const INDICATOR_TOKEN = '#4ade80';  // green-400
-  const INDICATOR_RAW = '#f59e0b';    // amber-500
-
-  function indicatorDot(isToken) {
-    const dot = el('span', {
-      color: isToken ? INDICATOR_TOKEN : INDICATOR_RAW,
-      fontSize: '7px',
-      marginRight: '5px',
-      flexShrink: '0',
-      lineHeight: '1',
-    });
-    dot.textContent = '\u25CF';
-    return dot;
-  }
-
   // --- Spacing overlay ---
 
   const PAD_COLOR = 'rgba(144, 238, 144, 0.4)';
@@ -251,6 +444,9 @@
     const color = isPadding ? PAD_COLOR : MAR_COLOR;
     const brightColor = isPadding ? PAD_BRIGHT : MAR_BRIGHT;
     const labelBg = isPadding ? PAD_LABEL_BG : MAR_LABEL_BG;
+
+    // Resolve tokens for this element so overlay labels can show token names
+    const elTokens = resolveAllTokens(el);
 
     const sides = (prop === 'padding' || prop === 'margin')
       ? ['top', 'right', 'bottom', 'left']
@@ -292,17 +488,19 @@
       container.appendChild(box);
 
       if (w >= 14 || h >= 14) {
+        const token = elTokens[fullProp] || null;
         const lbl = document.createElement('span');
         Object.assign(lbl.style, {
           position: 'fixed',
           top: (y + h / 2) + 'px', left: (x + w / 2) + 'px',
           transform: 'translate(-50%, -50%)',
           font: '9px/1 ui-monospace, Menlo, monospace',
-          color: '#fff', background: labelBg,
+          color: token ? '#fbbf24' : '#fff',
+          background: labelBg,
           padding: '2px 5px', borderRadius: '2px',
           whiteSpace: 'nowrap',
         });
-        lbl.textContent = Math.round(val) + 'px';
+        lbl.textContent = token ? token + ' (' + Math.round(val) + 'px)' : Math.round(val) + 'px';
         container.appendChild(lbl);
       }
     });
@@ -311,9 +509,71 @@
     overlayEl = container;
   }
 
+  // --- Property overlay (non-spacing) ---
+
+  function showPropertyOverlay(prop, el) {
+    clearOverlay();
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    const val = cs.getPropertyValue(prop);
+    if (!val) return;
+
+    const elTokens = resolveAllTokens(el);
+    const token = elTokens[prop] || null;
+    const expectedFamily = getExpectedFamily(prop);
+
+    const container = document.createElement('div');
+    Object.assign(container.style, {
+      position: 'fixed', top: '0', left: '0',
+      width: '100%', height: '100%',
+      pointerEvents: 'none', zIndex: '99998',
+    });
+
+    // Highlight outline on the element
+    const outline = document.createElement('div');
+    Object.assign(outline.style, {
+      position: 'fixed',
+      top: rect.top + 'px', left: rect.left + 'px',
+      width: rect.width + 'px', height: rect.height + 'px',
+      border: token ? '1.5px solid rgba(74,222,128,0.6)' : '1.5px dashed rgba(245,158,11,0.6)',
+      borderRadius: '2px',
+      pointerEvents: 'none',
+    });
+    container.appendChild(outline);
+
+    // Label badge positioned above element
+    const lbl = document.createElement('div');
+    const labelY = Math.max(4, rect.top - 22);
+    Object.assign(lbl.style, {
+      position: 'fixed',
+      top: labelY + 'px', left: rect.left + 'px',
+      font: '9px/1 ui-monospace, Menlo, monospace',
+      color: token ? '#fbbf24' : '#fff',
+      background: 'rgba(20,20,30,0.92)',
+      padding: '3px 6px', borderRadius: '3px',
+      whiteSpace: 'nowrap',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+    });
+
+    let labelText = prop + ': ';
+    if (token) {
+      labelText += token;
+    } else if (expectedFamily) {
+      labelText += val + ' (no token)';
+    } else {
+      labelText += val;
+    }
+    lbl.textContent = labelText;
+    container.appendChild(lbl);
+
+    document.body.appendChild(container);
+    overlayEl = container;
+  }
+
   // --- DOM helpers ---
 
-  function el(tag, styles, attrs) {
+  function mkEl(tag, styles, attrs) {
     const node = document.createElement(tag);
     if (styles) Object.assign(node.style, styles);
     if (attrs) Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
@@ -337,13 +597,21 @@
     const selector = api.getSelector(targetEl);
 
     // --- Selector header ---
-    const headerDiv = el('div', { marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)' });
-    const selectorLabel = el('div', { fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginBottom: '2px' });
+    const headerDiv = mkEl('div', { marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)' });
+    const selectorLabel = mkEl('div', { fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginBottom: '2px' });
     selectorLabel.textContent = 'SELECTOR';
-    const selectorCode = el('code', { fontSize: '11px', color: '#7dd3fc', wordBreak: 'break-all' });
+    const selectorCode = mkEl('code', { fontSize: '11px', color: '#7dd3fc', wordBreak: 'break-all' });
     selectorCode.textContent = selector;
+    // NYT badge
+    const nytBadge = mkEl('span', {
+      fontSize: '9px', fontWeight: '700', color: '#000',
+      background: '#fff', padding: '1px 5px', borderRadius: '3px',
+      marginLeft: '8px', verticalAlign: 'middle',
+    });
+    nytBadge.textContent = 'NYT';
     headerDiv.appendChild(selectorLabel);
     headerDiv.appendChild(selectorCode);
+    headerDiv.appendChild(nytBadge);
     content.appendChild(headerDiv);
 
     // --- SPACING section ---
@@ -351,33 +619,31 @@
     content.appendChild(buildCross('padding', targetEl, tokens, computed));
     content.appendChild(buildCross('margin', targetEl, tokens, computed));
 
-    // Gap — always show (editable even at 0)
+    // Gap — always use token step (sp family)
     const gapToken = tokens['gap'] || null;
     const gapVal = computed.getPropertyValue('gap');
-    if (gapToken) {
-      content.appendChild(buildPropRow('gap', gapToken, gapVal, targetEl, 'sp'));
-    } else {
-      content.appendChild(buildValueRow('gap', gapVal || '0', targetEl, 1));
-    }
+    content.appendChild(buildPropRow('gap', gapToken, gapVal || '0', targetEl, 'sp'));
 
     // --- TYPOGRAPHY section ---
     content.appendChild(sectionLabel('TYPOGRAPHY'));
 
     const typProps = [
-      { prop: 'font-family', family: null, isValue: false },
-      { prop: 'font-size', family: null, isValue: false },
+      { prop: 'font-family', family: 'nyt-font', isValue: false },
+      { prop: 'font-size', family: 'ts', isValue: false },
       { prop: 'font-weight', family: null, isValue: true, step: 100 },
-      { prop: 'line-height', family: null, isValue: true, step: 0.1 },
-      { prop: 'color', family: null, isValue: false, hasColor: true },
+      { prop: 'line-height', family: 'lh', isValue: false },
+      { prop: 'letter-spacing', family: 'ls', isValue: false },
+      { prop: 'color', family: 'nyt-fg', isValue: false, hasColor: true },
     ];
     for (const def of typProps) {
       const token = tokens[def.prop] || null;
       const val = computed.getPropertyValue(def.prop);
       if (!val) continue;
-      if (def.isValue || (!token && def.step)) {
+      if (def.isValue) {
         content.appendChild(buildValueRow(def.prop, val, targetEl, def.step || 1));
-      } else if (token) {
-        content.appendChild(buildPropRow(def.prop, token, val, targetEl, null, def.hasColor));
+      } else if (token || def.family) {
+        // Has token, or has an expected family — use token step (allows scrolling through scale)
+        content.appendChild(buildPropRow(def.prop, token, val, targetEl, def.family, def.hasColor));
       } else {
         content.appendChild(buildStaticRow(def.prop, val));
       }
@@ -387,32 +653,31 @@
     content.appendChild(sectionLabel('APPEARANCE'));
 
     const appProps = [
-      { prop: 'background-color', label: 'background', family: null, isValue: false, hasColor: true },
-      { prop: 'border-radius', family: null, isValue: false },
-      { prop: 'border-color', family: null, isValue: false, hasColor: true },
-      { prop: 'border-width', family: null, isValue: true, step: 1 },
+      { prop: 'background-color', label: 'background', family: 'nyt-bg', isValue: false, hasColor: true },
+      { prop: 'border-radius', family: 'br', isValue: false },
+      { prop: 'border-color', family: 'nyt-border', isValue: false, hasColor: true },
+      { prop: 'border-width', family: 'bw', isValue: true, step: 1 },
     ];
     for (const def of appProps) {
       const token = tokens[def.prop] || null;
       const val = computed.getPropertyValue(def.prop);
       if (!val) continue;
-      if (def.isValue || (!token && def.step)) {
+      if (def.isValue) {
         content.appendChild(buildValueRow(def.label || def.prop, val, targetEl, def.step || 1));
-      } else if (token) {
-        content.appendChild(buildPropRow(def.label || def.prop, token, val, targetEl, null, def.hasColor));
+      } else if (token || def.family) {
+        content.appendChild(buildPropRow(def.label || def.prop, token, val, targetEl, def.family, def.hasColor));
       } else {
         content.appendChild(buildStaticRow(def.label || def.prop, truncate(val, 30)));
       }
     }
 
-    // Wire Tab cycling across all controls
     wireTabCycling();
   }
 
   // --- Section label ---
 
   function sectionLabel(text) {
-    const lbl = el('div', {
+    const lbl = mkEl('div', {
       fontSize: '9px', fontWeight: '700',
       color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px',
       marginBottom: '4px', marginTop: '10px',
@@ -427,22 +692,21 @@
     const isPadding = type === 'padding';
     const accentColor = isPadding ? 'rgba(80,200,120,' : 'rgba(255,165,0,';
 
-    // Count tokenized sides
     const sides = ['top', 'right', 'bottom', 'left'];
     const tokenCount = sides.filter(s => !!tokens[`${type}-${s}`]).length;
 
-    const wrapper = el('div', { marginBottom: '10px' });
+    const wrapper = mkEl('div', { marginBottom: '10px' });
 
     // Label with token count
-    const label = el('div', {
+    const label = mkEl('div', {
       fontSize: '9px', fontWeight: '600', letterSpacing: '0.3px',
       color: accentColor + '0.7)', marginBottom: '4px', textAlign: 'center',
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
     });
-    const labelText = el('span');
+    const labelText = mkEl('span');
     labelText.textContent = type;
     label.appendChild(labelText);
-    const countBadge = el('span', {
+    const countBadge = mkEl('span', {
       fontSize: '8px', fontWeight: '600',
       color: tokenCount === 4 ? INDICATOR_TOKEN : tokenCount > 0 ? INDICATOR_RAW : 'rgba(255,255,255,0.3)',
     });
@@ -451,7 +715,7 @@
     wrapper.appendChild(label);
 
     // Grid
-    const grid = el('div', {
+    const grid = mkEl('div', {
       display: 'grid',
       gridTemplateColumns: '1fr auto 1fr',
       gridTemplateRows: 'auto auto auto',
@@ -471,13 +735,11 @@
 
     const stepSpans = [];
 
-    // Side cells
     sides.forEach(side => {
       const prop = `${type}-${side}`;
       const token = tokens[prop] || null;
-      const val = computed.getPropertyValue(prop);
 
-      const cell = el('div', positions[side]);
+      const cell = mkEl('div', positions[side]);
       const span = createTokenStep(token, prop, targetEl, 'sp', isPadding);
       stepSpans.push(span);
       cell.appendChild(span);
@@ -485,8 +747,8 @@
     });
 
     // "All" center cell
-    const centerCell = el('div', { gridColumn: '2', gridRow: '2' });
-    const allSpan = el('span', {
+    const centerCell = mkEl('div', { gridColumn: '2', gridRow: '2' });
+    const allSpan = mkEl('span', {
       fontSize: '10px', minWidth: '50px', padding: '3px 6px',
       borderRadius: '4px', textAlign: 'center', cursor: 'pointer',
       outline: 'none', whiteSpace: 'nowrap',
@@ -499,7 +761,6 @@
     allSpan.dataset.prop = type;
     allSpan.dataset.family = 'sp';
 
-    // "All" interaction — steps all 4 sides together
     attachAllControl(allSpan, stepSpans, type, targetEl);
     centerCell.appendChild(allSpan);
     grid.appendChild(centerCell);
@@ -512,7 +773,7 @@
     const hasToken = !!token;
     const family = hasToken ? getFamily(token) : defaultFamily;
 
-    const span = el('span', {
+    const span = mkEl('span', {
       fontSize: '10px', minWidth: '70px', padding: '3px 6px',
       borderRadius: '4px', textAlign: 'center', cursor: 'pointer',
       outline: 'none', whiteSpace: 'nowrap',
@@ -542,6 +803,8 @@
       span.style.boxShadow = '0 0 0 2px rgba(251,191,36,0.6)';
       if (prop.startsWith('padding') || prop.startsWith('margin')) {
         showSpacingOverlay(prop, targetEl);
+      } else {
+        showPropertyOverlay(prop, targetEl);
       }
     });
 
@@ -558,6 +821,8 @@
       }
       if (prop.startsWith('padding') || prop.startsWith('margin')) {
         showSpacingOverlay(prop, targetEl);
+      } else {
+        showPropertyOverlay(prop, targetEl);
       }
     });
 
@@ -634,7 +899,6 @@
       showSpacingOverlay(prop, targetEl);
     }
 
-    // Update swatch if in a row with one
     const row = span.closest('.dt-prop-row');
     if (row) {
       const swatch = row.querySelector('.dt-color-swatch');
@@ -693,7 +957,6 @@
   }
 
   function stepAll(allSpan, sideSpans, scale, dir, type, targetEl) {
-    // Use the first side's current index as reference
     const refToken = sideSpans[0].dataset.token;
     let idx = scale.findIndex(t => t.name === refToken);
     if (idx < 0) idx = 0;
@@ -717,20 +980,21 @@
   // --- Property row builders ---
 
   function buildPropRow(label, token, val, targetEl, defaultFamily, hasColor) {
-    const row = el('div', {
+    const hasToken = !!token;
+    const row = mkEl('div', {
       display: 'flex', gap: '6px', alignItems: 'center',
       padding: '2px 0', fontSize: '11px',
     });
     row.classList.add('dt-prop-row');
 
-    row.appendChild(indicatorDot(true));
-    const nameSpan = el('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    row.appendChild(indicatorDot(hasToken));
+    const nameSpan = mkEl('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
     nameSpan.textContent = label;
     row.appendChild(nameSpan);
 
     // Color swatch
     if (hasColor && token) {
-      const swatch = el('span', {
+      const swatch = mkEl('span', {
         width: '12px', height: '12px', borderRadius: '3px',
         border: '1px solid rgba(255,255,255,0.2)',
         marginLeft: 'auto', flexShrink: '0',
@@ -740,24 +1004,22 @@
       row.appendChild(swatch);
     }
 
-    // Token step
-    const family = token ? getFamily(token) : defaultFamily;
-    const span = el('span', {
-      color: '#fbbf24', fontSize: '11px', whiteSpace: 'nowrap',
+    // Token step — always steppable through the family scale
+    const family = hasToken ? getFamily(token) : defaultFamily;
+    const span = mkEl('span', {
+      color: hasToken ? '#fbbf24' : 'rgba(255,255,255,0.5)',
+      fontSize: '11px', whiteSpace: 'nowrap',
       cursor: 'pointer', padding: '4px 10px', borderRadius: '4px',
       background: 'rgba(251,191,36,0.08)', minWidth: '100px',
       textAlign: 'center', outline: 'none',
       marginLeft: hasColor ? '0' : 'auto',
       transition: 'background 0.12s, box-shadow 0.12s',
     }, { tabindex: '0' });
-    span.textContent = token;
+    span.textContent = hasToken ? token : truncate(val, 20);
     span.classList.add('dt-token-step');
-    span.dataset.prop = label.includes('-') ? label : label; // use actual CSS prop
-    span.dataset.token = token;
+    span.dataset.token = token || '';
     span.dataset.family = family || '';
 
-    // For non-spacing props, we still want the prop name to be the CSS property
-    // Fix: use the actual prop (could differ from label for background-color→background)
     const cssProp = label === 'background' ? 'background-color' : label;
     span.dataset.prop = cssProp;
 
@@ -767,25 +1029,24 @@
   }
 
   function buildValueRow(prop, val, targetEl, step) {
-    const row = el('div', {
+    const row = mkEl('div', {
       display: 'flex', gap: '6px', alignItems: 'center',
       padding: '2px 0', fontSize: '11px',
     });
     row.classList.add('dt-prop-row');
 
     row.appendChild(indicatorDot(false));
-    const nameSpan = el('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    const nameSpan = mkEl('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
     nameSpan.textContent = prop;
     row.appendChild(nameSpan);
 
-    const input = el('span', {
+    const input = mkEl('span', {
       color: '#7dd3fc', fontSize: '11px', whiteSpace: 'nowrap',
       cursor: 'text', padding: '4px 10px', borderRadius: '4px',
       background: 'rgba(125,211,252,0.08)', minWidth: '60px',
       textAlign: 'center', outline: 'none', marginLeft: 'auto',
       transition: 'background 0.12s, box-shadow 0.12s',
     }, { tabindex: '0', contenteditable: 'true' });
-    // Show simplified value (extract number if possible)
     const numVal = parseFloat(val);
     input.textContent = isNaN(numVal) ? val : numVal.toString();
     input.classList.add('dt-value-input');
@@ -797,14 +1058,14 @@
   }
 
   function buildStaticRow(label, val) {
-    const row = el('div', {
+    const row = mkEl('div', {
       display: 'flex', gap: '6px', alignItems: 'center',
       padding: '2px 0', fontSize: '11px',
     });
     row.appendChild(indicatorDot(false));
-    const nameSpan = el('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    const nameSpan = mkEl('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
     nameSpan.textContent = label;
-    const valSpan = el('span', { color: 'rgba(255,255,255,0.8)', marginLeft: 'auto' });
+    const valSpan = mkEl('span', { color: 'rgba(255,255,255,0.8)', marginLeft: 'auto' });
     valSpan.textContent = truncate(val, 30);
     row.appendChild(nameSpan);
     row.appendChild(valSpan);
@@ -819,17 +1080,20 @@
     input.addEventListener('focus', () => {
       input.style.background = 'rgba(125,211,252,0.18)';
       input.style.boxShadow = '0 0 0 2px rgba(125,211,252,0.6)';
-      // Select all
       const range = document.createRange();
       range.selectNodeContents(input);
       const sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(range);
+      if (!prop.startsWith('padding') && !prop.startsWith('margin')) {
+        showPropertyOverlay(prop, targetEl);
+      }
     });
 
     input.addEventListener('blur', () => {
       input.style.background = 'rgba(125,211,252,0.08)';
       input.style.boxShadow = '';
+      clearOverlay();
       const val = input.textContent.trim();
       if (!val || val === '\u2014') {
         input.textContent = '\u2014';
@@ -844,6 +1108,9 @@
     input.addEventListener('mouseenter', () => {
       if (document.activeElement !== input) {
         input.style.background = 'rgba(125,211,252,0.15)';
+        if (!prop.startsWith('padding') && !prop.startsWith('margin')) {
+          showPropertyOverlay(prop, targetEl);
+        }
         input.style.boxShadow = '0 0 0 1px rgba(125,211,252,0.3)';
       }
     });
@@ -852,6 +1119,7 @@
       if (document.activeElement !== input) {
         input.style.background = 'rgba(125,211,252,0.08)';
         input.style.boxShadow = '';
+        clearOverlay();
       }
     });
 
@@ -888,9 +1156,7 @@
 
   // --- Tab cycling ---
 
-  function wireTabCycling() {
-    // Tab cycling is handled in each keydown handler via cycleControl()
-  }
+  function wireTabCycling() {}
 
   function cycleControl(current, reverse) {
     const all = [...content.querySelectorAll('.dt-token-step, .dt-value-input')];
@@ -944,14 +1210,13 @@
   // --- Plugin registration ---
 
   const plugin = {
-    id: 'inspector-panel',
-    label: 'Inspector Panel',
-    // No icon — not a toolbar mode. Shows automatically when an element is selected.
+    id: 'inspector-panel-nyt',
+    label: 'Inspector (NYT)',
 
     init(_api) {
       api = _api;
       panel = api.createPanel({
-        title: 'Inspector',
+        title: 'Inspector (NYT)',
         position: { top: '80px', right: '16px' },
         width: '320px',
       });
@@ -963,18 +1228,21 @@
         scrollbarWidth: 'none',
       });
       panel.style.display = 'none';
+      injectTokenStyles();
       startPolling();
       window.DomTools._inspectorChanges = changes;
-    if (api.updateBadgeCount) api.updateBadgeCount();
+      if (api.updateBadgeCount) api.updateBadgeCount();
     },
 
     enable() {
+      injectTokenStyles();
       startPolling();
     },
 
     disable() {
       stopPolling();
       clearOverlay();
+      removeTokenStyles();
       if (panel) panel.style.display = 'none';
     },
   };

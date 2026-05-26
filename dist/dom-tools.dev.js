@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-22T01:11:31.724Z
+ * Built: 2026-05-26T06:00:20.935Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -1200,7 +1200,8 @@
     // Plugins
     { id: 'hd-capture', label: 'HD Capture', category: 'plugins', description: 'Tiled rendering for sharp full-page screenshots on very tall pages.', default: true },
     { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false },
-    { id: 'inspector-panel', label: 'Inspector Panel', category: 'plugins', description: 'Shows computed styles and CSS tokens for the selected element.', default: true },
+    { id: 'inspector-panel', label: 'Inspector Panel', category: 'plugins', description: 'Shows computed styles and CSS tokens for the selected element.', default: false },
+    { id: 'inspector-panel-nyt', label: 'Inspector (NYT)', category: 'plugins', description: 'NYT-CSS token audit inspector with hardcoded token families.', default: false },
   ];
 
   function isExperimentEnabled(id) {
@@ -1397,7 +1398,7 @@
     // Version + build date
     const version = el('div', { marginBottom: '20px' });
     version.appendChild(el('div', { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }, 'DOM-Tools'));
-    const buildDate = "2026-05-22T01:11:31.724Z" ;
+    const buildDate = "2026-05-26T06:00:20.935Z" ;
     const dateLabel = new Date(buildDate).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) ;
     version.appendChild(el('div', { fontSize: '11px', color: '#888' }, `Release: ${dateLabel}`));
     container.appendChild(version);
@@ -2337,6 +2338,9 @@
     if (editingEl && (e.target === editingEl || editingEl.contains(e.target))) return;
     if (e.button !== 0) return;
 
+    // Prevent link navigation and text-selection while selecting elements
+    e.preventDefault();
+
     // Clicking outside the editing element — force exit edit mode
     if (editingEl) editingEl.blur();
 
@@ -2701,6 +2705,11 @@
       ensurePlexMono();
       initMarquee();
       document.addEventListener('mousedown', onMouseDown$3, true);
+      document.addEventListener('click', (e) => {
+        if (!activeMode$1 || isInspectorUI(e.target)) return;
+        // Suppress link navigation while selecting elements
+        if (e.target.closest('a')) { e.preventDefault(); e.stopPropagation(); }
+      }, true);
       document.addEventListener('mousemove', (e) => { onDragMove(e); onMove$1(e); }, true);
       document.addEventListener('mouseup', onMouseUp$3, true);
       document.addEventListener('dblclick', onDblClick, true);
@@ -3207,7 +3216,7 @@
     ta.placeholder = editing
       ? (annotation.els.length > 1
         ? `Group note for ${annotation.els.length} elements…`
-        : 'Describe the change…')
+        : 'Describe changes...')
       : '';
     if (ta.value !== annotation.note) ta.value = annotation.note;
     annotation.bubbleEl._autoGrow();
@@ -3353,8 +3362,7 @@
   }
 
   // ---- Badge ----
-  function updateBadgeCount() {
-    // Each non-transient note + each text edit counts as one change.
+  function countChanges() {
     let count = 0;
     noteAnnotations.forEach(a => {
       if (!a.transient && a.note && a.note.trim()) count++;
@@ -3362,18 +3370,17 @@
     textEdits.forEach((e, el) => {
       if (getCurrentText(el) !== e.originalText || el.className !== e.originalClasses) count++;
     });
-    updateCopyBadge(count);
+    const inspectorChanges = window.DomTools && window.DomTools._inspectorChanges;
+    if (inspectorChanges) count += inspectorChanges.length;
+    return count;
+  }
+
+  function updateBadgeCount() {
+    updateCopyBadge(countChanges());
   }
 
   function hasChanges() {
-    let count = 0;
-    noteAnnotations.forEach(a => {
-      if (!a.transient && a.note && a.note.trim()) count++;
-    });
-    textEdits.forEach((e, el) => {
-      if (getCurrentText(el) !== e.originalText || el.className !== e.originalClasses) count++;
-    });
-    return count > 0;
+    return countChanges() > 0;
   }
 
   // ---- Unified list for copy-all ----
@@ -4130,6 +4137,7 @@
     onColorChange,
     createPanel,
     getSelected,
+    updateBadgeCount,
     Z,
     COLORS,
   };
@@ -5164,7 +5172,7 @@
 
   // --- Click handler ---------------------------------------------------------
 
-  function onClick(e) {
+  function onClick$1(e) {
     if (!activeMode) return;
     const el = e.target;
     if (isInspectorUI(el) || !isTextElement(el)) return;
@@ -5200,7 +5208,7 @@
     shortcuts: [],
 
     init() {
-      document.addEventListener('click', onClick, true);
+      document.addEventListener('click', onClick$1, true);
       document.addEventListener('mousemove', onMove, true);
     },
 
@@ -5992,16 +6000,15 @@
   };
 
   /**
-   * Right-click → copy element selector.
+   * Cmd+click → copy element selector.
    *
-   * Lightweight global handler: right-click on any page element copies a
-   * CSS selector for it to the clipboard, with a small "nudge" animation
-   * on the element to confirm the copy. Suppresses the native context
-   * menu when the click hits a real page element.
+   * Lightweight global handler: Cmd+click (Ctrl+click on non-Mac) on any
+   * page element copies a CSS selector for it to the clipboard, with a
+   * small "nudge" animation on the element to confirm the copy.
    *
    * Skipped when:
    *   - the click is on inspector UI (toolbar, bubble, settings panel…)
-   *   - the Draw tool is in pen mode (it uses right-click for erase)
+   *   - DOM-Tools is disabled
    */
 
 
@@ -6009,25 +6016,24 @@
     return s.length > n ? s.slice(0, n - 1) + '…' : s;
   }
 
-  async function onContextMenu(e) {
-    // Draw tool owns right-click while in pen mode (it erases).
-    if (state.annotateMode && state.annotateSub === 'pen') return;
-
-    // Suppress the native right-click menu page-wide while dom-tools is
-    // active — the right-click is now our "copy element" gesture.
-    e.preventDefault();
-    e.stopPropagation();
+  async function onClick(e) {
+    if (!isToolsEnabled()) return;
+    // Cmd on Mac, Ctrl on others
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.shiftKey) return; // leave Shift+click for multi-select
 
     const el = e.target;
     if (!el || el.nodeType !== 1) return;
     if (isInspectorUI(el)) return;
     if (el === document.body || el === document.documentElement) return;
 
+    e.preventDefault();
+    e.stopPropagation();
+
     // If the element has any tracked changes (own note, text edit,
     // class diff, or group-note membership), copy the same Markdown
     // section copy-all would emit for it. Otherwise fall back to the
-    // bare selector — that's what right-click on an unannotated
-    // element has always meant.
+    // bare selector.
     const richBlock = buildChangesForElement(el);
     const selector = getSelector(el);
     const payload = richBlock || selector;
@@ -6050,7 +6056,7 @@
     enabledByDefault: true,
 
     init() {
-      document.addEventListener('contextmenu', onContextMenu, true);
+      document.addEventListener('click', onClick, true);
     },
   };
 
@@ -6902,4 +6908,4906 @@
     document.addEventListener('keydown', preBootEsc, true);
   }
 
+})();
+/**
+ * Dev Panel Plugin
+ * Non-invasive instrumentation panel that observes DOM-Tools state by watching
+ * the DOM for actual signals (classes, attributes). Useful during development.
+ */
+(function () {
+  'use strict';
+
+  let panel = null;
+  let api = null;
+  let active = false;
+  let rafId = null;
+
+  // --- State ---
+  let keyEntries = [];
+  let animEntries = [];
+  const MAX_KEY_ENTRIES = 50;
+  const MAX_ANIM_ENTRIES = 30;
+
+  // Refs to live DOM inside the panel
+  let stateGrid = null;
+  let keyLog = null;
+  let animLog = null;
+
+  // Keep reference to original Element.prototype.animate
+  const origAnimate = Element.prototype.animate;
+  let animPatched = false;
+
+  // --- Helpers ---
+  function formatTime() {
+    const d = new Date();
+    return `${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
+  }
+
+  // --- State Detection ---
+  // These match the actual CSS classes and data attributes DOM-Tools sets.
+  const stateChecks = [
+    { label: 'Enabled', detect: () => !document.documentElement.classList.contains('dt-disabled') },
+    { label: 'Toolbar', detect: () => !!document.querySelector('[data-dt-toolbar]') },
+    { label: 'Bubbles', detect: () => document.querySelectorAll('[data-dt-bubble]').length },
+    { label: 'Select', detect: () => document.documentElement.classList.contains('dt-comment-active') },
+    { label: 'Editing', detect: () => document.documentElement.classList.contains('dt-inline-editing') },
+    { label: 'Draw', detect: () => !!document.querySelector('canvas[data-dt-ignore]') },
+    { label: 'Zoom', detect: () => document.documentElement.classList.contains('dt-space-grab') || document.documentElement.classList.contains('dt-space-grabbing') },
+    { label: 'Settings', detect: () => !!document.querySelector('[data-dt-settings]') },
+  ];
+
+  function renderState() {
+    if (!stateGrid) return;
+    stateGrid.innerHTML = stateChecks.map(s => {
+      const val = s.detect();
+      const display = typeof val === 'boolean' ? (val ? 'ON' : 'OFF') : (typeof val === 'number' ? val : val);
+      const cls = val === true || (typeof val === 'number' && val > 0) ? 'on' : 'off';
+      return `<div class="state-row"><span class="state-key">${s.label}</span><span class="state-val ${cls}">${display}</span></div>`;
+    }).join('');
+  }
+
+  function tick() {
+    renderState();
+    rafId = requestAnimationFrame(tick);
+  }
+
+  // --- Key Event Logging ---
+  const SHORTCUTS = ['Escape', 'T', 'C', 'S', 'K', 'A'];
+
+  function onKeyDown(e) {
+    const mods = [e.metaKey && 'Cmd', e.ctrlKey && 'Ctrl', e.shiftKey && 'Shift', e.altKey && 'Alt'].filter(Boolean).join('+');
+    const isShortcut = SHORTCUTS.includes(e.key) && (e.shiftKey || e.metaKey || e.ctrlKey || e.key === 'Escape');
+    keyEntries.unshift({ key: e.key, mods, target: e.target.tagName.toLowerCase(), time: formatTime(), shortcut: isShortcut });
+    if (keyEntries.length > MAX_KEY_ENTRIES) keyEntries.pop();
+    renderKeyLog();
+  }
+
+  function renderKeyLog() {
+    if (!keyLog) return;
+    keyLog.innerHTML = keyEntries.map(e =>
+      `<div class="key-entry${e.shortcut ? ' shortcut' : ''}">` +
+      `<span class="time">${e.time}</span> ` +
+      `<span class="key">${e.key}</span>` +
+      (e.mods ? ` <span class="mods">${e.mods}</span>` : '') +
+      ` <span class="target">&lt;${e.target}&gt;</span>` +
+      `</div>`
+    ).join('');
+  }
+
+  // --- Animation Interception ---
+  function patchAnimate() {
+    if (animPatched) return;
+    animPatched = true;
+    Element.prototype.animate = function (keyframes, options) {
+      const el = this;
+      const isNudge = Array.isArray(keyframes) && keyframes.some(k => k.transform && /translateY/i.test(k.transform));
+      if (isNudge && active) {
+        const tag = el.tagName.toLowerCase() + (el.className ? '.' + String(el.className).split(' ')[0] : '');
+        const dur = typeof options === 'number' ? options : (options && options.duration) || '?';
+        animEntries.unshift({ tag, duration: dur + 'ms', time: formatTime() });
+        if (animEntries.length > MAX_ANIM_ENTRIES) animEntries.pop();
+        renderAnimLog();
+      }
+      return origAnimate.call(this, keyframes, options);
+    };
+  }
+
+  function unpatchAnimate() {
+    if (!animPatched) return;
+    animPatched = false;
+    Element.prototype.animate = origAnimate;
+  }
+
+  function renderAnimLog() {
+    if (!animLog) return;
+    animLog.innerHTML = animEntries.map(e =>
+      `<div class="anim-entry"><span class="anim-time">${e.time}</span> ${e.tag} <span style="color:#9ca3af">${e.duration}</span></div>`
+    ).join('');
+  }
+
+  // --- Toast observer ---
+  let toastObserver = null;
+  function startToastObserver() {
+    toastObserver = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType === 1 && node.hasAttribute && node.hasAttribute('data-dt-toast')) {
+            animEntries.unshift({ tag: 'toast: ' + (node.textContent || '').slice(0, 30), duration: '—', time: formatTime() });
+            if (animEntries.length > MAX_ANIM_ENTRIES) animEntries.pop();
+            renderAnimLog();
+          }
+        }
+      }
+    });
+    toastObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function stopToastObserver() {
+    if (toastObserver) { toastObserver.disconnect(); toastObserver = null; }
+  }
+
+  // --- Build Panel UI ---
+  function buildPanelContent(contentEl) {
+    contentEl.innerHTML = '';
+    contentEl.style.padding = '0';
+
+    const style = document.createElement('style');
+    style.textContent = `
+      .dp-body { padding: 10px 12px; font-size: 11px; line-height: 1.5; }
+      .dp-section { margin-bottom: 14px; }
+      .dp-section-title {
+        font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+        color: rgba(255,255,255,0.4); margin: 0 0 6px; font-weight: 600;
+      }
+      .state-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
+      .state-row { display: flex; justify-content: space-between; align-items: center; }
+      .state-key { color: rgba(255,255,255,0.4); }
+      .state-val { font-weight: 600; }
+      .state-val.on { color: #34d399; }
+      .state-val.off { color: rgba(255,255,255,0.25); }
+      .dp-log {
+        max-height: 140px; overflow-y: auto;
+        background: rgba(0,0,0,0.3); border-radius: 6px;
+        padding: 6px 8px;
+      }
+      .key-entry { border-bottom: 1px solid rgba(255,255,255,0.06); padding: 3px 0; }
+      .key-entry:last-child { border-bottom: none; }
+      .key-entry .key { color: #fbbf24; font-weight: 700; }
+      .key-entry .mods { color: #a78bfa; }
+      .key-entry .target { color: rgba(255,255,255,0.3); }
+      .key-entry .time { color: rgba(255,255,255,0.25); font-size: 10px; }
+      .key-entry.shortcut { background: rgba(59,130,246,0.15); border-radius: 4px; padding: 3px 4px; }
+      .anim-entry { color: #6ee7b7; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+      .anim-entry:last-child { border-bottom: none; }
+      .anim-entry .anim-time { color: rgba(255,255,255,0.25); font-size: 10px; }
+      .dp-btn {
+        padding: 4px 10px; border: none;
+        background: rgba(255,255,255,0.1); color: #e5e7eb;
+        border-radius: 6px; cursor: pointer; font-size: 10px;
+        font-family: inherit;
+      }
+      .dp-btn:hover { background: rgba(255,255,255,0.18); }
+      .dp-log::-webkit-scrollbar { width: 4px; }
+      .dp-log::-webkit-scrollbar-track { background: transparent; }
+      .dp-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+    `;
+    contentEl.appendChild(style);
+
+    const body = document.createElement('div');
+    body.className = 'dp-body';
+    body.innerHTML = `
+      <div class="dp-section">
+        <div class="dp-section-title">State</div>
+        <div class="state-grid" id="dp-state-grid"></div>
+      </div>
+      <div class="dp-section">
+        <div class="dp-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+          Key Events <button class="dp-btn" id="dp-clear-keys" style="margin:0;padding:2px 6px;">Clear</button>
+        </div>
+        <div class="dp-log" id="dp-key-log"></div>
+      </div>
+      <div class="dp-section">
+        <div class="dp-section-title">Animations</div>
+        <div class="dp-log" id="dp-anim-log"></div>
+      </div>
+    `;
+    contentEl.appendChild(body);
+
+    stateGrid = body.querySelector('#dp-state-grid');
+    keyLog = body.querySelector('#dp-key-log');
+    animLog = body.querySelector('#dp-anim-log');
+
+    body.querySelector('#dp-clear-keys').addEventListener('click', () => {
+      keyEntries = [];
+      renderKeyLog();
+    });
+  }
+
+  // --- Plugin Definition ---
+  // Dev panel is persistent — it auto-activates on init and stays visible
+  // regardless of which tool is active. No toolbar button.
+  const plugin = {
+    id: 'dev-panel',
+    label: 'Dev Panel',
+
+    init(_api) {
+      // Auto-activate immediately on registration
+      if (active) return;
+      active = true;
+      api = _api;
+
+      panel = api.createPanel({ title: 'Dev Panel', position: { top: '16px', right: '16px' }, width: '260px' });
+      panel.style.display = 'block';
+
+      buildPanelContent(panel._content);
+
+      // Start state polling
+      rafId = requestAnimationFrame(tick);
+
+      // Start keydown listener
+      document.addEventListener('keydown', onKeyDown, true);
+
+      // Patch animate
+      patchAnimate();
+
+      // Start toast observer
+      startToastObserver();
+    },
+
+    // No-op: dev panel should never be deactivated by tool switches
+    activate() {},
+    deactivate() {},
+  };
+
+  if (window.DomTools) {
+    window.DomTools.registerPlugin(plugin);
+  }
+})();
+
+/**
+ * DOM-Tools Plugin: DOM Synth
+ * Turns the page into a musical instrument. Hover elements to hear them,
+ * click to lock into a sequence, or let it auto-scan and drone.
+ * Immediate, interactive, playful. Web Audio API, zero deps.
+ */
+(function() {
+  'use strict';
+
+  let api = null;
+  let panel = null;
+  let audioCtx = null;
+  let masterGain = null;
+  let compressor = null;
+  let reverbNode = null;
+  let active = false;
+
+  // Modes
+  const MODES = ['hover', 'sequence', 'drone', 'theremin'];
+  let mode = 'hover'; // default: instant sound on hover
+
+  // Musical scales (semitone offsets from root)
+  const SCALES = {
+    chromatic: [0,1,2,3,4,5,6,7,8,9,10,11],
+    major: [0,2,4,5,7,9,11],
+    minor: [0,2,3,5,7,8,10],
+    pentatonic: [0,2,4,7,9],
+    blues: [0,3,5,6,7,10],
+    dorian: [0,2,3,5,7,9,10],
+    japanese: [0,1,5,7,8],
+    whole: [0,2,4,6,8,10],
+  };
+  let scaleName = 'pentatonic';
+  let rootNote = 220; // A3
+
+  // Sequencer
+  let playing = false;
+  let clockInterval = null;
+  let currentStep = 0;
+  let nextStepTime = 0;
+  let bpm = 120;
+  let stepCount = 16;
+  let volume = 0.7;
+  const tracks = []; // { el, steps[], muted, sound }
+
+  // Drone
+  let droneOscs = [];
+  let droneGain = null;
+
+  // Theremin
+  let thereminOsc = null;
+  let thereminGain = null;
+  let thereminFilter = null;
+
+  // Hover
+  let lastHoverEl = null;
+  let hoverTimeout = null;
+
+  // --- Audio setup ---
+  function ensureAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -12;
+    compressor.knee.value = 10;
+    compressor.connect(audioCtx.destination);
+
+    // Simple convolver reverb (generated noise impulse)
+    reverbNode = audioCtx.createConvolver();
+    const len = audioCtx.sampleRate * 1.5;
+    const impulse = audioCtx.createBuffer(2, len, audioCtx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = impulse.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+      }
+    }
+    reverbNode.buffer = impulse;
+
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = volume;
+
+    // Dry + wet mix
+    const dryGain = audioCtx.createGain();
+    dryGain.gain.value = 0.7;
+    const wetGain = audioCtx.createGain();
+    wetGain.gain.value = 0.3;
+
+    masterGain.connect(dryGain);
+    masterGain.connect(reverbNode);
+    reverbNode.connect(wetGain);
+    dryGain.connect(compressor);
+    wetGain.connect(compressor);
+  }
+
+  // --- Scale quantization ---
+  function quantizeToScale(freq) {
+    const scale = SCALES[scaleName];
+    // Find nearest note in scale
+    const semitones = 12 * Math.log2(freq / rootNote);
+    const octave = Math.floor(semitones / 12);
+    const remainder = ((semitones % 12) + 12) % 12;
+    // Snap to nearest scale degree
+    let closest = scale[0];
+    let minDist = 999;
+    for (const degree of scale) {
+      const dist = Math.abs(remainder - degree);
+      if (dist < minDist) { minDist = dist; closest = degree; }
+    }
+    return rootNote * Math.pow(2, octave + closest / 12);
+  }
+
+  // --- DOM-to-sound mapping ---
+  function mapElement(el) {
+    const rect = el.getBoundingClientRect();
+    const viewH = window.innerHeight;
+    const viewW = window.innerWidth;
+
+    // Pitch: vertical position (top=high, bottom=low)
+    const normalY = 1 - Math.min(1, Math.max(0, rect.top / viewH));
+    const rawFreq = 100 + normalY * 1400;
+    const freq = quantizeToScale(rawFreq);
+
+    // Duration from width
+    const normalW = Math.min(1, rect.width / viewW);
+    const duration = 0.08 + normalW * 0.4;
+
+    // Filter from height
+    const normalH = Math.min(1, rect.height / viewH);
+    const cutoff = 300 + normalH * 6000;
+
+    // Osc type from color
+    const bg = getComputedStyle(el).backgroundColor;
+    const hue = colorToHue(bg);
+    const oscTypes = ['sine', 'triangle', 'square', 'sawtooth'];
+    const oscType = oscTypes[Math.floor(hue / 90) % 4];
+
+    // Velocity from element area
+    const area = (rect.width * rect.height) / (viewW * viewH);
+    const velocity = Math.min(1, Math.max(0.15, area * 4 + 0.2));
+
+    // Detune from horizontal position
+    const normalX = rect.left / viewW;
+    const detune = (normalX - 0.5) * 30; // ±15 cents for stereo width
+
+    return { freq, duration, cutoff, oscType, velocity, detune };
+  }
+
+  function colorToHue(color) {
+    const m = color.match(/\d+/g);
+    if (!m || m.length < 3) return 0;
+    const r = +m[0] / 255, g = +m[1] / 255, b = +m[2] / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    if (max === min) return 0;
+    const d = max - min;
+    let h;
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+    return h * 360;
+  }
+
+  // --- Play a note ---
+  function playNote(sound, time) {
+    if (!audioCtx) return;
+    time = time || audioCtx.currentTime;
+
+    const osc = audioCtx.createOscillator();
+    osc.type = sound.oscType;
+    osc.frequency.setValueAtTime(sound.freq, time);
+    osc.detune.setValueAtTime(sound.detune || 0, time);
+
+    // Sub oscillator for body
+    const sub = audioCtx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(sound.freq * 0.5, time);
+
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(sound.cutoff, time);
+    filter.frequency.exponentialRampToValueAtTime(300, time + sound.duration);
+    filter.Q.value = 4;
+
+    const env = audioCtx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(sound.velocity * 0.35, time + 0.01);
+    env.gain.exponentialRampToValueAtTime(0.001, time + sound.duration);
+
+    const subGain = audioCtx.createGain();
+    subGain.gain.setValueAtTime(sound.velocity * 0.15, time);
+    subGain.gain.exponentialRampToValueAtTime(0.001, time + sound.duration * 0.8);
+
+    osc.connect(filter);
+    sub.connect(subGain);
+    subGain.connect(filter);
+    filter.connect(env);
+    env.connect(masterGain);
+
+    osc.start(time);
+    sub.start(time);
+    osc.stop(time + sound.duration + 0.05);
+    sub.stop(time + sound.duration + 0.05);
+  }
+
+  // --- Visual feedback ---
+  function pulseElement(el, color) {
+    if (!el || typeof el.animate !== 'function') return;
+    const c = color || '#10b981';
+    el.animate([
+      { boxShadow: `0 0 0 0px ${c}00`, transform: 'scale(1)' },
+      { boxShadow: `0 0 20px 6px ${c}99`, transform: 'scale(1.015)', offset: 0.2 },
+      { boxShadow: `0 0 0 0px ${c}00`, transform: 'scale(1)' },
+    ], { duration: 300, easing: 'ease-out' });
+  }
+
+  // ===== HOVER MODE =====
+  function onHoverMove(e) {
+    if (mode !== 'hover' || !active) return;
+    const el = e.target;
+    if (api.isInspectorUI(el)) return;
+    if (el === lastHoverEl) return;
+    lastHoverEl = el;
+
+    // Debounce to avoid rapid-fire
+    if (hoverTimeout) clearTimeout(hoverTimeout);
+    hoverTimeout = setTimeout(() => {
+      ensureAudio();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const sound = mapElement(el);
+      playNote(sound);
+      pulseElement(el);
+    }, 30);
+  }
+
+  // ===== SEQUENCE MODE =====
+  const LOOKAHEAD = 0.1;
+  const INTERVAL = 25;
+
+  function getStepDuration() { return 60 / bpm / 4; }
+
+  function scheduler() {
+    while (nextStepTime < audioCtx.currentTime + LOOKAHEAD) {
+      tracks.forEach(track => {
+        if (track.muted || !track.steps[currentStep]) return;
+        const sound = mapElement(track.el);
+        playNote(sound, nextStepTime);
+        const delay = Math.max(0, (nextStepTime - audioCtx.currentTime) * 1000);
+        setTimeout(() => pulseElement(track.el), delay);
+      });
+      updateStepHighlight(currentStep);
+      nextStepTime += getStepDuration();
+      currentStep = (currentStep + 1) % stepCount;
+    }
+  }
+
+  function startPlayback() {
+    ensureAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    playing = true;
+    currentStep = 0;
+    nextStepTime = audioCtx.currentTime + 0.05;
+    clockInterval = setInterval(scheduler, INTERVAL);
+    refreshUI();
+  }
+
+  function stopPlayback() {
+    playing = false;
+    if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
+    currentStep = 0;
+    updateStepHighlight(-1);
+    refreshUI();
+  }
+
+  function onSequenceClick(e) {
+    if (mode !== 'sequence' || !active) return;
+    const el = e.target;
+    if (api.isInspectorUI(el)) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const idx = tracks.findIndex(t => t.el === el);
+    if (idx !== -1) {
+      tracks.splice(idx, 1);
+    } else {
+      const depth = getDepth(el);
+      const interval = Math.max(2, Math.min(8, depth + 1));
+      const steps = Array.from({ length: stepCount }, (_, i) => i % interval === 0);
+      tracks.push({ el, steps, muted: false });
+      // Preview the sound
+      ensureAudio();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      playNote(mapElement(el));
+      pulseElement(el);
+    }
+    renderGrid();
+  }
+
+  function getDepth(el) {
+    let d = 0, n = el;
+    while (n && n !== document.body) { d++; n = n.parentElement; }
+    return d;
+  }
+
+  // ===== DRONE MODE =====
+  function startDrone() {
+    ensureAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    stopDrone();
+
+    // Scan visible elements and pick up to 6 for a chord
+    const els = Array.from(document.querySelectorAll('h1,h2,h3,p,a,button,img,div'))
+      .filter(el => {
+        if (api.isInspectorUI(el)) return false;
+        const r = el.getBoundingClientRect();
+        return r.top < window.innerHeight && r.bottom > 0 && r.width > 20;
+      })
+      .slice(0, 6);
+
+    droneGain = audioCtx.createGain();
+    droneGain.gain.value = 0;
+    droneGain.connect(masterGain);
+
+    // Fade in
+    droneGain.gain.linearRampToValueAtTime(0.25, audioCtx.currentTime + 1.5);
+
+    droneOscs = els.map(el => {
+      const sound = mapElement(el);
+      const osc = audioCtx.createOscillator();
+      osc.type = sound.oscType;
+      osc.frequency.value = sound.freq;
+      osc.detune.value = (Math.random() - 0.5) * 10; // slight detune for richness
+
+      // Slow LFO on frequency
+      const lfo = audioCtx.createOscillator();
+      lfo.frequency.value = 0.1 + Math.random() * 0.3;
+      const lfoGain = audioCtx.createGain();
+      lfoGain.gain.value = sound.freq * 0.01;
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+      lfo.start();
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = sound.cutoff * 0.5;
+      filter.Q.value = 1;
+
+      osc.connect(filter);
+      filter.connect(droneGain);
+      osc.start();
+
+      // Pulse the element slowly
+      const pulseInterval = setInterval(() => {
+        if (!active || mode !== 'drone') { clearInterval(pulseInterval); return; }
+        pulseElement(el, '#10b981');
+      }, 2000 + Math.random() * 3000);
+
+      return { osc, lfo, filter, el, pulseInterval };
+    });
+  }
+
+  function stopDrone() {
+    if (droneGain) {
+      try { droneGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5); } catch(e) {}
+    }
+    droneOscs.forEach(d => {
+      try { d.osc.stop(audioCtx.currentTime + 0.6); } catch(e) {}
+      try { d.lfo.stop(audioCtx.currentTime + 0.6); } catch(e) {}
+      clearInterval(d.pulseInterval);
+    });
+    droneOscs = [];
+    setTimeout(() => { if (droneGain) { droneGain.disconnect(); droneGain = null; } }, 700);
+  }
+
+  // ===== THEREMIN MODE =====
+  function startTheremin() {
+    ensureAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    stopTheremin();
+
+    thereminOsc = audioCtx.createOscillator();
+    thereminOsc.type = 'sawtooth';
+    thereminOsc.frequency.value = 440;
+
+    thereminFilter = audioCtx.createBiquadFilter();
+    thereminFilter.type = 'lowpass';
+    thereminFilter.frequency.value = 2000;
+    thereminFilter.Q.value = 5;
+
+    thereminGain = audioCtx.createGain();
+    thereminGain.gain.value = 0;
+
+    thereminOsc.connect(thereminFilter);
+    thereminFilter.connect(thereminGain);
+    thereminGain.connect(masterGain);
+    thereminOsc.start();
+
+    document.addEventListener('mousemove', onThereminMove);
+    document.addEventListener('mousedown', onThereminDown);
+    document.addEventListener('mouseup', onThereminUp);
+  }
+
+  function stopTheremin() {
+    document.removeEventListener('mousemove', onThereminMove);
+    document.removeEventListener('mousedown', onThereminDown);
+    document.removeEventListener('mouseup', onThereminUp);
+    if (thereminOsc) { try { thereminOsc.stop(); } catch(e) {} thereminOsc = null; }
+    if (thereminGain) { thereminGain.disconnect(); thereminGain = null; }
+    thereminFilter = null;
+  }
+
+  function onThereminMove(e) {
+    if (!thereminOsc) return;
+    const x = e.clientX / window.innerWidth;
+    const y = 1 - (e.clientY / window.innerHeight);
+    const rawFreq = 80 + y * 1500;
+    const freq = quantizeToScale(rawFreq);
+    thereminOsc.frequency.exponentialRampToValueAtTime(
+      Math.max(20, freq), audioCtx.currentTime + 0.05
+    );
+    thereminFilter.frequency.value = 400 + x * 6000;
+  }
+
+  function onThereminDown() {
+    if (thereminGain) thereminGain.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.05);
+  }
+
+  function onThereminUp() {
+    if (thereminGain) thereminGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+  }
+
+  // ===== AUTO-SCAN =====
+  function autoScan() {
+    tracks.length = 0;
+    const els = Array.from(document.querySelectorAll('h1,h2,h3,h4,p,a,button,img,li,span,section,article'))
+      .filter(el => {
+        if (api.isInspectorUI(el)) return false;
+        const r = el.getBoundingClientRect();
+        return r.top < window.innerHeight && r.bottom > 0 && r.width > 30 && r.height > 10;
+      });
+    // Pick up to 8 diverse elements
+    const picked = [];
+    const stride = Math.max(1, Math.floor(els.length / 8));
+    for (let i = 0; i < els.length && picked.length < 8; i += stride) {
+      picked.push(els[i]);
+    }
+    picked.forEach((el, i) => {
+      const steps = Array.from({ length: stepCount }, (_, s) => {
+        // Euclidean-ish distribution
+        const hits = Math.max(1, Math.min(8, 3 + i));
+        return (s * hits) % stepCount < hits;
+      });
+      tracks.push({ el, steps, muted: false });
+    });
+    renderGrid();
+    api.showToast(`Scanned ${picked.length} elements`);
+  }
+
+  // ===== PANEL UI =====
+  let gridContainer = null;
+  let _playBtn = null;
+  let _modeButtons = {};
+  let _stepCells = [];
+
+  function buildPanel() {
+    panel = api.createPanel({ title: 'DOM Synth', position: { top: '16px', right: '16px' }, width: '340px' });
+    const C = panel._content;
+    C.style.maxHeight = '70vh';
+    C.style.overflowY = 'auto';
+
+    // --- Mode selector ---
+    addSection(C, 'mode', true);
+    const modeRow = mkEl('div', { display: 'flex', gap: '4px', marginBottom: '10px' });
+    MODES.forEach(m => {
+      const btn = mkEl('button', {
+        padding: '4px 8px', fontSize: '10px', fontWeight: '600',
+        border: 'none', borderRadius: '4px', cursor: 'pointer',
+        background: m === mode ? '#10b981' : '#333', color: '#fff', fontFamily: 'inherit',
+        textTransform: 'capitalize',
+      });
+      btn.textContent = m;
+      btn.addEventListener('click', () => setMode(m));
+      _modeButtons[m] = btn;
+      modeRow.appendChild(btn);
+    });
+    C.appendChild(modeRow);
+
+    // --- Scale + Root ---
+    addSection(C, 'tuning');
+    const tuneRow = mkEl('div', { display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px' });
+    const scaleSelect = mkEl('select', {
+      fontSize: '10px', background: '#333', color: '#fff', border: 'none',
+      borderRadius: '3px', padding: '3px 6px',
+    });
+    Object.keys(SCALES).forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      if (name === scaleName) opt.selected = true;
+      scaleSelect.appendChild(opt);
+    });
+    scaleSelect.addEventListener('change', () => { scaleName = scaleSelect.value; });
+    tuneRow.appendChild(scaleSelect);
+
+    const rootSelect = mkEl('select', {
+      fontSize: '10px', background: '#333', color: '#fff', border: 'none',
+      borderRadius: '3px', padding: '3px 6px',
+    });
+    const noteNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+    const rootFreqs = { C: 130.81, 'C#': 138.59, D: 146.83, 'D#': 155.56, E: 164.81, F: 174.61, 'F#': 185.0, G: 196.0, 'G#': 207.65, A: 220.0, 'A#': 233.08, B: 246.94 };
+    noteNames.forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = rootFreqs[n]; opt.textContent = n + '3';
+      if (rootFreqs[n] === rootNote) opt.selected = true;
+      rootSelect.appendChild(opt);
+    });
+    rootSelect.addEventListener('change', () => { rootNote = parseFloat(rootSelect.value); });
+    tuneRow.appendChild(rootSelect);
+    C.appendChild(tuneRow);
+
+    // --- Transport (sequence mode) ---
+    addSection(C, 'transport');
+    const transport = mkEl('div', { display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px' });
+    _playBtn = mkBtn(playing ? '⏸' : '▶', () => { playing ? stopPlayback() : startPlayback(); });
+    _playBtn.style.width = '28px';
+    transport.appendChild(_playBtn);
+    transport.appendChild(mkBtn('■', stopPlayback));
+    transport.appendChild(mkBtn('Scan', autoScan));
+    transport.appendChild(mkBtn('Rnd', randomize));
+
+    const bpmInput = document.createElement('input');
+    bpmInput.type = 'range'; bpmInput.min = '60'; bpmInput.max = '200'; bpmInput.value = bpm;
+    Object.assign(bpmInput.style, { width: '50px', height: '3px', accentColor: '#10b981', marginLeft: 'auto' });
+    const bpmLbl = mkEl('span', { fontSize: '9px', color: '#888' });
+    bpmLbl.textContent = bpm + '';
+    bpmInput.addEventListener('input', () => { bpm = +bpmInput.value; bpmLbl.textContent = bpm + ''; });
+    transport.appendChild(bpmInput);
+    transport.appendChild(bpmLbl);
+    C.appendChild(transport);
+
+    // Volume
+    const volRow = mkEl('div', { display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '10px' });
+    const volLbl = mkEl('span', { fontSize: '9px', color: '#888' });
+    volLbl.textContent = 'vol';
+    const volInput = document.createElement('input');
+    volInput.type = 'range'; volInput.min = '0'; volInput.max = '1'; volInput.step = '0.05'; volInput.value = volume;
+    Object.assign(volInput.style, { width: '80px', height: '3px', accentColor: '#10b981' });
+    volInput.addEventListener('input', () => {
+      volume = +volInput.value;
+      if (masterGain) masterGain.gain.value = volume;
+    });
+    volRow.appendChild(volLbl);
+    volRow.appendChild(volInput);
+    C.appendChild(volRow);
+
+    // Grid
+    gridContainer = mkEl('div', { maxHeight: '180px', overflowY: 'auto' });
+    C.appendChild(gridContainer);
+    renderGrid();
+  }
+
+  function setMode(m) {
+    // Cleanup previous mode
+    if (mode === 'drone') stopDrone();
+    if (mode === 'theremin') stopTheremin();
+    if (mode === 'sequence' && playing) stopPlayback();
+
+    mode = m;
+
+    // Activate new mode
+    if (mode === 'drone') startDrone();
+    if (mode === 'theremin') startTheremin();
+
+    // Update UI
+    Object.entries(_modeButtons).forEach(([key, btn]) => {
+      btn.style.background = key === m ? '#10b981' : '#333';
+    });
+
+    const hints = {
+      hover: 'Hover elements to hear them',
+      sequence: 'Click elements to build a pattern',
+      drone: 'Page elements sustain as a chord',
+      theremin: 'Click + drag to play (Y=pitch, X=filter)',
+    };
+    api.showToast(hints[m] || '');
+  }
+
+  // --- Grid rendering ---
+  function renderGrid() {
+    if (!gridContainer) return;
+    gridContainer.innerHTML = '';
+    _stepCells = [];
+
+    if (tracks.length === 0) {
+      const empty = mkEl('div', { color: '#555', fontSize: '9px', textAlign: 'center', padding: '12px 0' });
+      empty.textContent = mode === 'sequence' ? 'click elements to add • or hit Scan' : 'switch to sequence mode for the grid';
+      gridContainer.appendChild(empty);
+      return;
+    }
+
+    tracks.forEach((track, ti) => {
+      const row = mkEl('div', { display: 'flex', alignItems: 'center', gap: '1px', marginBottom: '3px' });
+
+      // Label
+      const lbl = mkEl('div', {
+        fontSize: '8px', color: track.muted ? '#555' : '#aaa', width: '55px',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: '0',
+        cursor: 'pointer',
+      });
+      const sel = api.getSelector(track.el);
+      lbl.textContent = sel.length > 12 ? sel.slice(0, 12) + '…' : sel;
+      lbl.title = sel;
+      lbl.addEventListener('click', () => {
+        // Preview sound + highlight element
+        ensureAudio();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        playNote(mapElement(track.el));
+        pulseElement(track.el);
+      });
+      row.appendChild(lbl);
+
+      // Step cells
+      const cells = [];
+      for (let s = 0; s < stepCount; s++) {
+        const cell = mkEl('div', {
+          width: '10px', height: '10px', borderRadius: '2px', cursor: 'pointer',
+          background: track.steps[s] ? '#10b981' : '#282828',
+          border: '1px solid ' + (track.steps[s] ? '#10b981' : '#3a3a3a'),
+          flexShrink: '0', transition: 'background 0.1s',
+        });
+        cell.addEventListener('click', () => {
+          track.steps[s] = !track.steps[s];
+          cell.style.background = track.steps[s] ? '#10b981' : '#282828';
+          cell.style.borderColor = track.steps[s] ? '#10b981' : '#3a3a3a';
+        });
+        row.appendChild(cell);
+        cells.push(cell);
+      }
+      _stepCells.push(cells);
+
+      // Mute
+      const muteBtn = mkEl('div', {
+        width: '14px', height: '14px', fontSize: '8px', fontWeight: '700',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        borderRadius: '2px', cursor: 'pointer', marginLeft: '3px',
+        background: track.muted ? '#ef4444' : '#333', color: '#fff', flexShrink: '0',
+      });
+      muteBtn.textContent = 'M';
+      muteBtn.addEventListener('click', () => {
+        track.muted = !track.muted;
+        muteBtn.style.background = track.muted ? '#ef4444' : '#333';
+        lbl.style.color = track.muted ? '#555' : '#aaa';
+      });
+      row.appendChild(muteBtn);
+
+      // Remove
+      const rmBtn = mkEl('div', {
+        width: '14px', height: '14px', fontSize: '11px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        borderRadius: '2px', cursor: 'pointer', marginLeft: '1px',
+        background: '#333', color: '#777', flexShrink: '0',
+      });
+      rmBtn.textContent = '×';
+      rmBtn.addEventListener('click', () => { tracks.splice(ti, 1); renderGrid(); });
+      row.appendChild(rmBtn);
+
+      gridContainer.appendChild(row);
+    });
+  }
+
+  function updateStepHighlight(step) {
+    _stepCells.forEach((cells, ti) => {
+      cells.forEach((cell, s) => {
+        cell.style.boxShadow = s === step ? '0 0 4px #10b981' : 'none';
+      });
+    });
+  }
+
+  function randomize() {
+    tracks.forEach(track => {
+      const density = 0.2 + Math.random() * 0.35;
+      track.steps = Array.from({ length: stepCount }, () => Math.random() < density);
+    });
+    renderGrid();
+  }
+
+  function refreshUI() {
+    if (_playBtn) {
+      _playBtn.textContent = playing ? '⏸' : '▶';
+      _playBtn.style.background = playing ? '#10b981' : '#333';
+    }
+  }
+
+  // --- UI helpers ---
+  function mkEl(tag, styles) {
+    const e = document.createElement(tag);
+    if (styles) Object.assign(e.style, styles);
+    return e;
+  }
+
+  function mkBtn(text, onClick) {
+    const btn = mkEl('button', {
+      padding: '3px 7px', fontSize: '10px', fontWeight: '600',
+      border: 'none', borderRadius: '3px', cursor: 'pointer',
+      background: '#333', color: '#fff', fontFamily: 'inherit',
+    });
+    btn.textContent = text;
+    btn.addEventListener('click', onClick);
+    btn.addEventListener('mouseenter', () => { btn.style.background = '#444'; });
+    btn.addEventListener('mouseleave', () => { btn.style.background = '#333'; });
+    return btn;
+  }
+
+  function addSection(parent, text, first) {
+    const s = mkEl('div', {
+      fontSize: '9px', fontWeight: '700', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#555', marginBottom: '6px',
+      marginTop: first ? '0' : '12px',
+      paddingTop: first ? '0' : '8px',
+      borderTop: first ? 'none' : '1px solid rgba(255,255,255,0.05)',
+    });
+    s.textContent = text;
+    parent.appendChild(s);
+  }
+
+  // --- Plugin definition ---
+  const plugin = {
+    id: 'dom-synth',
+    label: 'DOM Synth',
+    enabledByDefault: true,
+
+    button: {
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+      tooltip: 'DOM Synth',
+      color: '#10b981',
+      order: 51,
+    },
+
+    init(pluginApi) { api = pluginApi; },
+
+    activate() {
+      active = true;
+      if (!panel) buildPanel();
+      panel.style.display = 'block';
+      document.addEventListener('mousemove', onHoverMove);
+      document.addEventListener('click', onSequenceClick, true);
+      setMode(mode);
+    },
+
+    deactivate() {
+      active = false;
+      if (mode === 'drone') stopDrone();
+      if (mode === 'theremin') stopTheremin();
+      if (playing) stopPlayback();
+      document.removeEventListener('mousemove', onHoverMove);
+      document.removeEventListener('click', onSequenceClick, true);
+      if (panel) panel.style.display = 'none';
+      lastHoverEl = null;
+    },
+
+    toggle() {
+      if (active) { this.deactivate(); return false; }
+      this.activate();
+      return true;
+    },
+  };
+
+  // Register
+  const dt = window.DomTools || (window.DomTools = { _pendingPlugins: [] });
+  if (dt.registerPlugin) dt.registerPlugin(plugin);
+  else dt._pendingPlugins.push(plugin);
+})();
+
+/**
+ * DOM X-Ray Plugin
+ * Box-model visualization: content (blue), padding (green), border (yellow), margin (orange).
+ * Hover to inspect, click to lock selection.
+ */
+(function () {
+  const COLORS = {
+    margin:  'rgba(255, 165, 0, 0.15)',
+    border:  'rgba(255, 215, 0, 0.25)',
+    padding: 'rgba(144, 238, 144, 0.2)',
+    content: 'rgba(100, 149, 237, 0.15)',
+  };
+
+  let container = null;
+  let tooltip = null;
+  let locked = null;
+  let active = false;
+  let api = null;
+
+  function createOverlayContainer() {
+    container = document.createElement('div');
+    container.id = 'dt-xray-overlays';
+    container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2147483640;';
+    document.body.appendChild(container);
+  }
+
+  function createTooltip() {
+    tooltip = document.createElement('div');
+    tooltip.id = 'dt-xray-tooltip';
+    tooltip.style.cssText = `
+      position:fixed;pointer-events:none;z-index:2147483641;
+      background:rgba(20,20,30,0.92);color:#e0e0e0;
+      font:11px/1.5 'SF Mono',Menlo,monospace;
+      padding:8px 10px;border-radius:6px;
+      max-width:280px;white-space:pre;
+      box-shadow:0 4px 12px rgba(0,0,0,0.3);
+      display:none;
+    `;
+    document.body.appendChild(tooltip);
+  }
+
+  function getBoxModel(el) {
+    const cs = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const parse = (v) => parseFloat(v) || 0;
+
+    const mt = parse(cs.marginTop), mr = parse(cs.marginRight);
+    const mb = parse(cs.marginBottom), ml = parse(cs.marginLeft);
+    const bt = parse(cs.borderTopWidth), br = parse(cs.borderRightWidth);
+    const bb = parse(cs.borderBottomWidth), blw = parse(cs.borderLeftWidth);
+    const pt = parse(cs.paddingTop), pr = parse(cs.paddingRight);
+    const pb = parse(cs.paddingBottom), pl = parse(cs.paddingLeft);
+
+    return {
+      rect, cs,
+      margin: { top: mt, right: mr, bottom: mb, left: ml },
+      border: { top: bt, right: br, bottom: bb, left: blw },
+      padding: { top: pt, right: pr, bottom: pb, left: pl },
+    };
+  }
+
+  function renderOverlays(el) {
+    container.innerHTML = '';
+    const { rect, margin, border, padding } = getBoxModel(el);
+
+    // Margin layer (outermost)
+    const marginRect = {
+      top: rect.top - margin.top,
+      left: rect.left - margin.left,
+      width: rect.width + margin.left + margin.right,
+      height: rect.height + margin.top + margin.bottom,
+    };
+    addOverlay(marginRect, COLORS.margin);
+
+    // Border layer
+    addOverlay({ top: rect.top, left: rect.left, width: rect.width, height: rect.height }, COLORS.border);
+
+    // Padding layer (inside border)
+    const paddingRect = {
+      top: rect.top + border.top,
+      left: rect.left + border.left,
+      width: rect.width - border.left - border.right,
+      height: rect.height - border.top - border.bottom,
+    };
+    addOverlay(paddingRect, COLORS.padding);
+
+    // Content layer (innermost)
+    const contentRect = {
+      top: paddingRect.top + padding.top,
+      left: paddingRect.left + padding.left,
+      width: paddingRect.width - padding.left - padding.right,
+      height: paddingRect.height - padding.top - padding.bottom,
+    };
+    addOverlay(contentRect, COLORS.content);
+  }
+
+  function addOverlay(r, color) {
+    const d = document.createElement('div');
+    d.style.cssText = `position:fixed;top:${r.top}px;left:${r.left}px;width:${r.width}px;height:${r.height}px;background:${color};`;
+    container.appendChild(d);
+  }
+
+  function updateTooltip(el, e) {
+    const { rect, cs, margin, border, padding } = getBoxModel(el);
+    const tag = el.tagName.toLowerCase();
+    const cls = el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '';
+    const id = el.id ? `#${el.id}` : '';
+
+    const lines = [
+      `${tag}${id}${cls}`,
+      `${Math.round(rect.width)} x ${Math.round(rect.height)}`,
+      `margin: ${fmt(margin)}`,
+      `padding: ${fmt(padding)}`,
+      `border: ${fmt(border)}`,
+      `position: ${cs.position}${cs.zIndex !== 'auto' ? '  z:' + cs.zIndex : ''}`,
+    ];
+
+    tooltip.textContent = lines.join('\n');
+    tooltip.style.display = 'block';
+
+    // Position near cursor
+    let x = e.clientX + 14;
+    let y = e.clientY + 14;
+    const tw = tooltip.offsetWidth;
+    const th = tooltip.offsetHeight;
+    if (x + tw > window.innerWidth - 8) x = e.clientX - tw - 10;
+    if (y + th > window.innerHeight - 8) y = e.clientY - th - 10;
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+  }
+
+  function fmt(box) {
+    return `${box.top} ${box.right} ${box.bottom} ${box.left}`;
+  }
+
+  function isIgnored(el) {
+    if (!el || el === document.body || el === document.documentElement) return true;
+    if (el.closest('#dt-xray-overlays, #dt-xray-tooltip, #dom-tools-toolbar, [data-dt-ignore]')) return true;
+    return false;
+  }
+
+  // --- Event handlers ---
+  function onMouseMove(e) {
+    if (locked) {
+      updateTooltip(locked, e);
+      return;
+    }
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || isIgnored(el)) {
+      container.innerHTML = '';
+      tooltip.style.display = 'none';
+      return;
+    }
+    renderOverlays(el);
+    updateTooltip(el, e);
+  }
+
+  function onClick(e) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || isIgnored(el)) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (locked === el) {
+      locked = null; // unlock
+    } else {
+      locked = el;
+      renderOverlays(el);
+      updateTooltip(el, e);
+    }
+  }
+
+  function onScroll() {
+    if (locked) renderOverlays(locked);
+  }
+
+  // --- Plugin interface ---
+  const plugin = {
+    id: 'dom-xray',
+    label: 'X-Ray',
+    icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10" rx="1"/><rect x="10" y="10" width="4" height="4"/></svg>`,
+
+    toggle() {
+      if (active) { this.deactivate(); return false; }
+      else { this.activate(this._api); return true; }
+    },
+
+    activate(_api) {
+      if (_api) api = _api;
+      active = true;
+      createOverlayContainer();
+      createTooltip();
+      document.addEventListener('mousemove', onMouseMove, true);
+      document.addEventListener('click', onClick, true);
+      window.addEventListener('scroll', onScroll, true);
+      window.addEventListener('resize', onScroll);
+    },
+
+    deactivate() {
+      active = false;
+      locked = null;
+      document.removeEventListener('mousemove', onMouseMove, true);
+      document.removeEventListener('click', onClick, true);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+      if (container) { container.remove(); container = null; }
+      if (tooltip) { tooltip.remove(); tooltip = null; }
+    },
+  };
+
+  if (window.DomTools) {
+    window.DomTools.registerPlugin(plugin);
+  }
+})();
+
+/**
+ * HD Capture plugin — tiled full-page screenshots for tall pages.
+ *
+ * When a page exceeds the browser's max canvas dimension (16384px),
+ * this plugin renders in horizontal strips at full resolution, then
+ * stitches them into a single compressed PNG using a built-in DEFLATE
+ * encoder. No external dependencies.
+ *
+ * Enabled by default. Hooks into the camera system via
+ * window.DomTools._hdCapture override.
+ */
+(function () {
+  'use strict';
+
+  const MAX_CANVAS_DIM = 16384;
+  const STRIP_HEIGHT = 4000; // px at 1x scale per strip
+
+  // =========================================================
+  // Minimal DEFLATE encoder (fixed Huffman codes)
+  // =========================================================
+
+  function deflateRaw(data) {
+    // Use fixed Huffman encoding in 65535-byte stored blocks
+    // This is simpler than full Huffman but still produces valid deflate
+    const MAX_BLOCK = 65535;
+    const blocks = [];
+    let offset = 0;
+
+    while (offset < data.length) {
+      const remaining = data.length - offset;
+      const len = Math.min(remaining, MAX_BLOCK);
+      const isLast = (offset + len >= data.length);
+
+      // Block header: BFINAL (1 bit) + BTYPE=00 (2 bits) = stored block
+      blocks.push(isLast ? 1 : 0);
+      // LEN (2 bytes little-endian)
+      blocks.push(len & 0xFF, (len >> 8) & 0xFF);
+      // NLEN (one's complement of LEN)
+      const nlen = ~len & 0xFFFF;
+      blocks.push(nlen & 0xFF, (nlen >> 8) & 0xFF);
+      // Literal data
+      for (let i = 0; i < len; i++) {
+        blocks.push(data[offset + i]);
+      }
+      offset += len;
+    }
+
+    return new Uint8Array(blocks);
+  }
+
+  function adler32(data) {
+    let a = 1, b = 0;
+    for (let i = 0; i < data.length; i++) {
+      a = (a + data[i]) % 65521;
+      b = (b + a) % 65521;
+    }
+    return ((b << 16) | a) >>> 0;
+  }
+
+  function zlibCompress(data) {
+    const deflated = deflateRaw(data);
+    const checksum = adler32(data);
+    // zlib header: CMF=0x78 (deflate, window 32k), FLG=0x01 (no dict, check bits)
+    const result = new Uint8Array(2 + deflated.length + 4);
+    result[0] = 0x78;
+    result[1] = 0x01;
+    result.set(deflated, 2);
+    const off = 2 + deflated.length;
+    result[off] = (checksum >> 24) & 0xFF;
+    result[off + 1] = (checksum >> 16) & 0xFF;
+    result[off + 2] = (checksum >> 8) & 0xFF;
+    result[off + 3] = checksum & 0xFF;
+    return result;
+  }
+
+  // =========================================================
+  // PNG encoder
+  // =========================================================
+
+  function crc32(buf) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < buf.length; i++) {
+      crc ^= buf[i];
+      for (let j = 0; j < 8; j++) {
+        crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+      }
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function pngChunk(type, data) {
+    const typeBytes = new TextEncoder().encode(type);
+    const len = data.length;
+    const chunk = new Uint8Array(4 + 4 + len + 4);
+    // Length (4 bytes big-endian)
+    chunk[0] = (len >> 24) & 0xFF;
+    chunk[1] = (len >> 16) & 0xFF;
+    chunk[2] = (len >> 8) & 0xFF;
+    chunk[3] = len & 0xFF;
+    // Type
+    chunk.set(typeBytes, 4);
+    // Data
+    chunk.set(data, 8);
+    // CRC over type+data
+    const crcData = new Uint8Array(4 + len);
+    crcData.set(typeBytes, 0);
+    crcData.set(data, 4);
+    const crc = crc32(crcData);
+    chunk[8 + len] = (crc >> 24) & 0xFF;
+    chunk[8 + len + 1] = (crc >> 16) & 0xFF;
+    chunk[8 + len + 2] = (crc >> 8) & 0xFF;
+    chunk[8 + len + 3] = crc & 0xFF;
+    return chunk;
+  }
+
+  function encodePNG(width, height, rgbaStrips) {
+    // Build raw image data with filter byte (0 = None) per row
+    const rowBytes = width * 4; // RGBA
+    const rawSize = height * (1 + rowBytes);
+    const raw = new Uint8Array(rawSize);
+
+    let destOffset = 0;
+    let stripIdx = 0;
+    let stripRowOffset = 0;
+
+    for (let y = 0; y < height; y++) {
+      raw[destOffset++] = 0; // filter: None
+      const strip = rgbaStrips[stripIdx];
+      const srcStart = stripRowOffset * rowBytes;
+      raw.set(strip.subarray(srcStart, srcStart + rowBytes), destOffset);
+      destOffset += rowBytes;
+      stripRowOffset++;
+      if (stripRowOffset >= strip.length / rowBytes) {
+        stripIdx++;
+        stripRowOffset = 0;
+      }
+    }
+
+    // Compress
+    const compressed = zlibCompress(raw);
+
+    // IHDR
+    const ihdr = new Uint8Array(13);
+    ihdr[0] = (width >> 24) & 0xFF;
+    ihdr[1] = (width >> 16) & 0xFF;
+    ihdr[2] = (width >> 8) & 0xFF;
+    ihdr[3] = width & 0xFF;
+    ihdr[4] = (height >> 24) & 0xFF;
+    ihdr[5] = (height >> 16) & 0xFF;
+    ihdr[6] = (height >> 8) & 0xFF;
+    ihdr[7] = height & 0xFF;
+    ihdr[8] = 8;  // bit depth
+    ihdr[9] = 6;  // color type: RGBA
+    ihdr[10] = 0; // compression
+    ihdr[11] = 0; // filter
+    ihdr[12] = 0; // interlace
+
+    // Assemble PNG
+    const signature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    const ihdrChunk = pngChunk('IHDR', ihdr);
+    const idatChunk = pngChunk('IDAT', compressed);
+    const iendChunk = pngChunk('IEND', new Uint8Array(0));
+
+    const png = new Uint8Array(
+      signature.length + ihdrChunk.length + idatChunk.length + iendChunk.length
+    );
+    let off = 0;
+    png.set(signature, off); off += signature.length;
+    png.set(ihdrChunk, off); off += ihdrChunk.length;
+    png.set(idatChunk, off); off += idatChunk.length;
+    png.set(iendChunk, off);
+
+    return png;
+  }
+
+  // =========================================================
+  // Tiled capture
+  // =========================================================
+
+  async function loadH2C() {
+    if (!window.html2canvas) {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      document.head.appendChild(s);
+      await new Promise(r => s.onload = r);
+    }
+  }
+
+  async function captureHD(pageWidth, pageHeight, scale, inspectorUI) {
+    await loadH2C();
+
+    const stripH = STRIP_HEIGHT; // at 1x
+    const numStrips = Math.ceil(pageHeight / stripH);
+    const scaledWidth = Math.round(pageWidth * scale);
+    const totalScaledHeight = Math.round(pageHeight * scale);
+    const rgbaStrips = [];
+
+    for (let i = 0; i < numStrips; i++) {
+      const y = i * stripH;
+      const h = Math.min(stripH, pageHeight - y);
+
+      const canvas = await html2canvas(document.documentElement, {
+        backgroundColor: '#fff',
+        scale: scale,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        x: 0,
+        y: y,
+        width: pageWidth,
+        height: h,
+        windowWidth: pageWidth,
+        windowHeight: pageHeight,
+        ignoreElements: inspectorUI
+          ? (el) => inspectorUI.has(el)
+          : undefined,
+      });
+
+      // Extract RGBA pixel data from this strip
+      const ctx = canvas.getContext('2d');
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      rgbaStrips.push(imageData.data);
+
+      // Update progress
+      if (window.DomTools && window.DomTools._showToast) {
+        window.DomTools._showToast(`Capturing... ${i + 1}/${numStrips}`);
+      }
+    }
+
+    // Encode to PNG
+    const pngData = encodePNG(scaledWidth, totalScaledHeight, rgbaStrips);
+    const blob = new Blob([pngData], { type: 'image/png' });
+
+    // Try clipboard, fallback to download
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      if (window.DomTools && window.DomTools._showToast) {
+        window.DomTools._showToast('HD screenshot copied to clipboard');
+      }
+    } catch (_) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = 'full-page-screenshot-hd.png';
+      link.href = url;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (window.DomTools && window.DomTools._showToast) {
+        window.DomTools._showToast('HD screenshot downloaded');
+      }
+    }
+  }
+
+  // =========================================================
+  // Plugin registration
+  // =========================================================
+
+  function needsTiling(pageWidth, pageHeight, scale) {
+    return (pageWidth * scale > MAX_CANVAS_DIM) ||
+           (pageHeight * scale > MAX_CANVAS_DIM);
+  }
+
+  const plugin = {
+    id: 'hd-capture',
+    label: 'HD Capture',
+
+    init(api) {
+      console.log('[hd-capture] Plugin initialized');
+      // Expose the HD capture hook
+      window.DomTools._hdCapture = async function (w, h, scale) {
+        console.log(`[hd-capture] Tiling ${w}x${h} @ ${scale}x`);
+        await captureHD(w, h, scale, api.inspectorUI);
+      };
+      window.DomTools._hdCaptureNeeded = needsTiling;
+      // Expose toast for progress updates
+      window.DomTools._showToast = api.showToast;
+    },
+
+    enable() {},
+    disable() {
+      delete window.DomTools._hdCapture;
+      delete window.DomTools._hdCaptureNeeded;
+    },
+  };
+
+  if (window.DomTools) {
+    window.DomTools.registerPlugin(plugin);
+  } else {
+    window.DomTools = window.DomTools || {};
+    window.DomTools._pendingPlugins = window.DomTools._pendingPlugins || [];
+    window.DomTools._pendingPlugins.push(plugin);
+  }
+})();
+
+/**
+ * Inspector Panel plugin — keyboard-first design token editor.
+ *
+ * Shows spacing (cross/plus layout), typography, and appearance controls
+ * for the currently selected element. Token values are stepped with
+ * arrow keys; raw values are editable inline.
+ *
+ * Prototype for issue #50.
+ */
+(function () {
+  'use strict';
+
+  const TOKEN_RE = /var\((--[\w-]+)/;
+
+  // --- Token resolution ---
+
+  function extractToken(value) {
+    if (!value) return null;
+    const m = value.match(TOKEN_RE);
+    return m ? m[1] : null;
+  }
+
+  function splitShorthandValue(value) {
+    const parts = [];
+    let current = '', depth = 0;
+    for (let i = 0; i < value.length; i++) {
+      const ch = value[i];
+      if (ch === '(') { depth++; current += ch; }
+      else if (ch === ')') { depth--; current += ch; }
+      else if (/\s/.test(ch) && depth === 0) {
+        if (current) { parts.push(current); current = ''; }
+      } else { current += ch; }
+    }
+    if (current) parts.push(current);
+    return parts;
+  }
+
+  function expandBoxShorthand(value) {
+    const parts = splitShorthandValue(value);
+    let top, right, bottom, left;
+    if (parts.length === 1) { top = right = bottom = left = parts[0]; }
+    else if (parts.length === 2) { top = bottom = parts[0]; right = left = parts[1]; }
+    else if (parts.length === 3) { top = parts[0]; right = left = parts[1]; bottom = parts[2]; }
+    else { top = parts[0]; right = parts[1]; bottom = parts[2]; left = parts[3]; }
+    return { top, right, bottom, left };
+  }
+
+  // --- Token discovery ---
+
+  let _familyCache = null;
+
+  function discoverTokenFamilies() {
+    if (_familyCache) return _familyCache;
+    const families = {};
+    const rootStyles = getComputedStyle(document.documentElement);
+    for (let s = 0; s < document.styleSheets.length; s++) {
+      let rules;
+      try { rules = document.styleSheets[s].cssRules; } catch (_) { continue; }
+      if (!rules) continue;
+      for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i];
+        if (!(rule instanceof CSSStyleRule)) continue;
+        if (rule.selectorText !== ':root' && rule.selectorText !== 'html') continue;
+        for (let j = 0; j < rule.style.length; j++) {
+          const name = rule.style[j];
+          if (!name.startsWith('--')) continue;
+          const value = rootStyles.getPropertyValue(name).trim();
+          const family = getFamily(name);
+          if (!families[family]) families[family] = [];
+          families[family].push({ name, value });
+        }
+      }
+    }
+    _familyCache = families;
+    return families;
+  }
+
+  function getFamily(tokenName) {
+    const bare = tokenName.replace(/^--/, '');
+    const parts = bare.split('-');
+    if (parts.length <= 1) return bare;
+    return parts.slice(0, -1).join('-');
+  }
+
+  function getFamilyTokens(tokenName) {
+    const families = discoverTokenFamilies();
+    const family = getFamily(tokenName);
+    return families[family] || [];
+  }
+
+  function getFamilyByName(familyName) {
+    const families = discoverTokenFamilies();
+    return families[familyName] || [];
+  }
+
+  // Resolve a token name to its computed color value (for swatches)
+  function resolveTokenColor(tokenName) {
+    const rootStyles = getComputedStyle(document.documentElement);
+    return rootStyles.getPropertyValue(tokenName).trim();
+  }
+
+  // --- Token resolution for an element ---
+
+  function resolveAllTokens(el) {
+    const tokens = {};
+    for (let s = 0; s < document.styleSheets.length; s++) {
+      let rules;
+      try { rules = document.styleSheets[s].cssRules; } catch (_) { continue; }
+      if (!rules) continue;
+      processRules(rules, el, tokens);
+    }
+    if (el.style && el.style.length) {
+      for (let i = 0; i < el.style.length; i++) {
+        const prop = el.style[i];
+        const raw = el.style.getPropertyValue(prop);
+        if (raw && TOKEN_RE.test(raw)) {
+          tokens[prop] = extractToken(raw);
+        }
+      }
+    }
+    return tokens;
+  }
+
+  function processRules(rules, el, tokens) {
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      if (rule instanceof CSSMediaRule) {
+        if (window.matchMedia(rule.conditionText).matches) {
+          processRules(rule.cssRules, el, tokens);
+        }
+      } else if (rule instanceof CSSStyleRule) {
+        try { if (!el.matches(rule.selectorText)) continue; } catch (_) { continue; }
+        collectTokens(rule.style, tokens);
+      }
+    }
+  }
+
+  function collectTokens(style, tokens) {
+    for (const prop of ['padding', 'margin']) {
+      const raw = style.getPropertyValue(prop);
+      if (raw && TOKEN_RE.test(raw)) {
+        const expanded = expandBoxShorthand(raw);
+        tokens[prop + '-top'] = extractToken(expanded.top);
+        tokens[prop + '-right'] = extractToken(expanded.right);
+        tokens[prop + '-bottom'] = extractToken(expanded.bottom);
+        tokens[prop + '-left'] = extractToken(expanded.left);
+      }
+    }
+    for (let i = 0; i < style.length; i++) {
+      const prop = style[i];
+      const raw = style.getPropertyValue(prop);
+      if (raw && TOKEN_RE.test(raw)) {
+        tokens[prop] = extractToken(raw);
+      }
+    }
+  }
+
+  // --- Change tracking ---
+
+  const changes = [];
+
+  function applyToken(el, cssProp, newToken, oldToken) {
+    if (!el._dtOrigStyles) el._dtOrigStyles = {};
+    if (!(cssProp in el._dtOrigStyles)) {
+      el._dtOrigStyles[cssProp] = el.style.getPropertyValue(cssProp) || '';
+    }
+    el.style.setProperty(cssProp, `var(${newToken})`);
+    const existing = changes.find(c => c.el === el && c.prop === cssProp);
+    if (existing) {
+      existing.to = newToken;
+    } else {
+      changes.push({
+        el, prop: cssProp,
+        from: oldToken || el._dtOrigStyles[cssProp],
+        to: newToken,
+        selector: api.getSelector(el),
+      });
+    }
+    window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
+  }
+
+  function applyRawValue(el, cssProp, value) {
+    if (!el._dtOrigStyles) el._dtOrigStyles = {};
+    if (!(cssProp in el._dtOrigStyles)) {
+      el._dtOrigStyles[cssProp] = el.style.getPropertyValue(cssProp) || '';
+    }
+    el.style.setProperty(cssProp, value);
+    const existing = changes.find(c => c.el === el && c.prop === cssProp);
+    if (existing) {
+      existing.to = value;
+    } else {
+      changes.push({
+        el, prop: cssProp,
+        from: el._dtOrigStyles[cssProp],
+        to: value,
+        selector: api.getSelector(el),
+      });
+    }
+    window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
+  }
+
+  function resetProp(el, cssProp) {
+    el.style.removeProperty(cssProp);
+    const idx = changes.findIndex(c => c.el === el && c.prop === cssProp);
+    if (idx >= 0) changes.splice(idx, 1);
+    window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
+  }
+
+  // --- Token usage indicators ---
+
+  const INDICATOR_TOKEN = '#4ade80';  // green-400
+  const INDICATOR_RAW = '#f59e0b';    // amber-500
+
+  function indicatorDot(isToken) {
+    const dot = el('span', {
+      color: isToken ? INDICATOR_TOKEN : INDICATOR_RAW,
+      fontSize: '7px',
+      marginRight: '5px',
+      flexShrink: '0',
+      lineHeight: '1',
+    });
+    dot.textContent = '\u25CF';
+    return dot;
+  }
+
+  // --- Spacing overlay ---
+
+  const PAD_COLOR = 'rgba(144, 238, 144, 0.4)';
+  const PAD_BRIGHT = 'rgba(144, 238, 144, 0.6)';
+  const PAD_LABEL_BG = 'rgba(30, 90, 50, 0.9)';
+  const MAR_COLOR = 'rgba(255, 165, 0, 0.35)';
+  const MAR_BRIGHT = 'rgba(255, 165, 0, 0.55)';
+  const MAR_LABEL_BG = 'rgba(140, 70, 0, 0.9)';
+
+  let overlayEl = null;
+
+  function clearOverlay() {
+    if (overlayEl) { overlayEl.remove(); overlayEl = null; }
+  }
+
+  function showSpacingOverlay(prop, el) {
+    clearOverlay();
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const p = (v) => parseFloat(v) || 0;
+    const isPadding = prop.startsWith('padding');
+    const color = isPadding ? PAD_COLOR : MAR_COLOR;
+    const brightColor = isPadding ? PAD_BRIGHT : MAR_BRIGHT;
+    const labelBg = isPadding ? PAD_LABEL_BG : MAR_LABEL_BG;
+
+    const sides = (prop === 'padding' || prop === 'margin')
+      ? ['top', 'right', 'bottom', 'left']
+      : [prop.split('-').pop()];
+
+    const container = document.createElement('div');
+    Object.assign(container.style, {
+      position: 'fixed', top: '0', left: '0',
+      width: '100%', height: '100%',
+      pointerEvents: 'none', zIndex: '99998',
+    });
+
+    sides.forEach(side => {
+      const fullProp = (isPadding ? 'padding-' : 'margin-') + side;
+      const val = p(cs.getPropertyValue(fullProp));
+      if (val <= 0) return;
+
+      let x, y, w, h;
+      if (isPadding) {
+        const pt = p(cs.paddingTop), pr = p(cs.paddingRight), pb = p(cs.paddingBottom), pl = p(cs.paddingLeft);
+        if (side === 'top') { x = rect.left; y = rect.top; w = rect.width; h = pt; }
+        else if (side === 'bottom') { x = rect.left; y = rect.bottom - pb; w = rect.width; h = pb; }
+        else if (side === 'left') { x = rect.left; y = rect.top + pt; w = pl; h = rect.height - pt - pb; }
+        else { x = rect.right - pr; y = rect.top + pt; w = pr; h = rect.height - pt - pb; }
+      } else {
+        const mt = p(cs.marginTop), mr = p(cs.marginRight), mb = p(cs.marginBottom), ml = p(cs.marginLeft);
+        if (side === 'top') { x = rect.left; y = rect.top - mt; w = rect.width; h = mt; }
+        else if (side === 'bottom') { x = rect.left; y = rect.bottom; w = rect.width; h = mb; }
+        else if (side === 'left') { x = rect.left - ml; y = rect.top - mt; w = ml; h = rect.height + mt + mb; }
+        else { x = rect.right; y = rect.top - mt; w = mr; h = rect.height + mt + mb; }
+      }
+
+      const box = document.createElement('div');
+      Object.assign(box.style, {
+        position: 'fixed', top: y + 'px', left: x + 'px',
+        width: w + 'px', height: h + 'px',
+        background: sides.length === 1 ? brightColor : color,
+      });
+      container.appendChild(box);
+
+      if (w >= 14 || h >= 14) {
+        const lbl = document.createElement('span');
+        Object.assign(lbl.style, {
+          position: 'fixed',
+          top: (y + h / 2) + 'px', left: (x + w / 2) + 'px',
+          transform: 'translate(-50%, -50%)',
+          font: '9px/1 ui-monospace, Menlo, monospace',
+          color: '#fff', background: labelBg,
+          padding: '2px 5px', borderRadius: '2px',
+          whiteSpace: 'nowrap',
+        });
+        lbl.textContent = Math.round(val) + 'px';
+        container.appendChild(lbl);
+      }
+    });
+
+    document.body.appendChild(container);
+    overlayEl = container;
+  }
+
+  // --- DOM helpers ---
+
+  function el(tag, styles, attrs) {
+    const node = document.createElement(tag);
+    if (styles) Object.assign(node.style, styles);
+    if (attrs) Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+    return node;
+  }
+
+  // --- Panel rendering ---
+
+  let panel = null;
+  let content = null;
+  let api = null;
+  let lastEl = null;
+
+  function renderPanel(targetEl) {
+    if (!targetEl || !content) return;
+    lastEl = targetEl;
+    content.innerHTML = '';
+
+    const computed = getComputedStyle(targetEl);
+    const tokens = resolveAllTokens(targetEl);
+    const selector = api.getSelector(targetEl);
+
+    // --- Selector header ---
+    const headerDiv = el('div', { marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)' });
+    const selectorLabel = el('div', { fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginBottom: '2px' });
+    selectorLabel.textContent = 'SELECTOR';
+    const selectorCode = el('code', { fontSize: '11px', color: '#7dd3fc', wordBreak: 'break-all' });
+    selectorCode.textContent = selector;
+    headerDiv.appendChild(selectorLabel);
+    headerDiv.appendChild(selectorCode);
+    content.appendChild(headerDiv);
+
+    // --- SPACING section ---
+    content.appendChild(sectionLabel('SPACING'));
+    content.appendChild(buildCross('padding', targetEl, tokens, computed));
+    content.appendChild(buildCross('margin', targetEl, tokens, computed));
+
+    // Gap — always show (editable even at 0)
+    const gapToken = tokens['gap'] || null;
+    const gapVal = computed.getPropertyValue('gap');
+    if (gapToken) {
+      content.appendChild(buildPropRow('gap', gapToken, gapVal, targetEl, 'sp'));
+    } else {
+      content.appendChild(buildValueRow('gap', gapVal || '0', targetEl, 1));
+    }
+
+    // --- TYPOGRAPHY section ---
+    content.appendChild(sectionLabel('TYPOGRAPHY'));
+
+    const typProps = [
+      { prop: 'font-family', family: null, isValue: false },
+      { prop: 'font-size', family: null, isValue: false },
+      { prop: 'font-weight', family: null, isValue: true, step: 100 },
+      { prop: 'line-height', family: null, isValue: true, step: 0.1 },
+      { prop: 'color', family: null, isValue: false, hasColor: true },
+    ];
+    for (const def of typProps) {
+      const token = tokens[def.prop] || null;
+      const val = computed.getPropertyValue(def.prop);
+      if (!val) continue;
+      if (def.isValue || (!token && def.step)) {
+        content.appendChild(buildValueRow(def.prop, val, targetEl, def.step || 1));
+      } else if (token) {
+        content.appendChild(buildPropRow(def.prop, token, val, targetEl, null, def.hasColor));
+      } else {
+        content.appendChild(buildStaticRow(def.prop, val));
+      }
+    }
+
+    // --- APPEARANCE section ---
+    content.appendChild(sectionLabel('APPEARANCE'));
+
+    const appProps = [
+      { prop: 'background-color', label: 'background', family: null, isValue: false, hasColor: true },
+      { prop: 'border-radius', family: null, isValue: false },
+      { prop: 'border-color', family: null, isValue: false, hasColor: true },
+      { prop: 'border-width', family: null, isValue: true, step: 1 },
+    ];
+    for (const def of appProps) {
+      const token = tokens[def.prop] || null;
+      const val = computed.getPropertyValue(def.prop);
+      if (!val) continue;
+      if (def.isValue || (!token && def.step)) {
+        content.appendChild(buildValueRow(def.label || def.prop, val, targetEl, def.step || 1));
+      } else if (token) {
+        content.appendChild(buildPropRow(def.label || def.prop, token, val, targetEl, null, def.hasColor));
+      } else {
+        content.appendChild(buildStaticRow(def.label || def.prop, truncate(val, 30)));
+      }
+    }
+
+    // Wire Tab cycling across all controls
+    wireTabCycling();
+  }
+
+  // --- Section label ---
+
+  function sectionLabel(text) {
+    const lbl = el('div', {
+      fontSize: '9px', fontWeight: '700',
+      color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px',
+      marginBottom: '4px', marginTop: '10px',
+    });
+    lbl.textContent = text;
+    return lbl;
+  }
+
+  // --- Cross/Plus grid for padding/margin ---
+
+  function buildCross(type, targetEl, tokens, computed) {
+    const isPadding = type === 'padding';
+    const accentColor = isPadding ? 'rgba(80,200,120,' : 'rgba(255,165,0,';
+
+    // Count tokenized sides
+    const sides = ['top', 'right', 'bottom', 'left'];
+    const tokenCount = sides.filter(s => !!tokens[`${type}-${s}`]).length;
+
+    const wrapper = el('div', { marginBottom: '10px' });
+
+    // Label with token count
+    const label = el('div', {
+      fontSize: '9px', fontWeight: '600', letterSpacing: '0.3px',
+      color: accentColor + '0.7)', marginBottom: '4px', textAlign: 'center',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+    });
+    const labelText = el('span');
+    labelText.textContent = type;
+    label.appendChild(labelText);
+    const countBadge = el('span', {
+      fontSize: '8px', fontWeight: '600',
+      color: tokenCount === 4 ? INDICATOR_TOKEN : tokenCount > 0 ? INDICATOR_RAW : 'rgba(255,255,255,0.3)',
+    });
+    countBadge.textContent = `${tokenCount}/4`;
+    label.appendChild(countBadge);
+    wrapper.appendChild(label);
+
+    // Grid
+    const grid = el('div', {
+      display: 'grid',
+      gridTemplateColumns: '1fr auto 1fr',
+      gridTemplateRows: 'auto auto auto',
+      gap: '2px',
+      alignItems: 'center',
+      justifyItems: 'center',
+      maxWidth: '220px',
+      margin: '0 auto',
+    });
+
+    const positions = {
+      top: { gridColumn: '2', gridRow: '1' },
+      left: { gridColumn: '1', gridRow: '2' },
+      right: { gridColumn: '3', gridRow: '2' },
+      bottom: { gridColumn: '2', gridRow: '3' },
+    };
+
+    const stepSpans = [];
+
+    // Side cells
+    sides.forEach(side => {
+      const prop = `${type}-${side}`;
+      const token = tokens[prop] || null;
+      const val = computed.getPropertyValue(prop);
+
+      const cell = el('div', positions[side]);
+      const span = createTokenStep(token, prop, targetEl, 'sp', isPadding);
+      stepSpans.push(span);
+      cell.appendChild(span);
+      grid.appendChild(cell);
+    });
+
+    // "All" center cell
+    const centerCell = el('div', { gridColumn: '2', gridRow: '2' });
+    const allSpan = el('span', {
+      fontSize: '10px', minWidth: '50px', padding: '3px 6px',
+      borderRadius: '4px', textAlign: 'center', cursor: 'pointer',
+      outline: 'none', whiteSpace: 'nowrap',
+      background: accentColor + '0.15)',
+      color: accentColor + '0.9)',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0' });
+    allSpan.textContent = 'all';
+    allSpan.classList.add('dt-token-step', 'dt-cross-all');
+    allSpan.dataset.prop = type;
+    allSpan.dataset.family = 'sp';
+
+    // "All" interaction — steps all 4 sides together
+    attachAllControl(allSpan, stepSpans, type, targetEl);
+    centerCell.appendChild(allSpan);
+    grid.appendChild(centerCell);
+
+    wrapper.appendChild(grid);
+    return wrapper;
+  }
+
+  function createTokenStep(token, prop, targetEl, defaultFamily, isPadding) {
+    const hasToken = !!token;
+    const family = hasToken ? getFamily(token) : defaultFamily;
+
+    const span = el('span', {
+      fontSize: '10px', minWidth: '70px', padding: '3px 6px',
+      borderRadius: '4px', textAlign: 'center', cursor: 'pointer',
+      outline: 'none', whiteSpace: 'nowrap',
+      color: hasToken ? '#fbbf24' : 'rgba(255,255,255,0.4)',
+      background: 'rgba(251,191,36,0.08)',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0' });
+    span.textContent = hasToken ? token : '0';
+    span.classList.add('dt-token-step');
+    span.dataset.prop = prop;
+    span.dataset.token = token || '';
+    span.dataset.family = family || '';
+
+    attachTokenStepHandlers(span, targetEl);
+    return span;
+  }
+
+  // --- Token step keyboard handlers ---
+
+  function attachTokenStepHandlers(span, targetEl) {
+    const prop = span.dataset.prop;
+
+    span.addEventListener('click', (e) => { e.stopPropagation(); span.focus(); });
+
+    span.addEventListener('focus', () => {
+      span.style.background = 'rgba(251,191,36,0.22)';
+      span.style.boxShadow = '0 0 0 2px rgba(251,191,36,0.6)';
+      if (prop.startsWith('padding') || prop.startsWith('margin')) {
+        showSpacingOverlay(prop, targetEl);
+      }
+    });
+
+    span.addEventListener('blur', () => {
+      span.style.background = 'rgba(251,191,36,0.08)';
+      span.style.boxShadow = '';
+      clearOverlay();
+    });
+
+    span.addEventListener('mouseenter', () => {
+      if (document.activeElement !== span) {
+        span.style.background = 'rgba(251,191,36,0.18)';
+        span.style.boxShadow = '0 0 0 1px rgba(251,191,36,0.3)';
+      }
+      if (prop.startsWith('padding') || prop.startsWith('margin')) {
+        showSpacingOverlay(prop, targetEl);
+      }
+    });
+
+    span.addEventListener('mouseleave', () => {
+      if (document.activeElement !== span) {
+        span.style.background = 'rgba(251,191,36,0.08)';
+        span.style.boxShadow = '';
+        clearOverlay();
+      }
+    });
+
+    span.addEventListener('keydown', (e) => {
+      const family = span.dataset.family;
+      const scale = getFamilyByName(family);
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (scale && scale.length) {
+          stepToken(span, scale, 1, targetEl);
+        } else {
+          stepRawPx(span, 1, targetEl, e.shiftKey);
+        }
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (scale && scale.length) {
+          stepToken(span, scale, -1, targetEl);
+        } else {
+          stepRawPx(span, -1, targetEl, e.shiftKey);
+        }
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        resetProp(targetEl, prop);
+        span.textContent = '0';
+        span.style.color = 'rgba(255,255,255,0.4)';
+        span.dataset.token = '';
+      } else if (e.key === 'Escape') {
+        span.blur();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        cycleControl(span, e.shiftKey);
+      }
+    });
+  }
+
+  function stepRawPx(span, dir, targetEl, shiftKey) {
+    const prop = span.dataset.prop;
+    const current = parseFloat(span.textContent) || 0;
+    const step = shiftKey ? 10 : 1;
+    const next = Math.max(0, current + dir * step);
+    const val = next + 'px';
+    span.textContent = val;
+    span.style.color = '#7dd3fc';
+    applyRawValue(targetEl, prop, val);
+    if (prop.startsWith('padding') || prop.startsWith('margin')) {
+      showSpacingOverlay(prop, targetEl);
+    }
+  }
+
+  function stepToken(span, scale, dir, targetEl) {
+    const currentToken = span.dataset.token;
+    let idx = scale.findIndex(t => t.name === currentToken);
+    if (idx < 0) idx = 0;
+    idx = Math.max(0, Math.min(scale.length - 1, idx + dir));
+
+    const token = scale[idx];
+    span.dataset.token = token.name;
+    span.textContent = token.name;
+    span.style.color = '#fbbf24';
+
+    const prop = span.dataset.prop;
+    applyToken(targetEl, prop, token.name, currentToken);
+
+    if (prop.startsWith('padding') || prop.startsWith('margin')) {
+      showSpacingOverlay(prop, targetEl);
+    }
+
+    // Update swatch if in a row with one
+    const row = span.closest('.dt-prop-row');
+    if (row) {
+      const swatch = row.querySelector('.dt-color-swatch');
+      if (swatch) {
+        swatch.style.background = resolveTokenColor(token.name);
+      }
+    }
+  }
+
+  // --- "All" center control ---
+
+  function attachAllControl(allSpan, sideSpans, type, targetEl) {
+    allSpan.addEventListener('click', (e) => { e.stopPropagation(); allSpan.focus(); });
+
+    allSpan.addEventListener('focus', () => {
+      const isPadding = type === 'padding';
+      const accent = isPadding ? 'rgba(80,200,120,' : 'rgba(255,165,0,';
+      allSpan.style.boxShadow = '0 0 0 2px ' + accent + '0.6)';
+      showSpacingOverlay(type, targetEl);
+    });
+
+    allSpan.addEventListener('blur', () => {
+      allSpan.style.boxShadow = '';
+      clearOverlay();
+    });
+
+    allSpan.addEventListener('keydown', (e) => {
+      const family = allSpan.dataset.family;
+      const scale = getFamilyByName(family);
+      if (!scale || !scale.length) return;
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        stepAll(allSpan, sideSpans, scale, 1, type, targetEl);
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        stepAll(allSpan, sideSpans, scale, -1, type, targetEl);
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        ['top', 'right', 'bottom', 'left'].forEach(side => {
+          resetProp(targetEl, `${type}-${side}`);
+        });
+        sideSpans.forEach(s => {
+          s.textContent = '\u2014';
+          s.style.color = 'rgba(255,255,255,0.3)';
+          s.dataset.token = '';
+        });
+        allSpan.textContent = '\u2014';
+      } else if (e.key === 'Escape') {
+        allSpan.blur();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        cycleControl(allSpan, e.shiftKey);
+      }
+    });
+  }
+
+  function stepAll(allSpan, sideSpans, scale, dir, type, targetEl) {
+    // Use the first side's current index as reference
+    const refToken = sideSpans[0].dataset.token;
+    let idx = scale.findIndex(t => t.name === refToken);
+    if (idx < 0) idx = 0;
+    idx = Math.max(0, Math.min(scale.length - 1, idx + dir));
+
+    const token = scale[idx];
+    allSpan.textContent = token.name;
+    allSpan.dataset.token = token.name;
+
+    const sides = ['top', 'right', 'bottom', 'left'];
+    sideSpans.forEach((span, i) => {
+      span.dataset.token = token.name;
+      span.textContent = token.name;
+      span.style.color = '#fbbf24';
+      applyToken(targetEl, `${type}-${sides[i]}`, token.name, span.dataset.token);
+    });
+
+    showSpacingOverlay(type, targetEl);
+  }
+
+  // --- Property row builders ---
+
+  function buildPropRow(label, token, val, targetEl, defaultFamily, hasColor) {
+    const row = el('div', {
+      display: 'flex', gap: '6px', alignItems: 'center',
+      padding: '2px 0', fontSize: '11px',
+    });
+    row.classList.add('dt-prop-row');
+
+    row.appendChild(indicatorDot(true));
+    const nameSpan = el('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    nameSpan.textContent = label;
+    row.appendChild(nameSpan);
+
+    // Color swatch
+    if (hasColor && token) {
+      const swatch = el('span', {
+        width: '12px', height: '12px', borderRadius: '3px',
+        border: '1px solid rgba(255,255,255,0.2)',
+        marginLeft: 'auto', flexShrink: '0',
+        background: resolveTokenColor(token),
+      });
+      swatch.classList.add('dt-color-swatch');
+      row.appendChild(swatch);
+    }
+
+    // Token step
+    const family = token ? getFamily(token) : defaultFamily;
+    const span = el('span', {
+      color: '#fbbf24', fontSize: '11px', whiteSpace: 'nowrap',
+      cursor: 'pointer', padding: '4px 10px', borderRadius: '4px',
+      background: 'rgba(251,191,36,0.08)', minWidth: '100px',
+      textAlign: 'center', outline: 'none',
+      marginLeft: hasColor ? '0' : 'auto',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0' });
+    span.textContent = token;
+    span.classList.add('dt-token-step');
+    span.dataset.prop = label.includes('-') ? label : label; // use actual CSS prop
+    span.dataset.token = token;
+    span.dataset.family = family || '';
+
+    // For non-spacing props, we still want the prop name to be the CSS property
+    // Fix: use the actual prop (could differ from label for background-color→background)
+    const cssProp = label === 'background' ? 'background-color' : label;
+    span.dataset.prop = cssProp;
+
+    attachTokenStepHandlers(span, targetEl);
+    row.appendChild(span);
+    return row;
+  }
+
+  function buildValueRow(prop, val, targetEl, step) {
+    const row = el('div', {
+      display: 'flex', gap: '6px', alignItems: 'center',
+      padding: '2px 0', fontSize: '11px',
+    });
+    row.classList.add('dt-prop-row');
+
+    row.appendChild(indicatorDot(false));
+    const nameSpan = el('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    nameSpan.textContent = prop;
+    row.appendChild(nameSpan);
+
+    const input = el('span', {
+      color: '#7dd3fc', fontSize: '11px', whiteSpace: 'nowrap',
+      cursor: 'text', padding: '4px 10px', borderRadius: '4px',
+      background: 'rgba(125,211,252,0.08)', minWidth: '60px',
+      textAlign: 'center', outline: 'none', marginLeft: 'auto',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0', contenteditable: 'true' });
+    // Show simplified value (extract number if possible)
+    const numVal = parseFloat(val);
+    input.textContent = isNaN(numVal) ? val : numVal.toString();
+    input.classList.add('dt-value-input');
+    input.dataset.prop = prop;
+
+    attachValueInputHandlers(input, targetEl, step);
+    row.appendChild(input);
+    return row;
+  }
+
+  function buildStaticRow(label, val) {
+    const row = el('div', {
+      display: 'flex', gap: '6px', alignItems: 'center',
+      padding: '2px 0', fontSize: '11px',
+    });
+    row.appendChild(indicatorDot(false));
+    const nameSpan = el('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    nameSpan.textContent = label;
+    const valSpan = el('span', { color: 'rgba(255,255,255,0.8)', marginLeft: 'auto' });
+    valSpan.textContent = truncate(val, 30);
+    row.appendChild(nameSpan);
+    row.appendChild(valSpan);
+    return row;
+  }
+
+  // --- Value input handlers ---
+
+  function attachValueInputHandlers(input, targetEl, step) {
+    const prop = input.dataset.prop;
+
+    input.addEventListener('focus', () => {
+      input.style.background = 'rgba(125,211,252,0.18)';
+      input.style.boxShadow = '0 0 0 2px rgba(125,211,252,0.6)';
+      // Select all
+      const range = document.createRange();
+      range.selectNodeContents(input);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+
+    input.addEventListener('blur', () => {
+      input.style.background = 'rgba(125,211,252,0.08)';
+      input.style.boxShadow = '';
+      const val = input.textContent.trim();
+      if (!val || val === '\u2014') {
+        input.textContent = '\u2014';
+        input.style.color = 'rgba(255,255,255,0.3)';
+        resetProp(targetEl, prop);
+      } else {
+        input.style.color = '#7dd3fc';
+        applyRawValue(targetEl, prop, val);
+      }
+    });
+
+    input.addEventListener('mouseenter', () => {
+      if (document.activeElement !== input) {
+        input.style.background = 'rgba(125,211,252,0.15)';
+        input.style.boxShadow = '0 0 0 1px rgba(125,211,252,0.3)';
+      }
+    });
+
+    input.addEventListener('mouseleave', () => {
+      if (document.activeElement !== input) {
+        input.style.background = 'rgba(125,211,252,0.08)';
+        input.style.boxShadow = '';
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();
+      } else if (e.key === 'Escape') {
+        input.blur();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const val = input.textContent.trim();
+        if (val && val !== '\u2014') applyRawValue(targetEl, prop, val);
+        cycleControl(input, e.shiftKey);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const num = parseFloat(input.textContent);
+        if (!isNaN(num)) {
+          const s = e.shiftKey && step === 1 ? 10 : step;
+          input.textContent = parseFloat((num + s).toFixed(2)).toString();
+          applyRawValue(targetEl, prop, input.textContent);
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const num = parseFloat(input.textContent);
+        if (!isNaN(num)) {
+          const s = e.shiftKey && step === 1 ? 10 : step;
+          input.textContent = parseFloat(Math.max(0, num - s).toFixed(2)).toString();
+          applyRawValue(targetEl, prop, input.textContent);
+        }
+      }
+    });
+  }
+
+  // --- Tab cycling ---
+
+  function wireTabCycling() {
+    // Tab cycling is handled in each keydown handler via cycleControl()
+  }
+
+  function cycleControl(current, reverse) {
+    const all = [...content.querySelectorAll('.dt-token-step, .dt-value-input')];
+    const i = all.indexOf(current);
+    if (i < 0) return;
+    const next = reverse
+      ? all[(i - 1 + all.length) % all.length]
+      : all[(i + 1) % all.length];
+    next.focus();
+  }
+
+  // --- Utility ---
+
+  function truncate(str, max) {
+    return str.length > max ? str.slice(0, max) + '\u2026' : str;
+  }
+
+  // --- Selection tracking ---
+
+  function onSelectionChange() {
+    const sel = api.getSelected();
+    if (sel.length > 0) {
+      const last = sel[sel.length - 1];
+      renderPanel(last.el);
+      panel.style.display = '';
+    } else {
+      panel.style.display = 'none';
+    }
+  }
+
+  let pollInterval = null;
+  let lastSelCount = 0;
+  let lastSelEl = null;
+
+  function startPolling() {
+    pollInterval = setInterval(() => {
+      const sel = api.getSelected();
+      const curEl = sel.length > 0 ? sel[sel.length - 1].el : null;
+      if (sel.length !== lastSelCount || curEl !== lastSelEl) {
+        lastSelCount = sel.length;
+        lastSelEl = curEl;
+        onSelectionChange();
+      }
+    }, 150);
+  }
+
+  function stopPolling() {
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  }
+
+  // --- Plugin registration ---
+
+  const plugin = {
+    id: 'inspector-panel',
+    label: 'Inspector Panel',
+    // No icon — not a toolbar mode. Shows automatically when an element is selected.
+
+    init(_api) {
+      api = _api;
+      panel = api.createPanel({
+        title: 'Inspector',
+        position: { top: '80px', right: '16px' },
+        width: '320px',
+      });
+      content = panel._content;
+      Object.assign(content.style, {
+        maxHeight: '60vh',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        scrollbarWidth: 'none',
+      });
+      panel.style.display = 'none';
+      startPolling();
+      window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
+    },
+
+    enable() {
+      startPolling();
+    },
+
+    disable() {
+      stopPolling();
+      clearOverlay();
+      if (panel) panel.style.display = 'none';
+    },
+  };
+
+  if (window.DomTools) {
+    window.DomTools.registerPlugin(plugin);
+  } else {
+    window.DomTools = window.DomTools || {};
+    window.DomTools._pendingPlugins = window.DomTools._pendingPlugins || [];
+    window.DomTools._pendingPlugins.push(plugin);
+  }
+})();
+
+/**
+ * Inspector Panel (NYT-CSS) — token audit variant with hardcoded NYT token families.
+ *
+ * Knows which CSS properties SHOULD use NYT design tokens, so it can flag
+ * raw values even on pages that don't define :root custom properties.
+ * Extends the same keyboard-first editing UX as the universal inspector.
+ */
+(function () {
+  'use strict';
+
+  const TOKEN_RE = /var\((--[\w-]+)/;
+
+  // --- NYT Token Definitions ---
+
+  const NYT_TOKENS = {
+    sp: [
+      { name: '--sp-0', value: '0' },
+      { name: '--sp-1', value: '0.25rem' },
+      { name: '--sp-2', value: '0.5rem' },
+      { name: '--sp-3', value: '0.75rem' },
+      { name: '--sp-4', value: '1rem' },
+      { name: '--sp-5', value: '1.5rem' },
+      { name: '--sp-6', value: '2rem' },
+      { name: '--sp-7', value: '3rem' },
+      { name: '--sp-8', value: '4rem' },
+      { name: '--sp-10', value: '5rem' },
+      { name: '--sp-12', value: '6rem' },
+      { name: '--sp-16', value: '8rem' },
+    ],
+    ts: [
+      { name: '--ts-xs', value: '11px' },
+      { name: '--ts-sm', value: '13px' },
+      { name: '--ts-base', value: '15px' },
+      { name: '--ts-md', value: '17px' },
+      { name: '--ts-lg', value: '20px' },
+      { name: '--ts-xl', value: '26px' },
+      { name: '--ts-2xl', value: '34px' },
+      { name: '--ts-3xl', value: '42px' },
+      { name: '--ts-4xl', value: '52px' },
+      { name: '--ts-5xl', value: '64px' },
+      { name: '--ts-6xl', value: '80px' },
+    ],
+    lh: [
+      { name: '--lh-solid', value: '1' },
+      { name: '--lh-title', value: '1.2' },
+      { name: '--lh-heading', value: '1.3' },
+      { name: '--lh-copy', value: '1.55' },
+      { name: '--lh-loose', value: '1.8' },
+    ],
+    ls: [
+      { name: '--ls-tight', value: '-0.02em' },
+      { name: '--ls-none', value: '0' },
+      { name: '--ls-tracked', value: '0.05em' },
+      { name: '--ls-mega', value: '0.15em' },
+    ],
+    br: [
+      { name: '--br-0', value: '0' },
+      { name: '--br-1', value: '2px' },
+      { name: '--br-2', value: '4px' },
+      { name: '--br-3', value: '8px' },
+      { name: '--br-4', value: '12px' },
+      { name: '--br-5', value: '16px' },
+      { name: '--br-pill', value: '9999px' },
+      { name: '--br-full', value: '100%' },
+    ],
+    bw: [
+      { name: '--bw-0', value: '0' },
+      { name: '--bw-1', value: '1px' },
+      { name: '--bw-2', value: '2px' },
+      { name: '--bw-3', value: '4px' },
+      { name: '--bw-4', value: '8px' },
+    ],
+    shadow: [
+      { name: '--shadow-1', value: '0 1px 2px rgba(0, 0, 0, 0.08)' },
+      { name: '--shadow-2', value: '0 2px 4px rgba(0, 0, 0, 0.1)' },
+      { name: '--shadow-3', value: '0 4px 8px rgba(0, 0, 0, 0.12)' },
+      { name: '--shadow-4', value: '0 8px 16px rgba(0, 0, 0, 0.14)' },
+      { name: '--shadow-5', value: '0 16px 32px rgba(0, 0, 0, 0.16)' },
+    ],
+    ease: [
+      { name: '--ease-fast', value: '0.1s ease' },
+      { name: '--ease-normal', value: '0.2s ease' },
+      { name: '--ease-slow', value: '0.4s ease' },
+    ],
+    mw: [
+      { name: '--mw-narrow', value: '560px' },
+      { name: '--mw-container', value: '760px' },
+      { name: '--mw-wide', value: '960px' },
+      { name: '--mw-full', value: '1200px' },
+    ],
+    'nyt-fg': [
+      { name: '--nyt-fg', value: '#121212' },
+      { name: '--nyt-fg-dim', value: '#5a5a5a' },
+      { name: '--nyt-fg-faint', value: '#8b8b8b' },
+    ],
+    'nyt-bg': [
+      { name: '--nyt-bg', value: '#ffffff' },
+      { name: '--nyt-bg-alt', value: '#f5f5f2' },
+    ],
+    'nyt-border': [
+      { name: '--nyt-border', value: '#ececec' },
+      { name: '--nyt-border-strong', value: '#c7c7c7' },
+    ],
+    'nyt-accent': [
+      { name: '--nyt-accent', value: '#326891' },
+      { name: '--nyt-red', value: '#c13b2a' },
+      { name: '--nyt-orange', value: '#b87a00' },
+      { name: '--nyt-green', value: '#3f7f63' },
+    ],
+    viz: [
+      { name: '--viz-1', value: '#2A6586' },
+      { name: '--viz-2', value: '#6CBAAB' },
+      { name: '--viz-3', value: '#B2A5E7' },
+      { name: '--viz-4', value: '#F66043' },
+      { name: '--viz-5', value: '#D2E463' },
+      { name: '--viz-6', value: '#F1A05B' },
+      { name: '--viz-7', value: '#657D53' },
+      { name: '--viz-8', value: '#BD5D91' },
+    ],
+    'viz-blue': [
+      { name: '--viz-blue-1', value: '#242b40' },
+      { name: '--viz-blue-2', value: '#1f497d' },
+      { name: '--viz-blue-3', value: '#00577e' },
+      { name: '--viz-blue-4', value: '#80b0c1' },
+    ],
+    'viz-green': [
+      { name: '--viz-green-1', value: '#437661' },
+      { name: '--viz-green-2', value: '#6a9b87' },
+      { name: '--viz-green-3', value: '#a8ddc7' },
+      { name: '--viz-green-4', value: '#e2eceb' },
+    ],
+    'viz-product': [
+      { name: '--viz-core', value: '#2F3E7A' },
+      { name: '--viz-cooking', value: '#f9351a' },
+      { name: '--viz-games', value: '#F8CD0F' },
+      { name: '--viz-athletic', value: '#30522D' },
+      { name: '--viz-wirecutter', value: '#6085ff' },
+      { name: '--viz-audio', value: '#357a8a' },
+    ],
+    'nyt-font': [
+      { name: '--nyt-sans', value: "'nyt-franklin', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" },
+      { name: '--nyt-sans-small', value: "'nyt-franklin-small', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" },
+      { name: '--nyt-serif', value: "'nyt-cheltenham', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-serif-cond', value: "'nyt-cheltenham-cond', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-serif-wide', value: "'nyt-cheltenham-wide', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-serif-small', value: "'nyt-cheltenham-small', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-serif-scaps', value: "'nyt-cheltenham-scaps', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-imperial', value: "'nyt-imperial', Georgia, 'Times New Roman', serif" },
+      { name: '--nyt-display', value: "'nyt-karnak', Georgia, serif" },
+      { name: '--nyt-display-cond', value: "'nyt-karnak-cond', Georgia, serif" },
+      { name: '--nyt-display-small', value: "'nyt-karnak-small', Georgia, serif" },
+      { name: '--nyt-mag', value: "'nyt-kippenberger', Georgia, serif" },
+      { name: '--nyt-mag-cond', value: "'nyt-kippenberger-condensed', Georgia, serif" },
+      { name: '--nyt-mag-poster', value: "'nyt-kippenberger-poster', Georgia, serif" },
+      { name: '--nyt-mag-sans', value: "'nyt-magsans', -apple-system, BlinkMacSystemFont, sans-serif" },
+      { name: '--nyt-mag-serif', value: "'nyt-magserif', Georgia, serif" },
+      { name: '--nyt-mag-slab', value: "'nyt-magslab', Georgia, serif" },
+      { name: '--nyt-fact', value: "'nyt-fact', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" },
+      { name: '--nyt-fact-display', value: "'nyt-fact-display', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" },
+      { name: '--nyt-athletic', value: "'nyt-athletic-slab', Georgia, serif" },
+      { name: '--nyt-schnyder', value: "'nyt-schnyder-s', Georgia, serif" },
+      { name: '--nyt-mono', value: "'nyt-ibm-plex', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace" },
+      { name: '--nyt-prototype', value: "'Comic Sans MS', 'Comic Sans', cursive" },
+    ],
+  };
+
+  // Maps CSS properties to their expected NYT token family
+  const PROP_FAMILY_MAP = {
+    'padding-top': 'sp', 'padding-right': 'sp', 'padding-bottom': 'sp', 'padding-left': 'sp',
+    'margin-top': 'sp', 'margin-right': 'sp', 'margin-bottom': 'sp', 'margin-left': 'sp',
+    'gap': 'sp',
+    'font-size': 'ts',
+    'line-height': 'lh',
+    'letter-spacing': 'ls',
+    'border-radius': 'br',
+    'border-top-left-radius': 'br', 'border-top-right-radius': 'br',
+    'border-bottom-left-radius': 'br', 'border-bottom-right-radius': 'br',
+    'border-width': 'bw',
+    'border-top-width': 'bw', 'border-right-width': 'bw',
+    'border-bottom-width': 'bw', 'border-left-width': 'bw',
+    'color': 'nyt-fg',
+    'background-color': 'nyt-bg',
+    'border-color': 'nyt-border',
+    'border-top-color': 'nyt-border', 'border-right-color': 'nyt-border',
+    'border-bottom-color': 'nyt-border', 'border-left-color': 'nyt-border',
+    'font-family': 'nyt-font',
+    'box-shadow': 'shadow',
+    'max-width': 'mw',
+    'transition': 'ease',
+  };
+
+  // --- Inject token CSS vars into page (so var() resolves on any page) ---
+
+  let injectedStyleEl = null;
+
+  function injectTokenStyles() {
+    if (injectedStyleEl) return;
+    const rules = [':root {'];
+    for (const family of Object.values(NYT_TOKENS)) {
+      for (const tok of family) {
+        rules.push(`  ${tok.name}: ${tok.value};`);
+      }
+    }
+    rules.push('}');
+    injectedStyleEl = document.createElement('style');
+    injectedStyleEl.id = 'dt-nyt-injected-tokens';
+    injectedStyleEl.textContent = rules.join('\n');
+    document.head.appendChild(injectedStyleEl);
+  }
+
+  function removeTokenStyles() {
+    if (injectedStyleEl) { injectedStyleEl.remove(); injectedStyleEl = null; }
+  }
+
+  // --- Token resolution ---
+
+  function extractToken(value) {
+    if (!value) return null;
+    const m = value.match(TOKEN_RE);
+    return m ? m[1] : null;
+  }
+
+  function splitShorthandValue(value) {
+    const parts = [];
+    let current = '', depth = 0;
+    for (let i = 0; i < value.length; i++) {
+      const ch = value[i];
+      if (ch === '(') { depth++; current += ch; }
+      else if (ch === ')') { depth--; current += ch; }
+      else if (/\s/.test(ch) && depth === 0) {
+        if (current) { parts.push(current); current = ''; }
+      } else { current += ch; }
+    }
+    if (current) parts.push(current);
+    return parts;
+  }
+
+  function expandBoxShorthand(value) {
+    const parts = splitShorthandValue(value);
+    let top, right, bottom, left;
+    if (parts.length === 1) { top = right = bottom = left = parts[0]; }
+    else if (parts.length === 2) { top = bottom = parts[0]; right = left = parts[1]; }
+    else if (parts.length === 3) { top = parts[0]; right = left = parts[1]; bottom = parts[2]; }
+    else { top = parts[0]; right = parts[1]; bottom = parts[2]; left = parts[3]; }
+    return { top, right, bottom, left };
+  }
+
+  // --- Token discovery (uses hardcoded NYT tokens) ---
+
+  function getFamily(tokenName) {
+    // Check if token belongs to any known family
+    for (const [familyName, tokens] of Object.entries(NYT_TOKENS)) {
+      if (tokens.some(t => t.name === tokenName)) return familyName;
+    }
+    // Fallback: split by last dash
+    const bare = tokenName.replace(/^--/, '');
+    const parts = bare.split('-');
+    if (parts.length <= 1) return bare;
+    return parts.slice(0, -1).join('-');
+  }
+
+  function getFamilyTokens(tokenName) {
+    const family = getFamily(tokenName);
+    return NYT_TOKENS[family] || [];
+  }
+
+  function getFamilyByName(familyName) {
+    return NYT_TOKENS[familyName] || [];
+  }
+
+  function getExpectedFamily(cssProp) {
+    return PROP_FAMILY_MAP[cssProp] || null;
+  }
+
+  function resolveTokenColor(tokenName) {
+    // Try computed style first, fall back to hardcoded
+    const rootStyles = getComputedStyle(document.documentElement);
+    const computed = rootStyles.getPropertyValue(tokenName).trim();
+    if (computed) return computed;
+    // Look up in NYT_TOKENS
+    for (const family of Object.values(NYT_TOKENS)) {
+      const t = family.find(tok => tok.name === tokenName);
+      if (t) return t.value;
+    }
+    return '';
+  }
+
+  // --- Token resolution for an element ---
+
+  function resolveAllTokens(el) {
+    const tokens = {};
+    for (let s = 0; s < document.styleSheets.length; s++) {
+      let rules;
+      try { rules = document.styleSheets[s].cssRules; } catch (_) { continue; }
+      if (!rules) continue;
+      processRules(rules, el, tokens);
+    }
+    if (el.style && el.style.length) {
+      for (let i = 0; i < el.style.length; i++) {
+        const prop = el.style[i];
+        const raw = el.style.getPropertyValue(prop);
+        if (raw && TOKEN_RE.test(raw)) {
+          tokens[prop] = extractToken(raw);
+        }
+      }
+    }
+    return tokens;
+  }
+
+  function processRules(rules, el, tokens) {
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      if (rule instanceof CSSMediaRule) {
+        if (window.matchMedia(rule.conditionText).matches) {
+          processRules(rule.cssRules, el, tokens);
+        }
+      } else if (rule instanceof CSSStyleRule) {
+        try { if (!el.matches(rule.selectorText)) continue; } catch (_) { continue; }
+        collectTokens(rule.style, tokens);
+      }
+    }
+  }
+
+  function collectTokens(style, tokens) {
+    for (const prop of ['padding', 'margin']) {
+      const raw = style.getPropertyValue(prop);
+      if (raw && TOKEN_RE.test(raw)) {
+        const expanded = expandBoxShorthand(raw);
+        tokens[prop + '-top'] = extractToken(expanded.top);
+        tokens[prop + '-right'] = extractToken(expanded.right);
+        tokens[prop + '-bottom'] = extractToken(expanded.bottom);
+        tokens[prop + '-left'] = extractToken(expanded.left);
+      }
+    }
+    for (let i = 0; i < style.length; i++) {
+      const prop = style[i];
+      const raw = style.getPropertyValue(prop);
+      if (raw && TOKEN_RE.test(raw)) {
+        tokens[prop] = extractToken(raw);
+      }
+    }
+  }
+
+  // --- Token usage indicators ---
+
+  const INDICATOR_TOKEN = '#4ade80';  // green-400
+  const INDICATOR_RAW = '#f59e0b';    // amber-500
+
+  function indicatorDot(isToken) {
+    const dot = mkEl('span', {
+      color: isToken ? INDICATOR_TOKEN : INDICATOR_RAW,
+      fontSize: '7px',
+      marginRight: '5px',
+      flexShrink: '0',
+      lineHeight: '1',
+    });
+    dot.textContent = '\u25CF';
+    return dot;
+  }
+
+  // --- Change tracking ---
+
+  const changes = [];
+
+  function applyToken(el, cssProp, newToken, oldToken) {
+    if (!el._dtOrigStyles) el._dtOrigStyles = {};
+    if (!(cssProp in el._dtOrigStyles)) {
+      el._dtOrigStyles[cssProp] = el.style.getPropertyValue(cssProp) || '';
+    }
+    // Set resolved value directly for immediate visual feedback,
+    // then layer var() on top. If var() resolves, it wins; if not, the raw value holds.
+    const resolved = resolveTokenColor(newToken);
+    if (resolved) {
+      el.style.setProperty(cssProp, resolved);
+    }
+    // Also set via var() so it stays linked to the token if defined
+    el.style.setProperty(cssProp, `var(${newToken}, ${resolved || ''})`);
+    const existing = changes.find(c => c.el === el && c.prop === cssProp);
+    if (existing) {
+      existing.to = newToken;
+    } else {
+      changes.push({
+        el, prop: cssProp,
+        from: oldToken || el._dtOrigStyles[cssProp],
+        to: newToken,
+        selector: api.getSelector(el),
+      });
+    }
+    window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
+  }
+
+  function applyRawValue(el, cssProp, value) {
+    if (!el._dtOrigStyles) el._dtOrigStyles = {};
+    if (!(cssProp in el._dtOrigStyles)) {
+      el._dtOrigStyles[cssProp] = el.style.getPropertyValue(cssProp) || '';
+    }
+    el.style.setProperty(cssProp, value);
+    const existing = changes.find(c => c.el === el && c.prop === cssProp);
+    if (existing) {
+      existing.to = value;
+    } else {
+      changes.push({
+        el, prop: cssProp,
+        from: el._dtOrigStyles[cssProp],
+        to: value,
+        selector: api.getSelector(el),
+      });
+    }
+    window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
+  }
+
+  function resetProp(el, cssProp) {
+    el.style.removeProperty(cssProp);
+    const idx = changes.findIndex(c => c.el === el && c.prop === cssProp);
+    if (idx >= 0) changes.splice(idx, 1);
+    window.DomTools._inspectorChanges = changes;
+    if (api.updateBadgeCount) api.updateBadgeCount();
+  }
+
+  // --- Spacing overlay ---
+
+  const PAD_COLOR = 'rgba(144, 238, 144, 0.4)';
+  const PAD_BRIGHT = 'rgba(144, 238, 144, 0.6)';
+  const PAD_LABEL_BG = 'rgba(30, 90, 50, 0.9)';
+  const MAR_COLOR = 'rgba(255, 165, 0, 0.35)';
+  const MAR_BRIGHT = 'rgba(255, 165, 0, 0.55)';
+  const MAR_LABEL_BG = 'rgba(140, 70, 0, 0.9)';
+
+  let overlayEl = null;
+
+  function clearOverlay() {
+    if (overlayEl) { overlayEl.remove(); overlayEl = null; }
+  }
+
+  function showSpacingOverlay(prop, el) {
+    clearOverlay();
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const p = (v) => parseFloat(v) || 0;
+    const isPadding = prop.startsWith('padding');
+    const color = isPadding ? PAD_COLOR : MAR_COLOR;
+    const brightColor = isPadding ? PAD_BRIGHT : MAR_BRIGHT;
+    const labelBg = isPadding ? PAD_LABEL_BG : MAR_LABEL_BG;
+
+    // Resolve tokens for this element so overlay labels can show token names
+    const elTokens = resolveAllTokens(el);
+
+    const sides = (prop === 'padding' || prop === 'margin')
+      ? ['top', 'right', 'bottom', 'left']
+      : [prop.split('-').pop()];
+
+    const container = document.createElement('div');
+    Object.assign(container.style, {
+      position: 'fixed', top: '0', left: '0',
+      width: '100%', height: '100%',
+      pointerEvents: 'none', zIndex: '99998',
+    });
+
+    sides.forEach(side => {
+      const fullProp = (isPadding ? 'padding-' : 'margin-') + side;
+      const val = p(cs.getPropertyValue(fullProp));
+      if (val <= 0) return;
+
+      let x, y, w, h;
+      if (isPadding) {
+        const pt = p(cs.paddingTop), pr = p(cs.paddingRight), pb = p(cs.paddingBottom), pl = p(cs.paddingLeft);
+        if (side === 'top') { x = rect.left; y = rect.top; w = rect.width; h = pt; }
+        else if (side === 'bottom') { x = rect.left; y = rect.bottom - pb; w = rect.width; h = pb; }
+        else if (side === 'left') { x = rect.left; y = rect.top + pt; w = pl; h = rect.height - pt - pb; }
+        else { x = rect.right - pr; y = rect.top + pt; w = pr; h = rect.height - pt - pb; }
+      } else {
+        const mt = p(cs.marginTop), mr = p(cs.marginRight), mb = p(cs.marginBottom), ml = p(cs.marginLeft);
+        if (side === 'top') { x = rect.left; y = rect.top - mt; w = rect.width; h = mt; }
+        else if (side === 'bottom') { x = rect.left; y = rect.bottom; w = rect.width; h = mb; }
+        else if (side === 'left') { x = rect.left - ml; y = rect.top - mt; w = ml; h = rect.height + mt + mb; }
+        else { x = rect.right; y = rect.top - mt; w = mr; h = rect.height + mt + mb; }
+      }
+
+      const box = document.createElement('div');
+      Object.assign(box.style, {
+        position: 'fixed', top: y + 'px', left: x + 'px',
+        width: w + 'px', height: h + 'px',
+        background: sides.length === 1 ? brightColor : color,
+      });
+      container.appendChild(box);
+
+      if (w >= 14 || h >= 14) {
+        const token = elTokens[fullProp] || null;
+        const lbl = document.createElement('span');
+        Object.assign(lbl.style, {
+          position: 'fixed',
+          top: (y + h / 2) + 'px', left: (x + w / 2) + 'px',
+          transform: 'translate(-50%, -50%)',
+          font: '9px/1 ui-monospace, Menlo, monospace',
+          color: token ? '#fbbf24' : '#fff',
+          background: labelBg,
+          padding: '2px 5px', borderRadius: '2px',
+          whiteSpace: 'nowrap',
+        });
+        lbl.textContent = token ? token + ' (' + Math.round(val) + 'px)' : Math.round(val) + 'px';
+        container.appendChild(lbl);
+      }
+    });
+
+    document.body.appendChild(container);
+    overlayEl = container;
+  }
+
+  // --- Property overlay (non-spacing) ---
+
+  function showPropertyOverlay(prop, el) {
+    clearOverlay();
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    const val = cs.getPropertyValue(prop);
+    if (!val) return;
+
+    const elTokens = resolveAllTokens(el);
+    const token = elTokens[prop] || null;
+    const expectedFamily = getExpectedFamily(prop);
+
+    const container = document.createElement('div');
+    Object.assign(container.style, {
+      position: 'fixed', top: '0', left: '0',
+      width: '100%', height: '100%',
+      pointerEvents: 'none', zIndex: '99998',
+    });
+
+    // Highlight outline on the element
+    const outline = document.createElement('div');
+    Object.assign(outline.style, {
+      position: 'fixed',
+      top: rect.top + 'px', left: rect.left + 'px',
+      width: rect.width + 'px', height: rect.height + 'px',
+      border: token ? '1.5px solid rgba(74,222,128,0.6)' : '1.5px dashed rgba(245,158,11,0.6)',
+      borderRadius: '2px',
+      pointerEvents: 'none',
+    });
+    container.appendChild(outline);
+
+    // Label badge positioned above element
+    const lbl = document.createElement('div');
+    const labelY = Math.max(4, rect.top - 22);
+    Object.assign(lbl.style, {
+      position: 'fixed',
+      top: labelY + 'px', left: rect.left + 'px',
+      font: '9px/1 ui-monospace, Menlo, monospace',
+      color: token ? '#fbbf24' : '#fff',
+      background: 'rgba(20,20,30,0.92)',
+      padding: '3px 6px', borderRadius: '3px',
+      whiteSpace: 'nowrap',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+    });
+
+    let labelText = prop + ': ';
+    if (token) {
+      labelText += token;
+    } else if (expectedFamily) {
+      labelText += val + ' (no token)';
+    } else {
+      labelText += val;
+    }
+    lbl.textContent = labelText;
+    container.appendChild(lbl);
+
+    document.body.appendChild(container);
+    overlayEl = container;
+  }
+
+  // --- DOM helpers ---
+
+  function mkEl(tag, styles, attrs) {
+    const node = document.createElement(tag);
+    if (styles) Object.assign(node.style, styles);
+    if (attrs) Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+    return node;
+  }
+
+  // --- Panel rendering ---
+
+  let panel = null;
+  let content = null;
+  let api = null;
+  let lastEl = null;
+
+  function renderPanel(targetEl) {
+    if (!targetEl || !content) return;
+    lastEl = targetEl;
+    content.innerHTML = '';
+
+    const computed = getComputedStyle(targetEl);
+    const tokens = resolveAllTokens(targetEl);
+    const selector = api.getSelector(targetEl);
+
+    // --- Selector header ---
+    const headerDiv = mkEl('div', { marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)' });
+    const selectorLabel = mkEl('div', { fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginBottom: '2px' });
+    selectorLabel.textContent = 'SELECTOR';
+    const selectorCode = mkEl('code', { fontSize: '11px', color: '#7dd3fc', wordBreak: 'break-all' });
+    selectorCode.textContent = selector;
+    // NYT badge
+    const nytBadge = mkEl('span', {
+      fontSize: '9px', fontWeight: '700', color: '#000',
+      background: '#fff', padding: '1px 5px', borderRadius: '3px',
+      marginLeft: '8px', verticalAlign: 'middle',
+    });
+    nytBadge.textContent = 'NYT';
+    headerDiv.appendChild(selectorLabel);
+    headerDiv.appendChild(selectorCode);
+    headerDiv.appendChild(nytBadge);
+    content.appendChild(headerDiv);
+
+    // --- SPACING section ---
+    content.appendChild(sectionLabel('SPACING'));
+    content.appendChild(buildCross('padding', targetEl, tokens, computed));
+    content.appendChild(buildCross('margin', targetEl, tokens, computed));
+
+    // Gap — always use token step (sp family)
+    const gapToken = tokens['gap'] || null;
+    const gapVal = computed.getPropertyValue('gap');
+    content.appendChild(buildPropRow('gap', gapToken, gapVal || '0', targetEl, 'sp'));
+
+    // --- TYPOGRAPHY section ---
+    content.appendChild(sectionLabel('TYPOGRAPHY'));
+
+    const typProps = [
+      { prop: 'font-family', family: 'nyt-font', isValue: false },
+      { prop: 'font-size', family: 'ts', isValue: false },
+      { prop: 'font-weight', family: null, isValue: true, step: 100 },
+      { prop: 'line-height', family: 'lh', isValue: false },
+      { prop: 'letter-spacing', family: 'ls', isValue: false },
+      { prop: 'color', family: 'nyt-fg', isValue: false, hasColor: true },
+    ];
+    for (const def of typProps) {
+      const token = tokens[def.prop] || null;
+      const val = computed.getPropertyValue(def.prop);
+      if (!val) continue;
+      if (def.isValue) {
+        content.appendChild(buildValueRow(def.prop, val, targetEl, def.step || 1));
+      } else if (token || def.family) {
+        // Has token, or has an expected family — use token step (allows scrolling through scale)
+        content.appendChild(buildPropRow(def.prop, token, val, targetEl, def.family, def.hasColor));
+      } else {
+        content.appendChild(buildStaticRow(def.prop, val));
+      }
+    }
+
+    // --- APPEARANCE section ---
+    content.appendChild(sectionLabel('APPEARANCE'));
+
+    const appProps = [
+      { prop: 'background-color', label: 'background', family: 'nyt-bg', isValue: false, hasColor: true },
+      { prop: 'border-radius', family: 'br', isValue: false },
+      { prop: 'border-color', family: 'nyt-border', isValue: false, hasColor: true },
+      { prop: 'border-width', family: 'bw', isValue: true, step: 1 },
+    ];
+    for (const def of appProps) {
+      const token = tokens[def.prop] || null;
+      const val = computed.getPropertyValue(def.prop);
+      if (!val) continue;
+      if (def.isValue) {
+        content.appendChild(buildValueRow(def.label || def.prop, val, targetEl, def.step || 1));
+      } else if (token || def.family) {
+        content.appendChild(buildPropRow(def.label || def.prop, token, val, targetEl, def.family, def.hasColor));
+      } else {
+        content.appendChild(buildStaticRow(def.label || def.prop, truncate(val, 30)));
+      }
+    }
+
+    wireTabCycling();
+  }
+
+  // --- Section label ---
+
+  function sectionLabel(text) {
+    const lbl = mkEl('div', {
+      fontSize: '9px', fontWeight: '700',
+      color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px',
+      marginBottom: '4px', marginTop: '10px',
+    });
+    lbl.textContent = text;
+    return lbl;
+  }
+
+  // --- Cross/Plus grid for padding/margin ---
+
+  function buildCross(type, targetEl, tokens, computed) {
+    const isPadding = type === 'padding';
+    const accentColor = isPadding ? 'rgba(80,200,120,' : 'rgba(255,165,0,';
+
+    const sides = ['top', 'right', 'bottom', 'left'];
+    const tokenCount = sides.filter(s => !!tokens[`${type}-${s}`]).length;
+
+    const wrapper = mkEl('div', { marginBottom: '10px' });
+
+    // Label with token count
+    const label = mkEl('div', {
+      fontSize: '9px', fontWeight: '600', letterSpacing: '0.3px',
+      color: accentColor + '0.7)', marginBottom: '4px', textAlign: 'center',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+    });
+    const labelText = mkEl('span');
+    labelText.textContent = type;
+    label.appendChild(labelText);
+    const countBadge = mkEl('span', {
+      fontSize: '8px', fontWeight: '600',
+      color: tokenCount === 4 ? INDICATOR_TOKEN : tokenCount > 0 ? INDICATOR_RAW : 'rgba(255,255,255,0.3)',
+    });
+    countBadge.textContent = `${tokenCount}/4`;
+    label.appendChild(countBadge);
+    wrapper.appendChild(label);
+
+    // Grid
+    const grid = mkEl('div', {
+      display: 'grid',
+      gridTemplateColumns: '1fr auto 1fr',
+      gridTemplateRows: 'auto auto auto',
+      gap: '2px',
+      alignItems: 'center',
+      justifyItems: 'center',
+      maxWidth: '220px',
+      margin: '0 auto',
+    });
+
+    const positions = {
+      top: { gridColumn: '2', gridRow: '1' },
+      left: { gridColumn: '1', gridRow: '2' },
+      right: { gridColumn: '3', gridRow: '2' },
+      bottom: { gridColumn: '2', gridRow: '3' },
+    };
+
+    const stepSpans = [];
+
+    sides.forEach(side => {
+      const prop = `${type}-${side}`;
+      const token = tokens[prop] || null;
+
+      const cell = mkEl('div', positions[side]);
+      const span = createTokenStep(token, prop, targetEl, 'sp', isPadding);
+      stepSpans.push(span);
+      cell.appendChild(span);
+      grid.appendChild(cell);
+    });
+
+    // "All" center cell
+    const centerCell = mkEl('div', { gridColumn: '2', gridRow: '2' });
+    const allSpan = mkEl('span', {
+      fontSize: '10px', minWidth: '50px', padding: '3px 6px',
+      borderRadius: '4px', textAlign: 'center', cursor: 'pointer',
+      outline: 'none', whiteSpace: 'nowrap',
+      background: accentColor + '0.15)',
+      color: accentColor + '0.9)',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0' });
+    allSpan.textContent = 'all';
+    allSpan.classList.add('dt-token-step', 'dt-cross-all');
+    allSpan.dataset.prop = type;
+    allSpan.dataset.family = 'sp';
+
+    attachAllControl(allSpan, stepSpans, type, targetEl);
+    centerCell.appendChild(allSpan);
+    grid.appendChild(centerCell);
+
+    wrapper.appendChild(grid);
+    return wrapper;
+  }
+
+  function createTokenStep(token, prop, targetEl, defaultFamily, isPadding) {
+    const hasToken = !!token;
+    const family = hasToken ? getFamily(token) : defaultFamily;
+
+    const span = mkEl('span', {
+      fontSize: '10px', minWidth: '70px', padding: '3px 6px',
+      borderRadius: '4px', textAlign: 'center', cursor: 'pointer',
+      outline: 'none', whiteSpace: 'nowrap',
+      color: hasToken ? '#fbbf24' : 'rgba(255,255,255,0.4)',
+      background: 'rgba(251,191,36,0.08)',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0' });
+    span.textContent = hasToken ? token : '0';
+    span.classList.add('dt-token-step');
+    span.dataset.prop = prop;
+    span.dataset.token = token || '';
+    span.dataset.family = family || '';
+
+    attachTokenStepHandlers(span, targetEl);
+    return span;
+  }
+
+  // --- Token step keyboard handlers ---
+
+  function attachTokenStepHandlers(span, targetEl) {
+    const prop = span.dataset.prop;
+
+    span.addEventListener('click', (e) => { e.stopPropagation(); span.focus(); });
+
+    span.addEventListener('focus', () => {
+      span.style.background = 'rgba(251,191,36,0.22)';
+      span.style.boxShadow = '0 0 0 2px rgba(251,191,36,0.6)';
+      if (prop.startsWith('padding') || prop.startsWith('margin')) {
+        showSpacingOverlay(prop, targetEl);
+      } else {
+        showPropertyOverlay(prop, targetEl);
+      }
+    });
+
+    span.addEventListener('blur', () => {
+      span.style.background = 'rgba(251,191,36,0.08)';
+      span.style.boxShadow = '';
+      clearOverlay();
+    });
+
+    span.addEventListener('mouseenter', () => {
+      if (document.activeElement !== span) {
+        span.style.background = 'rgba(251,191,36,0.18)';
+        span.style.boxShadow = '0 0 0 1px rgba(251,191,36,0.3)';
+      }
+      if (prop.startsWith('padding') || prop.startsWith('margin')) {
+        showSpacingOverlay(prop, targetEl);
+      } else {
+        showPropertyOverlay(prop, targetEl);
+      }
+    });
+
+    span.addEventListener('mouseleave', () => {
+      if (document.activeElement !== span) {
+        span.style.background = 'rgba(251,191,36,0.08)';
+        span.style.boxShadow = '';
+        clearOverlay();
+      }
+    });
+
+    span.addEventListener('keydown', (e) => {
+      const family = span.dataset.family;
+      const scale = getFamilyByName(family);
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (scale && scale.length) {
+          stepToken(span, scale, 1, targetEl);
+        } else {
+          stepRawPx(span, 1, targetEl, e.shiftKey);
+        }
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (scale && scale.length) {
+          stepToken(span, scale, -1, targetEl);
+        } else {
+          stepRawPx(span, -1, targetEl, e.shiftKey);
+        }
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        resetProp(targetEl, prop);
+        span.textContent = '0';
+        span.style.color = 'rgba(255,255,255,0.4)';
+        span.dataset.token = '';
+      } else if (e.key === 'Escape') {
+        span.blur();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        cycleControl(span, e.shiftKey);
+      }
+    });
+  }
+
+  function stepRawPx(span, dir, targetEl, shiftKey) {
+    const prop = span.dataset.prop;
+    const current = parseFloat(span.textContent) || 0;
+    const step = shiftKey ? 10 : 1;
+    const next = Math.max(0, current + dir * step);
+    const val = next + 'px';
+    span.textContent = val;
+    span.style.color = '#7dd3fc';
+    applyRawValue(targetEl, prop, val);
+    if (prop.startsWith('padding') || prop.startsWith('margin')) {
+      showSpacingOverlay(prop, targetEl);
+    }
+  }
+
+  function stepToken(span, scale, dir, targetEl) {
+    const currentToken = span.dataset.token;
+    let idx = scale.findIndex(t => t.name === currentToken);
+    if (idx < 0) idx = 0;
+    idx = Math.max(0, Math.min(scale.length - 1, idx + dir));
+
+    const token = scale[idx];
+    span.dataset.token = token.name;
+    span.textContent = token.name;
+    span.style.color = '#fbbf24';
+
+    const prop = span.dataset.prop;
+    applyToken(targetEl, prop, token.name, currentToken);
+
+    if (prop.startsWith('padding') || prop.startsWith('margin')) {
+      showSpacingOverlay(prop, targetEl);
+    }
+
+    const row = span.closest('.dt-prop-row');
+    if (row) {
+      const swatch = row.querySelector('.dt-color-swatch');
+      if (swatch) {
+        swatch.style.background = resolveTokenColor(token.name);
+      }
+    }
+  }
+
+  // --- "All" center control ---
+
+  function attachAllControl(allSpan, sideSpans, type, targetEl) {
+    allSpan.addEventListener('click', (e) => { e.stopPropagation(); allSpan.focus(); });
+
+    allSpan.addEventListener('focus', () => {
+      const isPadding = type === 'padding';
+      const accent = isPadding ? 'rgba(80,200,120,' : 'rgba(255,165,0,';
+      allSpan.style.boxShadow = '0 0 0 2px ' + accent + '0.6)';
+      showSpacingOverlay(type, targetEl);
+    });
+
+    allSpan.addEventListener('blur', () => {
+      allSpan.style.boxShadow = '';
+      clearOverlay();
+    });
+
+    allSpan.addEventListener('keydown', (e) => {
+      const family = allSpan.dataset.family;
+      const scale = getFamilyByName(family);
+      if (!scale || !scale.length) return;
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        stepAll(allSpan, sideSpans, scale, 1, type, targetEl);
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        stepAll(allSpan, sideSpans, scale, -1, type, targetEl);
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        ['top', 'right', 'bottom', 'left'].forEach(side => {
+          resetProp(targetEl, `${type}-${side}`);
+        });
+        sideSpans.forEach(s => {
+          s.textContent = '\u2014';
+          s.style.color = 'rgba(255,255,255,0.3)';
+          s.dataset.token = '';
+        });
+        allSpan.textContent = '\u2014';
+      } else if (e.key === 'Escape') {
+        allSpan.blur();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        cycleControl(allSpan, e.shiftKey);
+      }
+    });
+  }
+
+  function stepAll(allSpan, sideSpans, scale, dir, type, targetEl) {
+    const refToken = sideSpans[0].dataset.token;
+    let idx = scale.findIndex(t => t.name === refToken);
+    if (idx < 0) idx = 0;
+    idx = Math.max(0, Math.min(scale.length - 1, idx + dir));
+
+    const token = scale[idx];
+    allSpan.textContent = token.name;
+    allSpan.dataset.token = token.name;
+
+    const sides = ['top', 'right', 'bottom', 'left'];
+    sideSpans.forEach((span, i) => {
+      span.dataset.token = token.name;
+      span.textContent = token.name;
+      span.style.color = '#fbbf24';
+      applyToken(targetEl, `${type}-${sides[i]}`, token.name, span.dataset.token);
+    });
+
+    showSpacingOverlay(type, targetEl);
+  }
+
+  // --- Property row builders ---
+
+  function buildPropRow(label, token, val, targetEl, defaultFamily, hasColor) {
+    const hasToken = !!token;
+    const row = mkEl('div', {
+      display: 'flex', gap: '6px', alignItems: 'center',
+      padding: '2px 0', fontSize: '11px',
+    });
+    row.classList.add('dt-prop-row');
+
+    row.appendChild(indicatorDot(hasToken));
+    const nameSpan = mkEl('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    nameSpan.textContent = label;
+    row.appendChild(nameSpan);
+
+    // Color swatch
+    if (hasColor && token) {
+      const swatch = mkEl('span', {
+        width: '12px', height: '12px', borderRadius: '3px',
+        border: '1px solid rgba(255,255,255,0.2)',
+        marginLeft: 'auto', flexShrink: '0',
+        background: resolveTokenColor(token),
+      });
+      swatch.classList.add('dt-color-swatch');
+      row.appendChild(swatch);
+    }
+
+    // Token step — always steppable through the family scale
+    const family = hasToken ? getFamily(token) : defaultFamily;
+    const span = mkEl('span', {
+      color: hasToken ? '#fbbf24' : 'rgba(255,255,255,0.5)',
+      fontSize: '11px', whiteSpace: 'nowrap',
+      cursor: 'pointer', padding: '4px 10px', borderRadius: '4px',
+      background: 'rgba(251,191,36,0.08)', minWidth: '100px',
+      textAlign: 'center', outline: 'none',
+      marginLeft: hasColor ? '0' : 'auto',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0' });
+    span.textContent = hasToken ? token : truncate(val, 20);
+    span.classList.add('dt-token-step');
+    span.dataset.token = token || '';
+    span.dataset.family = family || '';
+
+    const cssProp = label === 'background' ? 'background-color' : label;
+    span.dataset.prop = cssProp;
+
+    attachTokenStepHandlers(span, targetEl);
+    row.appendChild(span);
+    return row;
+  }
+
+  function buildValueRow(prop, val, targetEl, step) {
+    const row = mkEl('div', {
+      display: 'flex', gap: '6px', alignItems: 'center',
+      padding: '2px 0', fontSize: '11px',
+    });
+    row.classList.add('dt-prop-row');
+
+    row.appendChild(indicatorDot(false));
+    const nameSpan = mkEl('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    nameSpan.textContent = prop;
+    row.appendChild(nameSpan);
+
+    const input = mkEl('span', {
+      color: '#7dd3fc', fontSize: '11px', whiteSpace: 'nowrap',
+      cursor: 'text', padding: '4px 10px', borderRadius: '4px',
+      background: 'rgba(125,211,252,0.08)', minWidth: '60px',
+      textAlign: 'center', outline: 'none', marginLeft: 'auto',
+      transition: 'background 0.12s, box-shadow 0.12s',
+    }, { tabindex: '0', contenteditable: 'true' });
+    const numVal = parseFloat(val);
+    input.textContent = isNaN(numVal) ? val : numVal.toString();
+    input.classList.add('dt-value-input');
+    input.dataset.prop = prop;
+
+    attachValueInputHandlers(input, targetEl, step);
+    row.appendChild(input);
+    return row;
+  }
+
+  function buildStaticRow(label, val) {
+    const row = mkEl('div', {
+      display: 'flex', gap: '6px', alignItems: 'center',
+      padding: '2px 0', fontSize: '11px',
+    });
+    row.appendChild(indicatorDot(false));
+    const nameSpan = mkEl('span', { color: 'rgba(255,255,255,0.6)', minWidth: '70px', flexShrink: '0' });
+    nameSpan.textContent = label;
+    const valSpan = mkEl('span', { color: 'rgba(255,255,255,0.8)', marginLeft: 'auto' });
+    valSpan.textContent = truncate(val, 30);
+    row.appendChild(nameSpan);
+    row.appendChild(valSpan);
+    return row;
+  }
+
+  // --- Value input handlers ---
+
+  function attachValueInputHandlers(input, targetEl, step) {
+    const prop = input.dataset.prop;
+
+    input.addEventListener('focus', () => {
+      input.style.background = 'rgba(125,211,252,0.18)';
+      input.style.boxShadow = '0 0 0 2px rgba(125,211,252,0.6)';
+      const range = document.createRange();
+      range.selectNodeContents(input);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      if (!prop.startsWith('padding') && !prop.startsWith('margin')) {
+        showPropertyOverlay(prop, targetEl);
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      input.style.background = 'rgba(125,211,252,0.08)';
+      input.style.boxShadow = '';
+      clearOverlay();
+      const val = input.textContent.trim();
+      if (!val || val === '\u2014') {
+        input.textContent = '\u2014';
+        input.style.color = 'rgba(255,255,255,0.3)';
+        resetProp(targetEl, prop);
+      } else {
+        input.style.color = '#7dd3fc';
+        applyRawValue(targetEl, prop, val);
+      }
+    });
+
+    input.addEventListener('mouseenter', () => {
+      if (document.activeElement !== input) {
+        input.style.background = 'rgba(125,211,252,0.15)';
+        if (!prop.startsWith('padding') && !prop.startsWith('margin')) {
+          showPropertyOverlay(prop, targetEl);
+        }
+        input.style.boxShadow = '0 0 0 1px rgba(125,211,252,0.3)';
+      }
+    });
+
+    input.addEventListener('mouseleave', () => {
+      if (document.activeElement !== input) {
+        input.style.background = 'rgba(125,211,252,0.08)';
+        input.style.boxShadow = '';
+        clearOverlay();
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();
+      } else if (e.key === 'Escape') {
+        input.blur();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const val = input.textContent.trim();
+        if (val && val !== '\u2014') applyRawValue(targetEl, prop, val);
+        cycleControl(input, e.shiftKey);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const num = parseFloat(input.textContent);
+        if (!isNaN(num)) {
+          const s = e.shiftKey && step === 1 ? 10 : step;
+          input.textContent = parseFloat((num + s).toFixed(2)).toString();
+          applyRawValue(targetEl, prop, input.textContent);
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const num = parseFloat(input.textContent);
+        if (!isNaN(num)) {
+          const s = e.shiftKey && step === 1 ? 10 : step;
+          input.textContent = parseFloat(Math.max(0, num - s).toFixed(2)).toString();
+          applyRawValue(targetEl, prop, input.textContent);
+        }
+      }
+    });
+  }
+
+  // --- Tab cycling ---
+
+  function wireTabCycling() {}
+
+  function cycleControl(current, reverse) {
+    const all = [...content.querySelectorAll('.dt-token-step, .dt-value-input')];
+    const i = all.indexOf(current);
+    if (i < 0) return;
+    const next = reverse
+      ? all[(i - 1 + all.length) % all.length]
+      : all[(i + 1) % all.length];
+    next.focus();
+  }
+
+  // --- Utility ---
+
+  function truncate(str, max) {
+    return str.length > max ? str.slice(0, max) + '\u2026' : str;
+  }
+
+  // --- Selection tracking ---
+
+  function onSelectionChange() {
+    const sel = api.getSelected();
+    if (sel.length > 0) {
+      const last = sel[sel.length - 1];
+      renderPanel(last.el);
+      panel.style.display = '';
+    } else {
+      panel.style.display = 'none';
+    }
+  }
+
+  let pollInterval = null;
+  let lastSelCount = 0;
+  let lastSelEl = null;
+
+  function startPolling() {
+    pollInterval = setInterval(() => {
+      const sel = api.getSelected();
+      const curEl = sel.length > 0 ? sel[sel.length - 1].el : null;
+      if (sel.length !== lastSelCount || curEl !== lastSelEl) {
+        lastSelCount = sel.length;
+        lastSelEl = curEl;
+        onSelectionChange();
+      }
+    }, 150);
+  }
+
+  function stopPolling() {
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  }
+
+  // --- Plugin registration ---
+
+  const plugin = {
+    id: 'inspector-panel-nyt',
+    label: 'Inspector (NYT)',
+
+    init(_api) {
+      api = _api;
+      panel = api.createPanel({
+        title: 'Inspector (NYT)',
+        position: { top: '80px', right: '16px' },
+        width: '320px',
+      });
+      content = panel._content;
+      Object.assign(content.style, {
+        maxHeight: '60vh',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        scrollbarWidth: 'none',
+      });
+      panel.style.display = 'none';
+      injectTokenStyles();
+      startPolling();
+      window.DomTools._inspectorChanges = changes;
+      if (api.updateBadgeCount) api.updateBadgeCount();
+    },
+
+    enable() {
+      injectTokenStyles();
+      startPolling();
+    },
+
+    disable() {
+      stopPolling();
+      clearOverlay();
+      removeTokenStyles();
+      if (panel) panel.style.display = 'none';
+    },
+  };
+
+  if (window.DomTools) {
+    window.DomTools.registerPlugin(plugin);
+  } else {
+    window.DomTools = window.DomTools || {};
+    window.DomTools._pendingPlugins = window.DomTools._pendingPlugins || [];
+    window.DomTools._pendingPlugins.push(plugin);
+  }
+})();
+
+/**
+ * DOM-Tools Plugin: Morphizer
+ * A real-time video synth that captures the page via getDisplayMedia and processes
+ * it through a WebGL feedback loop with displacement, color, and visual effects.
+ * GPU-accelerated, no dependencies. Load after dom-tools.js.
+ */
+(function() {
+  'use strict';
+
+  // --- Shader sources ---
+  const VERT_SRC = `
+    attribute vec2 a_position;
+    varying vec2 v_uv;
+    void main() {
+      v_uv = a_position * 0.5 + 0.5;
+      gl_Position = vec4(a_position, 0.0, 1.0);
+    }
+  `;
+
+  const FRAG_SRC = `
+    precision highp float;
+    varying vec2 v_uv;
+
+    uniform sampler2D u_texture;     // live page capture
+    uniform sampler2D u_feedback;    // previous frame (FBO)
+    uniform vec2 u_resolution;
+    uniform vec2 u_mouse;
+    uniform float u_time;
+
+    // Displacement
+    uniform int u_displace;          // 0=wave,1=ripple,2=melt,3=tunnel,4=vortex
+    uniform float u_intensity;
+    uniform float u_frequency;
+    uniform float u_speed;
+
+    // Feedback
+    uniform float u_feedbackMix;     // 0–1, how much previous frame bleeds in
+    uniform float u_feedbackZoom;    // subtle zoom per frame (1.0 = none)
+    uniform float u_feedbackRotate;  // radians per frame
+
+    // Color
+    uniform float u_hueShift;        // 0–1 maps to 0–2PI
+    uniform float u_saturation;      // multiplier
+    uniform float u_rgbSplit;        // chromatic aberration amount
+    uniform float u_brightness;      // multiplier
+
+    // Visual
+    uniform int u_kaleidoscope;      // segments (0=off)
+    uniform float u_pixelate;        // grid size (0=off)
+    uniform float u_scanlines;       // intensity (0=off)
+    uniform float u_glitch;          // glitch intensity
+    uniform float u_mirror;          // 0=off, 1=horizontal, 2=vertical, 3=both
+
+    // Blend mode: 0=mix, 1=add, 2=multiply, 3=difference, 4=screen
+    uniform int u_blendMode;
+
+    #define PI 3.14159265
+    #define TAU 6.28318530
+
+    // --- HSV helpers ---
+    vec3 rgb2hsv(vec3 c) {
+      vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
+      vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+      vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+      float d = q.x - min(q.w, q.y);
+      float e = 1.0e-10;
+      return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+    }
+
+    vec3 hsv2rgb(vec3 c) {
+      vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+      vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+      return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+    }
+
+    // --- Displacement effects ---
+    vec2 displace_wave(vec2 uv) {
+      float amp = u_intensity * 0.06;
+      float freq = u_frequency * 12.0;
+      float t = u_time * u_speed;
+      uv.x += sin(uv.y * freq + t) * amp;
+      uv.y += cos(uv.x * freq * 0.8 + t * 0.7) * amp * 0.6;
+      return uv;
+    }
+
+    vec2 displace_ripple(vec2 uv) {
+      vec2 center = u_mouse;
+      float dist = distance(uv, center);
+      float amp = u_intensity * 0.05;
+      float freq = u_frequency * 40.0;
+      float t = u_time * u_speed;
+      float w = sin(dist * freq - t * 5.0) * amp;
+      w *= smoothstep(0.7, 0.0, dist);
+      vec2 dir = normalize(uv - center + 0.0001);
+      return uv + dir * w;
+    }
+
+    vec2 displace_melt(vec2 uv) {
+      float amt = u_intensity * 0.12;
+      float t = u_time * u_speed;
+      float drip = sin(uv.x * u_frequency * 20.0 + t * 0.4) * amt;
+      drip *= smoothstep(0.0, 1.0, uv.y);
+      uv.y += drip;
+      uv.x += cos(uv.y * 10.0 + t * 0.6) * amt * 0.4;
+      return uv;
+    }
+
+    vec2 displace_tunnel(vec2 uv) {
+      vec2 c = uv - 0.5;
+      float r = length(c);
+      float a = atan(c.y, c.x);
+      float t = u_time * u_speed;
+      r += sin(a * u_frequency * 6.0 + t) * u_intensity * 0.08;
+      r += sin(r * 20.0 - t * 2.0) * u_intensity * 0.03;
+      return vec2(cos(a), sin(a)) * r + 0.5;
+    }
+
+    vec2 displace_vortex(vec2 uv) {
+      vec2 c = uv - u_mouse;
+      float r = length(c);
+      float a = atan(c.y, c.x);
+      float twist = u_intensity * 4.0 * smoothstep(0.5, 0.0, r);
+      a += twist * sin(u_time * u_speed + r * u_frequency * 10.0);
+      return vec2(cos(a), sin(a)) * r + u_mouse;
+    }
+
+    // --- Kaleidoscope ---
+    vec2 kaleidoscope(vec2 uv, int segs) {
+      vec2 c = uv - 0.5;
+      float a = atan(c.y, c.x);
+      float r = length(c);
+      float segAngle = TAU / float(segs);
+      a = mod(a, segAngle);
+      a = abs(a - segAngle * 0.5);
+      return vec2(cos(a), sin(a)) * r + 0.5;
+    }
+
+    // --- Glitch ---
+    vec2 glitchOffset(vec2 uv, float t) {
+      float line = floor(uv.y * 40.0);
+      float jitter = fract(sin(line * 43.17 + floor(t * 12.0) * 7.13) * 9381.7);
+      if (jitter > 1.0 - u_glitch * 0.3) {
+        uv.x += (jitter - 0.5) * u_glitch * 0.15;
+      }
+      return uv;
+    }
+
+    void main() {
+      vec2 uv = v_uv;
+
+      // Mirror
+      if (u_mirror >= 0.5 && u_mirror < 1.5) uv.x = abs(uv.x - 0.5) + 0.5; // horiz
+      if (u_mirror >= 1.5 && u_mirror < 2.5) uv.y = abs(uv.y - 0.5) + 0.5; // vert
+      if (u_mirror >= 2.5) { uv.x = abs(uv.x - 0.5) + 0.5; uv.y = abs(uv.y - 0.5) + 0.5; }
+
+      // Kaleidoscope
+      if (u_kaleidoscope > 1) uv = kaleidoscope(uv, u_kaleidoscope);
+
+      // Pixelate
+      if (u_pixelate > 1.0) {
+        vec2 grid = u_resolution / u_pixelate;
+        uv = floor(uv * grid) / grid;
+      }
+
+      // Displacement
+      if (u_displace == 0) uv = displace_wave(uv);
+      else if (u_displace == 1) uv = displace_ripple(uv);
+      else if (u_displace == 2) uv = displace_melt(uv);
+      else if (u_displace == 3) uv = displace_tunnel(uv);
+      else if (u_displace == 4) uv = displace_vortex(uv);
+
+      // Glitch
+      if (u_glitch > 0.0) uv = glitchOffset(uv, u_time);
+
+      uv = clamp(uv, 0.0, 1.0);
+
+      // Sample live texture with RGB split
+      vec4 color;
+      if (u_rgbSplit > 0.001) {
+        float off = u_rgbSplit * 0.025;
+        float angle = u_time * 0.5;
+        vec2 rOff = vec2(cos(angle), sin(angle)) * off;
+        vec2 bOff = vec2(cos(angle + 2.094), sin(angle + 2.094)) * off;
+        color.r = texture2D(u_texture, uv + rOff).r;
+        color.g = texture2D(u_texture, uv).g;
+        color.b = texture2D(u_texture, uv + bOff).b;
+        color.a = 1.0;
+      } else {
+        color = texture2D(u_texture, uv);
+      }
+
+      // Feedback: sample previous frame with zoom + rotate
+      if (u_feedbackMix > 0.001) {
+        vec2 fbUv = (uv - 0.5) / u_feedbackZoom;
+        if (abs(u_feedbackRotate) > 0.0001) {
+          float ca = cos(u_feedbackRotate);
+          float sa = sin(u_feedbackRotate);
+          fbUv = mat2(ca, -sa, sa, ca) * fbUv;
+        }
+        fbUv += 0.5;
+        vec4 fb = texture2D(u_feedback, clamp(fbUv, 0.0, 1.0));
+
+        // Blend modes
+        vec4 blended;
+        if (u_blendMode == 0) blended = mix(color, fb, u_feedbackMix);            // mix
+        else if (u_blendMode == 1) blended = color + fb * u_feedbackMix;           // add
+        else if (u_blendMode == 2) blended = mix(color, color * fb, u_feedbackMix);// multiply
+        else if (u_blendMode == 3) blended = mix(color, abs(color - fb), u_feedbackMix); // difference
+        else blended = mix(color, color + fb - color * fb, u_feedbackMix);         // screen
+        color = blended;
+      }
+
+      // Hue shift + saturation
+      if (abs(u_hueShift) > 0.001 || abs(u_saturation - 1.0) > 0.01) {
+        vec3 hsv = rgb2hsv(color.rgb);
+        hsv.x = fract(hsv.x + u_hueShift);
+        hsv.y *= u_saturation;
+        color.rgb = hsv2rgb(hsv);
+      }
+
+      // Brightness
+      color.rgb *= u_brightness;
+
+      // Scanlines
+      if (u_scanlines > 0.0) {
+        float sl = sin(v_uv.y * u_resolution.y * 0.5) * 0.5 + 0.5;
+        color.rgb *= 1.0 - u_scanlines * 0.4 * sl;
+      }
+
+      gl_FragColor = clamp(color, 0.0, 1.0);
+    }
+  `;
+
+  // --- WebGL helpers ---
+  function compileShader(gl, src, type) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error('Morphizer shader:', gl.getShaderInfoLog(s));
+      return null;
+    }
+    return s;
+  }
+
+  function createProgram(gl) {
+    const vs = compileShader(gl, VERT_SRC, gl.VERTEX_SHADER);
+    const fs = compileShader(gl, FRAG_SRC, gl.FRAGMENT_SHADER);
+    if (!vs || !fs) return null;
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      console.error('Morphizer link:', gl.getProgramInfoLog(prog));
+      return null;
+    }
+    return prog;
+  }
+
+  // --- FBO for feedback ---
+  function createFBO(gl, w, h) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return { texture: tex, framebuffer: fb, width: w, height: h };
+  }
+
+  // --- Plugin state ---
+  let api = null;
+  let canvas = null;
+  let gl = null;
+  let program = null;
+  let liveTexture = null;
+  let snapshotCanvas = null; // offscreen canvas holding the captured frame
+  let video = null;
+  let stream = null;
+  let animFrame = null;
+  let panel = null;
+  let startTime = 0;
+  let mouseX = 0.5, mouseY = 0.5;
+  let frozen = false;
+  let hasTexture = false; // true once we've captured at least one frame
+
+  // FBO ping-pong
+  let fboA = null, fboB = null;
+  let pingPong = 0; // alternates 0/1
+
+  // Uniforms cache
+  let U = {};
+
+  // --- Parameters ---
+  const P = {
+    displace: 0,          // 0=wave,1=ripple,2=melt,3=tunnel,4=vortex
+    intensity: 0.4,
+    frequency: 0.5,
+    speed: 1.0,
+    feedbackMix: 0.0,
+    feedbackZoom: 1.002,
+    feedbackRotate: 0.0,
+    hueShift: 0.0,
+    saturation: 1.0,
+    rgbSplit: 0.0,
+    brightness: 1.0,
+    kaleidoscope: 0,
+    pixelate: 0,
+    scanlines: 0.0,
+    glitch: 0.0,
+    mirror: 0,
+    blendMode: 0,
+  };
+
+  // LFO state
+  const LFOs = {
+    intensity: { active: false, speed: 1.0, depth: 0.5 },
+    hueShift: { active: false, speed: 0.5, depth: 1.0 },
+    frequency: { active: false, speed: 0.8, depth: 0.4 },
+    rgbSplit: { active: false, speed: 1.2, depth: 0.6 },
+  };
+
+  const DISPLACE_NAMES = ['wave', 'ripple', 'melt', 'tunnel', 'vortex'];
+  const BLEND_NAMES = ['mix', 'add', 'multiply', 'diff', 'screen'];
+
+  // Presets
+  const PRESETS = {
+    clean: { displace: 0, intensity: 0.3, frequency: 0.4, speed: 1, feedbackMix: 0, feedbackZoom: 1, feedbackRotate: 0, hueShift: 0, saturation: 1, rgbSplit: 0, brightness: 1, kaleidoscope: 0, pixelate: 0, scanlines: 0, glitch: 0, mirror: 0, blendMode: 0 },
+    acid: { displace: 0, intensity: 0.7, frequency: 0.6, speed: 1.5, feedbackMix: 0.6, feedbackZoom: 1.005, feedbackRotate: 0.01, hueShift: 0, saturation: 1.5, rgbSplit: 0.3, brightness: 1.1, kaleidoscope: 0, pixelate: 0, scanlines: 0, glitch: 0, mirror: 0, blendMode: 1 },
+    crt: { displace: 0, intensity: 0.1, frequency: 0.3, speed: 0.5, feedbackMix: 0.15, feedbackZoom: 1, feedbackRotate: 0, hueShift: 0, saturation: 0.8, rgbSplit: 0.4, brightness: 0.95, kaleidoscope: 0, pixelate: 3, scanlines: 0.7, glitch: 0.1, mirror: 0, blendMode: 0 },
+    kaleid: { displace: 4, intensity: 0.3, frequency: 0.5, speed: 0.8, feedbackMix: 0.4, feedbackZoom: 1.003, feedbackRotate: 0.02, hueShift: 0, saturation: 1.3, rgbSplit: 0.1, brightness: 1, kaleidoscope: 6, pixelate: 0, scanlines: 0, glitch: 0, mirror: 0, blendMode: 0 },
+    datamosh: { displace: 2, intensity: 0.8, frequency: 0.7, speed: 2, feedbackMix: 0.85, feedbackZoom: 1.001, feedbackRotate: 0, hueShift: 0, saturation: 1, rgbSplit: 0.5, brightness: 1, kaleidoscope: 0, pixelate: 0, scanlines: 0, glitch: 0.6, mirror: 0, blendMode: 3 },
+    pixel: { displace: 0, intensity: 0.2, frequency: 0.4, speed: 0.7, feedbackMix: 0.2, feedbackZoom: 1, feedbackRotate: 0, hueShift: 0, saturation: 1.2, rgbSplit: 0, brightness: 1, kaleidoscope: 0, pixelate: 12, scanlines: 0, glitch: 0, mirror: 0, blendMode: 0 },
+    void: { displace: 3, intensity: 0.9, frequency: 0.8, speed: 0.4, feedbackMix: 0.92, feedbackZoom: 0.998, feedbackRotate: -0.005, hueShift: 0, saturation: 0.5, rgbSplit: 0.2, brightness: 0.8, kaleidoscope: 0, pixelate: 0, scanlines: 0.3, glitch: 0, mirror: 0, blendMode: 4 },
+    mirror: { displace: 1, intensity: 0.4, frequency: 0.5, speed: 1, feedbackMix: 0.3, feedbackZoom: 1, feedbackRotate: 0, hueShift: 0, saturation: 1, rgbSplit: 0.15, brightness: 1, kaleidoscope: 0, pixelate: 0, scanlines: 0, glitch: 0, mirror: 3, blendMode: 0 },
+  };
+
+  // --- Capture sources ---
+  // 'thispage' = getDisplayMedia with preferCurrentTab (one-click share of current tab)
+  // 'pick' = standard getDisplayMedia (full picker — any window/tab/screen)
+  let captureSource = 'thispage';
+
+  async function captureFrame() {
+    const opts = { video: { displaySurface: 'browser' } };
+    if (captureSource === 'thispage') {
+      opts.preferCurrentTab = true;
+      opts.selfBrowserSurface = 'include';
+    }
+
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia(opts);
+    } catch (e) {
+      api.showToast('Morphizer: capture denied');
+      return false;
+    }
+
+    video = document.createElement('video');
+    video.srcObject = stream;
+    video.muted = true;
+    video.playsInline = true;
+    await video.play();
+
+    // Wait for a valid frame
+    await new Promise(resolve => {
+      const check = () => {
+        if (video.readyState >= video.HAVE_CURRENT_DATA && video.videoWidth > 0) resolve();
+        else requestAnimationFrame(check);
+      };
+      check();
+    });
+
+    // Copy frame to offscreen canvas
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!snapshotCanvas) snapshotCanvas = document.createElement('canvas');
+    snapshotCanvas.width = w;
+    snapshotCanvas.height = h;
+    const ctx = snapshotCanvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, w, h);
+
+    // Stop stream — we only need one frame
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    video.srcObject = null;
+    video = null;
+
+    hasTexture = true;
+    return true;
+  }
+
+  // Upload the snapshot to the live texture
+  function uploadSnapshot() {
+    if (!snapshotCanvas || !gl) return;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, liveTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, snapshotCanvas);
+  }
+
+  // Recapture: hide canvas, grab new frame, resume
+  async function recapture() {
+    if (canvas) canvas.style.display = 'none';
+    // Give the browser a frame to render without our canvas
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const ok = await captureFrame();
+    if (ok) {
+      uploadSnapshot();
+      api.showToast('Recaptured');
+    }
+    if (canvas) canvas.style.display = 'block';
+  }
+
+  // --- WebGL ---
+  function initGL() {
+    canvas = document.createElement('canvas');
+    Object.assign(canvas.style, {
+      position: 'fixed', inset: '0',
+      width: '100vw', height: '100vh',
+      pointerEvents: 'none',
+      zIndex: String((api.Z.overlay || 99998) + 1),
+    });
+    const dpr = Math.min(devicePixelRatio, 2); // cap for perf
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+
+    gl = canvas.getContext('webgl', { alpha: false, antialias: false, preserveDrawingBuffer: true });
+    if (!gl) { api.showToast('Morphizer: no WebGL'); return false; }
+
+    program = createProgram(gl);
+    if (!program) return false;
+    gl.useProgram(program);
+
+    // Fullscreen quad
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const pos = gl.getAttribLocation(program, 'a_position');
+    gl.enableVertexAttribArray(pos);
+    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+
+    // Live texture
+    liveTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, liveTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    // FBOs for feedback ping-pong
+    fboA = createFBO(gl, canvas.width, canvas.height);
+    fboB = createFBO(gl, canvas.width, canvas.height);
+
+    // Cache uniforms
+    const names = [
+      'u_texture','u_feedback','u_resolution','u_mouse','u_time',
+      'u_displace','u_intensity','u_frequency','u_speed',
+      'u_feedbackMix','u_feedbackZoom','u_feedbackRotate',
+      'u_hueShift','u_saturation','u_rgbSplit','u_brightness',
+      'u_kaleidoscope','u_pixelate','u_scanlines','u_glitch','u_mirror',
+      'u_blendMode',
+    ];
+    U = {};
+    names.forEach(n => { U[n] = gl.getUniformLocation(program, n); });
+
+    document.body.appendChild(canvas);
+    api.inspectorUI.add(canvas);
+    return true;
+  }
+
+  function resizeFBOs() {
+    const dpr = Math.min(devicePixelRatio, 2);
+    const w = window.innerWidth * dpr;
+    const h = window.innerHeight * dpr;
+    if (canvas.width === w && canvas.height === h) return;
+    canvas.width = w; canvas.height = h;
+    gl.viewport(0, 0, w, h);
+    // Recreate FBOs
+    gl.deleteTexture(fboA.texture); gl.deleteFramebuffer(fboA.framebuffer);
+    gl.deleteTexture(fboB.texture); gl.deleteFramebuffer(fboB.framebuffer);
+    fboA = createFBO(gl, w, h);
+    fboB = createFBO(gl, w, h);
+  }
+
+  // --- Render ---
+  function render() {
+    if (!gl || !hasTexture) {
+      animFrame = requestAnimationFrame(render);
+      return;
+    }
+    resizeFBOs();
+
+    const TAU = 6.28318;
+
+    // Apply LFOs
+    const t = (performance.now() - startTime) / 1000;
+    const lfoVals = {};
+    Object.entries(LFOs).forEach(([key, lfo]) => {
+      if (lfo.active) {
+        lfoVals[key] = (Math.sin(t * lfo.speed * TAU) * 0.5 + 0.5) * lfo.depth;
+      }
+    });
+
+    // Effective params with LFO modulation
+    const eIntensity = P.intensity + (lfoVals.intensity || 0);
+    const eHueShift = P.hueShift + (lfoVals.hueShift || 0);
+    const eFrequency = P.frequency + (lfoVals.frequency || 0);
+    const eRgbSplit = P.rgbSplit + (lfoVals.rgbSplit || 0);
+
+    // The live texture is already uploaded from the snapshot — no per-frame upload needed.
+    // Bind it for the shader.
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, liveTexture);
+
+    // Bind feedback texture (read from previous frame)
+    const readFBO = pingPong === 0 ? fboA : fboB;
+    const writeFBO = pingPong === 0 ? fboB : fboA;
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, readFBO.texture);
+
+    // Render to writeFBO
+    gl.bindFramebuffer(gl.FRAMEBUFFER, writeFBO.framebuffer);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+
+    // Set all uniforms
+    gl.uniform1i(U.u_texture, 0);
+    gl.uniform1i(U.u_feedback, 1);
+    gl.uniform2f(U.u_resolution, canvas.width, canvas.height);
+    gl.uniform2f(U.u_mouse, mouseX, 1.0 - mouseY);
+    gl.uniform1f(U.u_time, t);
+    gl.uniform1i(U.u_displace, P.displace);
+    gl.uniform1f(U.u_intensity, Math.min(eIntensity, 1.5));
+    gl.uniform1f(U.u_frequency, Math.min(eFrequency, 1.5));
+    gl.uniform1f(U.u_speed, P.speed);
+    gl.uniform1f(U.u_feedbackMix, P.feedbackMix);
+    gl.uniform1f(U.u_feedbackZoom, P.feedbackZoom);
+    gl.uniform1f(U.u_feedbackRotate, P.feedbackRotate);
+    gl.uniform1f(U.u_hueShift, eHueShift);
+    gl.uniform1f(U.u_saturation, P.saturation);
+    gl.uniform1f(U.u_rgbSplit, Math.min(eRgbSplit, 1.5));
+    gl.uniform1f(U.u_brightness, P.brightness);
+    gl.uniform1i(U.u_kaleidoscope, P.kaleidoscope);
+    gl.uniform1f(U.u_pixelate, P.pixelate);
+    gl.uniform1f(U.u_scanlines, P.scanlines);
+    gl.uniform1f(U.u_glitch, P.glitch);
+    gl.uniform1f(U.u_mirror, P.mirror);
+    gl.uniform1i(U.u_blendMode, P.blendMode);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // Copy to screen
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    // Use writeFBO texture as source, render with no effects (pass-through)
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, writeFBO.texture);
+    // Set minimal uniforms for pass-through
+    gl.uniform1i(U.u_texture, 0);
+    gl.uniform1f(U.u_feedbackMix, 0.0); // no feedback on screen pass
+    gl.uniform1f(U.u_intensity, 0.0);   // no displacement
+    gl.uniform1f(U.u_rgbSplit, 0.0);
+    gl.uniform1f(U.u_hueShift, 0.0);
+    gl.uniform1f(U.u_saturation, 1.0);
+    gl.uniform1f(U.u_brightness, 1.0);
+    gl.uniform1i(U.u_kaleidoscope, 0);
+    gl.uniform1f(U.u_pixelate, 0.0);
+    gl.uniform1f(U.u_scanlines, 0.0);
+    gl.uniform1f(U.u_glitch, 0.0);
+    gl.uniform1f(U.u_mirror, 0.0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    pingPong = 1 - pingPong;
+    animFrame = requestAnimationFrame(render);
+  }
+
+  // --- Panel UI ---
+  function buildPanel() {
+    panel = api.createPanel({ title: 'Morphizer', position: { top: '16px', right: '16px' }, width: '260px' });
+    const C = panel._content;
+    C.style.maxHeight = '70vh';
+    C.style.overflowY = 'auto';
+
+    // --- Source selector ---
+    addSection(C, 'source', true);
+    const srcRow = el('div', { display: 'flex', gap: '4px', marginBottom: '12px', alignItems: 'center' });
+    const srcButtons = {};
+    ['thispage', 'pick'].forEach(src => {
+      const btn = el('button', {
+        padding: '3px 8px', fontSize: '9px', fontWeight: '600',
+        border: 'none', borderRadius: '3px', cursor: 'pointer',
+        background: src === captureSource ? '#8b5cf6' : '#333',
+        color: '#fff', fontFamily: 'inherit',
+      });
+      btn.textContent = src === 'thispage' ? 'this page' : 'pick source';
+      btn.addEventListener('click', () => {
+        captureSource = src;
+        Object.entries(srcButtons).forEach(([k, b]) => {
+          b.style.background = k === src ? '#8b5cf6' : '#333';
+        });
+      });
+      srcButtons[src] = btn;
+      srcRow.appendChild(btn);
+    });
+    const recapBtn = el('button', {
+      padding: '3px 8px', fontSize: '9px', fontWeight: '600',
+      border: 'none', borderRadius: '3px', cursor: 'pointer',
+      background: '#555', color: '#fff', fontFamily: 'inherit', marginLeft: 'auto',
+    });
+    recapBtn.textContent = '⟳ recapture';
+    recapBtn.addEventListener('click', recapture);
+    recapBtn.addEventListener('mouseenter', () => { recapBtn.style.background = '#8b5cf6'; });
+    recapBtn.addEventListener('mouseleave', () => { recapBtn.style.background = '#555'; });
+    srcRow.appendChild(recapBtn);
+    C.appendChild(srcRow);
+
+    // --- Presets ---
+    addSection(C, 'presets');
+    const presetRow = el('div', { display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '12px' });
+    Object.keys(PRESETS).forEach(name => {
+      const btn = el('button', {
+        padding: '3px 7px', fontSize: '9px', fontWeight: '600',
+        border: 'none', borderRadius: '3px', cursor: 'pointer',
+        background: '#333', color: '#ccc', fontFamily: 'inherit',
+        textTransform: 'uppercase', letterSpacing: '0.3px',
+      });
+      btn.textContent = name;
+      btn.addEventListener('click', () => applyPreset(name));
+      btn.addEventListener('mouseenter', () => { btn.style.background = '#8b5cf6'; btn.style.color = '#fff'; });
+      btn.addEventListener('mouseleave', () => { btn.style.background = '#333'; btn.style.color = '#ccc'; });
+      presetRow.appendChild(btn);
+    });
+    C.appendChild(presetRow);
+
+    // --- Displacement ---
+    addSection(C, 'displacement');
+    const displaceRow = el('div', { display: 'flex', gap: '3px', marginBottom: '8px' });
+    DISPLACE_NAMES.forEach((name, i) => {
+      const btn = el('button', {
+        padding: '3px 6px', fontSize: '9px', fontWeight: '600',
+        border: 'none', borderRadius: '3px', cursor: 'pointer',
+        background: i === P.displace ? '#8b5cf6' : '#333',
+        color: '#fff', fontFamily: 'inherit',
+      });
+      btn.textContent = name;
+      btn.addEventListener('click', () => {
+        P.displace = i;
+        displaceRow.querySelectorAll('button').forEach((b, j) => {
+          b.style.background = j === i ? '#8b5cf6' : '#333';
+        });
+      });
+      displaceRow.appendChild(btn);
+    });
+    C.appendChild(displaceRow);
+    addSlider(C, 'intensity', P.intensity, 0, 1, v => { P.intensity = v; });
+    addSlider(C, 'frequency', P.frequency, 0, 1, v => { P.frequency = v; });
+    addSlider(C, 'speed', P.speed, 0, 4, v => { P.speed = v; });
+
+    // --- Feedback ---
+    addSection(C, 'feedback');
+    addSlider(C, 'mix', P.feedbackMix, 0, 0.98, v => { P.feedbackMix = v; });
+    addSlider(C, 'zoom', P.feedbackZoom, 0.99, 1.02, v => { P.feedbackZoom = v; }, 0.001);
+    addSlider(C, 'rotate', P.feedbackRotate, -0.05, 0.05, v => { P.feedbackRotate = v; }, 0.001);
+    addBlendRow(C);
+
+    // --- Color ---
+    addSection(C, 'color');
+    addSlider(C, 'hue shift', P.hueShift, 0, 1, v => { P.hueShift = v; });
+    addSlider(C, 'saturation', P.saturation, 0, 3, v => { P.saturation = v; });
+    addSlider(C, 'RGB split', P.rgbSplit, 0, 1, v => { P.rgbSplit = v; });
+    addSlider(C, 'brightness', P.brightness, 0.2, 2, v => { P.brightness = v; });
+
+    // --- Visual ---
+    addSection(C, 'visual');
+    addSlider(C, 'kaleidoscope', P.kaleidoscope, 0, 12, v => { P.kaleidoscope = Math.round(v); }, 1);
+    addSlider(C, 'pixelate', P.pixelate, 0, 30, v => { P.pixelate = v; }, 1);
+    addSlider(C, 'scanlines', P.scanlines, 0, 1, v => { P.scanlines = v; });
+    addSlider(C, 'glitch', P.glitch, 0, 1, v => { P.glitch = v; });
+    addMirrorRow(C);
+
+    // --- LFOs ---
+    addSection(C, 'LFOs');
+    Object.keys(LFOs).forEach(key => {
+      addLFORow(C, key);
+    });
+
+    // --- Actions ---
+    addSection(C, 'actions');
+    const actRow = el('div', { display: 'flex', gap: '6px', flexWrap: 'wrap' });
+    actRow.appendChild(makeActionBtn('Recapture', recapture));
+    actRow.appendChild(makeActionBtn('Save PNG', () => {
+      if (!canvas) return;
+      const link = document.createElement('a');
+      link.download = 'morphizer-' + Date.now() + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      api.showToast('Saved');
+    }));
+    actRow.appendChild(makeActionBtn('Reset', () => applyPreset('clean')));
+    C.appendChild(actRow);
+  }
+
+  // --- UI helpers ---
+  function el(tag, styles) {
+    const e = document.createElement(tag);
+    if (styles) Object.assign(e.style, styles);
+    return e;
+  }
+
+  function addSection(parent, text, first) {
+    const s = el('div', {
+      fontSize: '9px', fontWeight: '700', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#666', marginBottom: '6px',
+      marginTop: first ? '0' : '14px',
+      paddingTop: first ? '0' : '10px',
+      borderTop: first ? 'none' : '1px solid rgba(255,255,255,0.06)',
+    });
+    s.textContent = text;
+    parent.appendChild(s);
+  }
+
+  const _sliderEls = {};
+  function addSlider(parent, label, value, min, max, onChange, step) {
+    const row = el('div', { marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' });
+    const lbl = el('div', { fontSize: '10px', color: '#999', width: '70px', flexShrink: '0' });
+    lbl.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = min; input.max = max;
+    input.step = step || ((max - min) / 100).toFixed(4);
+    input.value = value;
+    Object.assign(input.style, { flex: '1', height: '3px', accentColor: '#8b5cf6' });
+    input.addEventListener('input', () => onChange(parseFloat(input.value)));
+    row.appendChild(lbl);
+    row.appendChild(input);
+    parent.appendChild(row);
+    _sliderEls[label] = input;
+    return input;
+  }
+
+  function addBlendRow(parent) {
+    const row = el('div', { display: 'flex', gap: '3px', marginTop: '6px' });
+    BLEND_NAMES.forEach((name, i) => {
+      const btn = el('button', {
+        padding: '2px 5px', fontSize: '9px', border: 'none', borderRadius: '3px',
+        cursor: 'pointer', background: i === P.blendMode ? '#8b5cf6' : '#333',
+        color: '#fff', fontFamily: 'inherit',
+      });
+      btn.textContent = name;
+      btn.addEventListener('click', () => {
+        P.blendMode = i;
+        row.querySelectorAll('button').forEach((b, j) => {
+          b.style.background = j === i ? '#8b5cf6' : '#333';
+        });
+      });
+      row.appendChild(btn);
+    });
+    parent.appendChild(row);
+  }
+
+  function addMirrorRow(parent) {
+    const names = ['off', 'H', 'V', 'both'];
+    const row = el('div', { display: 'flex', gap: '3px', alignItems: 'center', marginTop: '4px' });
+    const lbl = el('div', { fontSize: '10px', color: '#999', width: '70px', flexShrink: '0' });
+    lbl.textContent = 'mirror';
+    row.appendChild(lbl);
+    names.forEach((name, i) => {
+      const btn = el('button', {
+        padding: '2px 6px', fontSize: '9px', border: 'none', borderRadius: '3px',
+        cursor: 'pointer', background: i === P.mirror ? '#8b5cf6' : '#333',
+        color: '#fff', fontFamily: 'inherit',
+      });
+      btn.textContent = name;
+      btn.addEventListener('click', () => {
+        P.mirror = i;
+        row.querySelectorAll('button').forEach((b, j) => {
+          if (j === 0) return; // skip label
+          b.style.background = (j - 1) === i ? '#8b5cf6' : '#333';
+        });
+      });
+      row.appendChild(btn);
+    });
+    parent.appendChild(row);
+  }
+
+  function addLFORow(parent, key) {
+    const lfo = LFOs[key];
+    const row = el('div', { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' });
+    const toggle = el('button', {
+      width: '14px', height: '14px', borderRadius: '50%', border: 'none',
+      background: lfo.active ? '#8b5cf6' : '#444', cursor: 'pointer', padding: '0', flexShrink: '0',
+    });
+    toggle.addEventListener('click', () => {
+      lfo.active = !lfo.active;
+      toggle.style.background = lfo.active ? '#8b5cf6' : '#444';
+    });
+    const lbl = el('span', { fontSize: '10px', color: '#bbb', width: '60px' });
+    lbl.textContent = key;
+    row.appendChild(toggle);
+    row.appendChild(lbl);
+    parent.appendChild(row);
+  }
+
+  function makeActionBtn(text, onClick) {
+    const btn = el('button', {
+      padding: '4px 10px', fontSize: '10px', fontWeight: '600',
+      border: 'none', borderRadius: '4px', cursor: 'pointer',
+      background: '#333', color: '#fff', fontFamily: 'inherit',
+    });
+    btn.textContent = text;
+    btn.addEventListener('click', onClick);
+    btn.addEventListener('mouseenter', () => { btn.style.background = '#555'; });
+    btn.addEventListener('mouseleave', () => { btn.style.background = '#333'; });
+    return btn;
+  }
+
+  function applyPreset(name) {
+    const p = PRESETS[name];
+    if (!p) return;
+    Object.assign(P, p);
+    // Update sliders
+    const map = {
+      'intensity': P.intensity, 'frequency': P.frequency, 'speed': P.speed,
+      'mix': P.feedbackMix, 'zoom': P.feedbackZoom, 'rotate': P.feedbackRotate,
+      'hue shift': P.hueShift, 'saturation': P.saturation, 'RGB split': P.rgbSplit,
+      'brightness': P.brightness, 'kaleidoscope': P.kaleidoscope,
+      'pixelate': P.pixelate, 'scanlines': P.scanlines, 'glitch': P.glitch,
+    };
+    Object.entries(map).forEach(([label, val]) => {
+      if (_sliderEls[label]) _sliderEls[label].value = val;
+    });
+    api.showToast('Preset: ' + name);
+  }
+
+  // --- Mouse ---
+  function onMouseMove(e) {
+    mouseX = e.clientX / window.innerWidth;
+    mouseY = e.clientY / window.innerHeight;
+  }
+
+  // --- Plugin definition ---
+  const plugin = {
+    id: 'morphizer',
+    label: 'Morphizer',
+    enabledByDefault: true,
+
+    button: {
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3c2 3 3 6 3 9s-1 6-3 9"/><path d="M12 3c-2 3-3 6-3 9s1 6 3 9"/><path d="M3 12h18"/></svg>',
+      tooltip: 'Morphizer',
+      color: '#8b5cf6',
+      order: 50,
+    },
+
+    init(pluginApi) { api = pluginApi; },
+
+    async activate() {
+      if (!panel) buildPanel();
+      panel.style.display = 'block';
+
+      // Init WebGL first (but don't show canvas yet)
+      if (!gl) {
+        if (!initGL()) { panel.style.display = 'none'; return; }
+      }
+      canvas.style.display = 'none'; // hidden during capture
+
+      // Capture a single clean frame
+      const ok = await captureFrame();
+      if (!ok) { panel.style.display = 'none'; return; }
+
+      // Upload snapshot and show canvas
+      uploadSnapshot();
+      canvas.style.display = 'block';
+
+      startTime = performance.now();
+      document.addEventListener('mousemove', onMouseMove);
+      animFrame = requestAnimationFrame(render);
+    },
+
+    deactivate() {
+      if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+      document.removeEventListener('mousemove', onMouseMove);
+      if (canvas) canvas.style.display = 'none';
+      if (panel) panel.style.display = 'none';
+      frozen = false;
+    },
+
+    toggle() {
+      if (canvas && canvas.style.display !== 'none') { this.deactivate(); return false; }
+      this.activate();
+      return true;
+    },
+  };
+
+  // Register
+  const dt = window.DomTools || (window.DomTools = { _pendingPlugins: [] });
+  if (dt.registerPlugin) dt.registerPlugin(plugin);
+  else dt._pendingPlugins.push(plugin);
+})();
+
+/**
+ * Spacing Debugger Plugin
+ * Page-wide margin (orange) and padding (green) overlays for all visible elements.
+ * No hover required — global X-ray for spacing consistency.
+ */
+(function () {
+  const MARGIN_COLOR = 'rgba(255, 165, 0, 0.25)';
+  const PADDING_COLOR = 'rgba(144, 238, 144, 0.3)';
+  const LABEL_BG = 'rgba(0,0,0,0.7)';
+  const MAX_ELEMENTS = 120;
+  const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'BR', 'HR', 'LINK', 'META', 'HEAD', 'HTML']);
+
+  let container = null;
+  let panel = null;
+  let active = false;
+  let api = null;
+  let rafId = null;
+  let showLabels = false;
+  let mode = 'both'; // 'both' | 'margin' | 'padding'
+
+  function createContainer() {
+    container = document.createElement('div');
+    container.id = 'dt-spacing-overlays';
+    container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2147483639;';
+    document.body.appendChild(container);
+  }
+
+  function createPanel() {
+    panel = document.createElement('div');
+    panel.id = 'dt-spacing-panel';
+    panel.setAttribute('data-dt-ignore', '');
+    panel.style.cssText = `
+      position:fixed;bottom:60px;right:16px;z-index:2147483641;
+      background:rgba(20,20,30,0.92);color:#e0e0e0;
+      font:11px/1.6 'SF Mono',Menlo,monospace;
+      padding:10px 14px;border-radius:8px;
+      box-shadow:0 4px 16px rgba(0,0,0,0.3);
+      pointer-events:auto;user-select:none;
+    `;
+    panel.innerHTML = buildPanelHTML();
+    document.body.appendChild(panel);
+    bindPanel();
+  }
+
+  function buildPanelHTML() {
+    return `
+      <div style="margin-bottom:6px;font-weight:600;font-size:12px;">Spacing Debugger</div>
+      <label style="display:block;cursor:pointer;margin:3px 0;">
+        <input type="checkbox" id="dt-sp-labels" ${showLabels ? 'checked' : ''}> Show labels
+      </label>
+      <div style="margin:6px 0 3px;">
+        <label style="cursor:pointer;margin-right:8px;"><input type="radio" name="dt-sp-mode" value="both" ${mode === 'both' ? 'checked' : ''}> Both</label>
+        <label style="cursor:pointer;margin-right:8px;"><input type="radio" name="dt-sp-mode" value="margin" ${mode === 'margin' ? 'checked' : ''}> Margin</label>
+        <label style="cursor:pointer;"><input type="radio" name="dt-sp-mode" value="padding" ${mode === 'padding' ? 'checked' : ''}> Padding</label>
+      </div>
+      <div id="dt-sp-count" style="margin-top:6px;color:#888;font-size:10px;"></div>
+    `;
+  }
+
+  function bindPanel() {
+    panel.querySelector('#dt-sp-labels').addEventListener('change', (e) => {
+      showLabels = e.target.checked;
+      refresh();
+    });
+    panel.querySelectorAll('input[name="dt-sp-mode"]').forEach(r => {
+      r.addEventListener('change', (e) => {
+        mode = e.target.value;
+        refresh();
+      });
+    });
+  }
+
+  function getVisibleElements() {
+    const all = document.body.querySelectorAll('*');
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const results = [];
+
+    for (let i = 0; i < all.length && results.length < MAX_ELEMENTS; i++) {
+      const el = all[i];
+      if (SKIP_TAGS.has(el.tagName)) continue;
+      if (el.closest('#dt-spacing-overlays, #dt-spacing-panel, #dom-tools-toolbar, [data-dt-ignore]')) continue;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) continue;
+      if (rect.bottom < 0 || rect.top > vh || rect.right < 0 || rect.left > vw) continue;
+
+      const cs = getComputedStyle(el);
+      const mt = parseFloat(cs.marginTop) || 0;
+      const mr = parseFloat(cs.marginRight) || 0;
+      const mb = parseFloat(cs.marginBottom) || 0;
+      const ml = parseFloat(cs.marginLeft) || 0;
+      const pt = parseFloat(cs.paddingTop) || 0;
+      const pr = parseFloat(cs.paddingRight) || 0;
+      const pb = parseFloat(cs.paddingBottom) || 0;
+      const pl = parseFloat(cs.paddingLeft) || 0;
+
+      const hasMargin = mt || mr || mb || ml;
+      const hasPadding = pt || pr || pb || pl;
+      if (!hasMargin && !hasPadding) continue;
+
+      results.push({
+        rect, el,
+        margin: { top: mt, right: mr, bottom: mb, left: ml },
+        padding: { top: pt, right: pr, bottom: pb, left: pl },
+        bt: parseFloat(cs.borderTopWidth) || 0,
+        br: parseFloat(cs.borderRightWidth) || 0,
+        bb: parseFloat(cs.borderBottomWidth) || 0,
+        bl: parseFloat(cs.borderLeftWidth) || 0,
+      });
+    }
+    return results;
+  }
+
+  function renderSpacingOverlays() {
+    container.innerHTML = '';
+    const elements = getVisibleElements();
+
+    elements.forEach(({ rect, margin, padding, bt, br, bb, bl }) => {
+      if (mode === 'both' || mode === 'margin') {
+        // Top margin
+        if (margin.top) addBox(rect.left, rect.top - margin.top, rect.width, margin.top, MARGIN_COLOR, showLabels ? margin.top : null);
+        // Bottom margin
+        if (margin.bottom) addBox(rect.left, rect.bottom, rect.width, margin.bottom, MARGIN_COLOR, showLabels ? margin.bottom : null);
+        // Left margin
+        if (margin.left) addBox(rect.left - margin.left, rect.top, margin.left, rect.height, MARGIN_COLOR, showLabels ? margin.left : null);
+        // Right margin
+        if (margin.right) addBox(rect.right, rect.top, margin.right, rect.height, MARGIN_COLOR, showLabels ? margin.right : null);
+      }
+
+      if (mode === 'both' || mode === 'padding') {
+        const innerTop = rect.top + bt;
+        const innerLeft = rect.left + bl;
+        const innerW = rect.width - bl - br;
+        const innerH = rect.height - bt - bb;
+
+        // Top padding
+        if (padding.top) addBox(innerLeft, innerTop, innerW, padding.top, PADDING_COLOR, showLabels ? padding.top : null);
+        // Bottom padding
+        if (padding.bottom) addBox(innerLeft, innerTop + innerH - padding.bottom, innerW, padding.bottom, PADDING_COLOR, showLabels ? padding.bottom : null);
+        // Left padding
+        if (padding.left) addBox(innerLeft, innerTop, padding.left, innerH, PADDING_COLOR, showLabels ? padding.left : null);
+        // Right padding
+        if (padding.right) addBox(innerLeft + innerW - padding.right, innerTop, padding.right, innerH, PADDING_COLOR, showLabels ? padding.right : null);
+      }
+    });
+
+    const countEl = panel && panel.querySelector('#dt-sp-count');
+    if (countEl) countEl.textContent = `${elements.length} elements`;
+  }
+
+  function addBox(x, y, w, h, color, label) {
+    if (w <= 0 || h <= 0) return;
+    const d = document.createElement('div');
+    d.style.cssText = `position:fixed;top:${y}px;left:${x}px;width:${w}px;height:${h}px;background:${color};`;
+
+    if (label !== null && (w >= 18 || h >= 18)) {
+      const lbl = document.createElement('span');
+      lbl.textContent = Math.round(label);
+      lbl.style.cssText = `
+        position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+        font:9px/1 'SF Mono',Menlo,monospace;color:#fff;
+        background:${LABEL_BG};padding:1px 3px;border-radius:2px;
+      `;
+      d.appendChild(lbl);
+    }
+    container.appendChild(d);
+  }
+
+  function refresh() {
+    if (!active) return;
+    renderSpacingOverlays();
+  }
+
+  function onScrollOrResize() {
+    if (rafId) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      refresh();
+    });
+  }
+
+  // --- Plugin interface ---
+  const plugin = {
+    id: 'spacing-debugger',
+    label: 'Spacing',
+    icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3H3v18h18V3z"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>`,
+
+    toggle() {
+      if (active) { this.deactivate(); return false; }
+      else { this.activate(this._api); return true; }
+    },
+
+    activate(_api) {
+      if (_api) api = _api;
+      active = true;
+      createContainer();
+      createPanel();
+      renderSpacingOverlays();
+      window.addEventListener('scroll', onScrollOrResize, true);
+      window.addEventListener('resize', onScrollOrResize);
+    },
+
+    deactivate() {
+      active = false;
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      if (container) { container.remove(); container = null; }
+      if (panel) { panel.remove(); panel = null; }
+    },
+  };
+
+  if (window.DomTools) {
+    window.DomTools.registerPlugin(plugin);
+  }
 })();

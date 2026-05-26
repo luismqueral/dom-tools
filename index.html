@@ -18,6 +18,7 @@
   @keyframes gradient-shift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
 
   :root {
+    /* Colors */
     --nyt-fg: #121212;
     --nyt-fg-dim: #5a5a5a;
     --nyt-fg-faint: #8b8b8b;
@@ -26,9 +27,69 @@
     --nyt-border: #ececec;
     --nyt-border-strong: #c7c7c7;
     --nyt-accent: #326891;
+    --nyt-red: #c13b2a;
+    --nyt-orange: #b87a00;
+    --nyt-green: #3f7f63;
 
+    /* Data Viz -- Stela categorical palette */
+    --viz-1: #2A6586;
+    --viz-2: #6CBAAB;
+    --viz-3: #B2A5E7;
+    --viz-4: #F66043;
+    --viz-5: #D2E463;
+    --viz-6: #F1A05B;
+    --viz-7: #657D53;
+    --viz-8: #BD5D91;
+
+    /* Data Viz -- Sequential scales */
+    --viz-blue-1: #242b40;
+    --viz-blue-2: #1f497d;
+    --viz-blue-3: #00577e;
+    --viz-blue-4: #80b0c1;
+    --viz-green-1: #437661;
+    --viz-green-2: #6a9b87;
+    --viz-green-3: #a8ddc7;
+    --viz-green-4: #e2eceb;
+
+    /* Data Viz -- Product colors */
+    --viz-core: #2F3E7A;
+    --viz-cooking: #f9351a;
+    --viz-games: #F8CD0F;
+    --viz-athletic: #30522D;
+    --viz-wirecutter: #6085ff;
+    --viz-audio: #357a8a;
+
+    /* Fonts -- Primary stacks */
     --nyt-sans: 'nyt-franklin', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    --nyt-sans-small: 'nyt-franklin-small', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    --nyt-serif: 'nyt-cheltenham', Georgia, "Times New Roman", serif;
+    --nyt-serif-cond: 'nyt-cheltenham-cond', Georgia, "Times New Roman", serif;
+    --nyt-serif-wide: 'nyt-cheltenham-wide', Georgia, "Times New Roman", serif;
+    --nyt-serif-small: 'nyt-cheltenham-small', Georgia, "Times New Roman", serif;
+    --nyt-serif-scaps: 'nyt-cheltenham-scaps', Georgia, "Times New Roman", serif;
+    --nyt-imperial: 'nyt-imperial', Georgia, "Times New Roman", serif;
+    --nyt-display: 'nyt-karnak', Georgia, serif;
+    --nyt-display-cond: 'nyt-karnak-cond', Georgia, serif;
+    --nyt-display-small: 'nyt-karnak-small', Georgia, serif;
 
+    /* Fonts -- Magazine */
+    --nyt-mag: 'nyt-kippenberger', Georgia, serif;
+    --nyt-mag-cond: 'nyt-kippenberger-condensed', Georgia, serif;
+    --nyt-mag-poster: 'nyt-kippenberger-poster', Georgia, serif;
+    --nyt-mag-sans: 'nyt-magsans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --nyt-mag-serif: 'nyt-magserif', Georgia, serif;
+    --nyt-mag-slab: 'nyt-magslab', Georgia, serif;
+
+    /* Fonts -- Products */
+    --nyt-fact: 'nyt-fact', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    --nyt-fact-display: 'nyt-fact-display', -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    --nyt-athletic: 'nyt-athletic-slab', Georgia, serif;
+    --nyt-schnyder: 'nyt-schnyder-s', Georgia, serif;
+    --nyt-mono: 'nyt-ibm-plex', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    --nyt-prototype: 'Comic Sans MS', 'Comic Sans', cursive;
+
+    /* Spacing scale */
+    --sp-0: 0;
     --sp-1: 0.25rem;
     --sp-2: 0.5rem;
     --sp-3: 0.75rem;
@@ -41,6 +102,7 @@
     --sp-12: 6rem;
     --sp-16: 8rem;
 
+    /* Type scale */
     --ts-xs: 11px;
     --ts-sm: 13px;
     --ts-base: 15px;
@@ -49,6 +111,65 @@
     --ts-xl: 26px;
     --ts-2xl: 34px;
     --ts-3xl: 42px;
+    --ts-4xl: 52px;
+    --ts-5xl: 64px;
+    --ts-6xl: 80px;
+
+    /* Line height */
+    --lh-solid: 1;
+    --lh-title: 1.2;
+    --lh-heading: 1.3;
+    --lh-copy: 1.55;
+    --lh-loose: 1.8;
+
+    /* Letter spacing */
+    --ls-tight: -0.02em;
+    --ls-none: 0;
+    --ls-tracked: 0.05em;
+    --ls-mega: 0.15em;
+
+    /* Border radius */
+    --br-0: 0;
+    --br-1: 2px;
+    --br-2: 4px;
+    --br-3: 8px;
+    --br-4: 12px;
+    --br-5: 16px;
+    --br-pill: 9999px;
+    --br-full: 100%;
+
+    /* Box shadow */
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.1);
+    --shadow-3: 0 4px 8px rgba(0, 0, 0, 0.12);
+    --shadow-4: 0 8px 16px rgba(0, 0, 0, 0.14);
+    --shadow-5: 0 16px 32px rgba(0, 0, 0, 0.16);
+
+    /* Border width */
+    --bw-0: 0;
+    --bw-1: 1px;
+    --bw-2: 2px;
+    --bw-3: 4px;
+    --bw-4: 8px;
+
+    /* Transition */
+    --ease-fast: 0.1s ease;
+    --ease-normal: 0.2s ease;
+    --ease-slow: 0.4s ease;
+
+    /* Max-width */
+    --mw-narrow: 560px;
+    --mw-container: 760px;
+    --mw-wide: 960px;
+    --mw-full: 1200px;
+
+    /* Sizing -- proportional */
+    --size-quarter: 25%;
+    --size-third: 33.333%;
+    --size-half: 50%;
+    --size-two-thirds: 66.666%;
+    --size-three-quarters: 75%;
+    --size-full: 100%;
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -61,7 +182,7 @@
     padding: var(--sp-8) var(--sp-6);
     color: var(--nyt-fg);
     font-size: var(--ts-base);
-    line-height: 1.6;
+    line-height: var(--lh-copy);
     background: var(--nyt-bg);
   }
 
@@ -71,7 +192,7 @@
     margin-left: calc(-1 * var(--sp-12));
     margin-right: calc(-1 * var(--sp-12));
     padding: var(--sp-8) var(--sp-7) var(--sp-7);
-    border-radius: var(--sp-4);
+    border-radius: var(--br-5);
     background: linear-gradient(to right, #dbeafe, #ede9fe, #fef3c7, #fee2e2);
     background-size: 300% 300%;
     animation: gradient-shift 8s ease infinite;
@@ -111,9 +232,9 @@
     padding: var(--sp-4) var(--sp-10) var(--sp-4) var(--sp-4);
     font-size: var(--ts-sm);
     background: var(--nyt-bg-alt);
-    border: 1px solid var(--nyt-border);
-    border-radius: var(--sp-2);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    border: var(--bw-1) solid var(--nyt-border);
+    border-radius: var(--br-3);
+    font-family: var(--nyt-mono);
     color: var(--nyt-fg);
     margin: 0;
   }
@@ -125,7 +246,7 @@
     background: var(--nyt-fg);
     color: var(--nyt-bg);
     border: 0;
-    border-radius: var(--sp-2);
+    border-radius: var(--br-3);
     font-size: var(--ts-sm);
     font-weight: 600;
     cursor: pointer;
@@ -147,7 +268,7 @@
 
   video {
     width: 100%;
-    border-radius: var(--sp-3);
+    border-radius: var(--br-4);
     margin-top: var(--sp-4);
   }
 
@@ -159,8 +280,8 @@
   }
   .card {
     background: var(--nyt-bg-alt);
-    border: 1px solid var(--nyt-border);
-    border-radius: var(--sp-3);
+    border: var(--bw-1) solid var(--nyt-border);
+    border-radius: var(--br-4);
     padding: var(--sp-5);
     font-size: var(--ts-base);
   }
@@ -177,22 +298,22 @@
 
   .shortcuts {
     background: var(--nyt-bg-alt);
-    border: 1px solid var(--nyt-border);
-    border-radius: var(--sp-3);
+    border: var(--bw-1) solid var(--nyt-border);
+    border-radius: var(--br-4);
     padding: var(--sp-5);
     font-size: var(--ts-base);
     color: var(--nyt-fg-dim);
     margin-top: var(--sp-5);
-    line-height: 2;
+    line-height: var(--lh-loose);
   }
   .shortcuts p { margin: var(--sp-2) 0; }
   kbd {
     display: inline-block;
     padding: var(--sp-1) var(--sp-3);
     background: var(--nyt-bg);
-    border: 1px solid var(--nyt-border-strong);
-    border-radius: var(--sp-2);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    border: var(--bw-1) solid var(--nyt-border-strong);
+    border-radius: var(--br-2);
+    font-family: var(--nyt-mono);
     font-size: var(--ts-sm);
     font-weight: 600;
     color: inherit;
@@ -204,7 +325,7 @@
     margin-top: var(--sp-12);
     text-align: center;
     padding: var(--sp-6) 0;
-    border-top: 1px solid var(--nyt-border);
+    border-top: var(--bw-1) solid var(--nyt-border);
   }
   footer small {
     display: block;
@@ -219,6 +340,7 @@
 
 <div class="hero">
   <h1>DOM-Tools</h1>
+  <p style="font-size: var(--ts-md); color: var(--nyt-fg-dim); margin-top: var(--sp-2);">a tool for generative, browser manipulation</p>
   <img src="header.png" alt="">
   <div class="install" data-dt-ignore>
     <h3>Install via hosted instance:</h3>

@@ -70,6 +70,7 @@ const EXPERIMENT_DEFS = [
   { id: 'hd-capture', label: 'HD Capture', category: 'plugins', description: 'Tiled rendering for sharp full-page screenshots on very tall pages.', default: true },
   { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false },
   { id: 'inspector-panel', label: 'Inspector Panel', category: 'plugins', description: 'Shows computed styles and CSS tokens for the selected element.', default: false },
+  { id: 'inspector-panel-nyt', label: 'Inspector (NYT)', category: 'plugins', description: 'NYT-CSS token audit inspector with hardcoded token families.', default: false },
 ];
 
 export function isExperimentEnabled(id) {
