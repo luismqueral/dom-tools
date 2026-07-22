@@ -6,10 +6,10 @@
 <title>Capture height diagnostic — issue #66</title>
 <style>
   body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 0; color: #111; }
-  header { padding: 16px 20px; background: #111; color: #fff; position: sticky; top: 0; z-index: 10; }
+  header { padding: 16px 20px; background: #111; color: #fff; }
   header h1 { margin: 0 0 4px; font-size: 16px; }
   header p { margin: 0; font-size: 12px; opacity: .8; }
-  .bar { padding: 12px 20px; background: #f4f4f4; border-bottom: 1px solid #ddd; position: sticky; top: 56px; z-index: 9; }
+  .bar { padding: 12px 20px; background: #f4f4f4; border-bottom: 1px solid #ddd; }
   button { font: inherit; padding: 8px 14px; border: 1px solid #333; background: #fff; border-radius: 6px; cursor: pointer; }
   button:hover { background: #eee; }
   main { padding: 20px; display: grid; gap: 24px; }
@@ -29,7 +29,9 @@
   td.ok { color: #0a0; font-weight: 600; }
   td.bad { color: #c00; font-weight: 600; }
   .copy { font-size: 11px; padding: 4px 8px; }
-  #results { margin-top: 8px; }
+  #panel { padding: 0 20px 8px; }
+  #log { font: 12px/1.5 monospace; background: #111; color: #0f0; padding: 10px 12px; border-radius: 6px; white-space: pre-wrap; min-height: 20px; margin-top: 8px; }
+  #log .err { color: #f66; }
 </style>
 </head>
 <body>
@@ -41,7 +43,11 @@
 <div class="bar">
   <button id="run">Run diagnostic on all samples</button>
   <span id="status" style="margin-left:12px;color:#666;"></span>
+</div>
+
+<div id="panel">
   <div id="results"></div>
+  <div id="log"></div>
 </div>
 
 <main id="samples">
@@ -54,46 +60,83 @@
   <div class="sample" data-label="nested container"><div class="lbl">nested container</div><div class="s-nested"><div class="inner"></div></div></div>
 </main>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
+const H2C_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
 const SCALE = 3; // matches getIdealScale() default ('3')
 const statusEl = document.getElementById('status');
 const resultsEl = document.getElementById('results');
+const logEl = document.getElementById('log');
 
-// The element captured by the tool is the click target inside each .sample —
-// i.e. the last element child (the actual content, not the label wrapper).
+function log(msg, isErr) {
+  const line = document.createElement('div');
+  line.textContent = msg;
+  if (isErr) line.className = 'err';
+  logEl.appendChild(line);
+  console.log('[diag #66]', msg);
+}
+
+// Surface anything that would otherwise fail silently.
+window.addEventListener('error', e => log('JS error: ' + (e.message || e.error), true));
+window.addEventListener('unhandledrejection', e => log('Unhandled rejection: ' + ((e.reason && e.reason.message) || e.reason), true));
+
+// Load html2canvas on demand so a missing/blocked CDN reports clearly instead of a dead button.
+function loadH2C() {
+  return new Promise((resolve) => {
+    if (window.html2canvas) return resolve(true);
+    log('Loading html2canvas from CDN…');
+    const s = document.createElement('script');
+    s.src = H2C_SRC;
+    s.onload = () => resolve(!!window.html2canvas);
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+}
+
+// The element the tool would capture is the content node inside each .sample (not the label wrapper).
 function targetOf(sample) {
   return sample.querySelector('.s-btn, .s-inline, .s-card-md, .s-card-tall, svg, .s-vh, .s-nested');
 }
 
 async function run() {
-  statusEl.textContent = 'Running…';
+  logEl.innerHTML = '';
   resultsEl.innerHTML = '';
+  statusEl.textContent = 'Running…';
+  log('Run clicked.');
+
+  const ready = await loadH2C();
+  if (!ready) {
+    statusEl.textContent = 'Failed — html2canvas unavailable';
+    log('html2canvas failed to load (offline, or the network blocked ' + H2C_SRC + ').', true);
+    return;
+  }
+  log('html2canvas ready ✓');
+
   const rows = [];
   const samples = [...document.querySelectorAll('#samples .sample')];
 
   for (const sample of samples) {
     const el = targetOf(sample);
     const label = sample.dataset.label;
+    if (!el) { log('No target found for "' + label + '" — skipped.', true); continue; }
     const rect = el.getBoundingClientRect();
-    // Same call the tool makes in captureElement (camera.js)
-    const canvas = await html2canvas(el, { backgroundColor: null, scale: SCALE, logging: false });
-    const at1xH = Math.round(canvas.height / SCALE);
-    const at1xW = Math.round(canvas.width / SCALE);
-    const matches = Math.abs(at1xH - rect.height) <= 2;
-    const row = {
-      label,
-      rect: `${Math.round(rect.width)}×${Math.round(rect.height)}`,
-      canvas: `${canvas.width}×${canvas.height}`,
-      at1x: `${at1xW}×${at1xH}`,
-      matches,
-      canvasEl: canvas,
-    };
-    rows.push(row);
-    console.log('[diag #66]', row.label, { rect: row.rect, canvas: row.canvas, at1x: row.at1x, heightMatchesRect: matches });
+    // Per-sample try/catch: one failing capture (e.g. the 100vh sample blowing
+    // past the 16384px canvas cap at scale 3) logs and continues instead of
+    // aborting the whole run and leaving the button looking dead.
+    try {
+      const canvas = await html2canvas(el, { backgroundColor: null, scale: SCALE, logging: false });
+      const at1xH = Math.round(canvas.height / SCALE);
+      const at1xW = Math.round(canvas.width / SCALE);
+      const matches = Math.abs(at1xH - rect.height) <= 2;
+      const row = { label, rect: `${Math.round(rect.width)}×${Math.round(rect.height)}`, canvas: `${canvas.width}×${canvas.height}`, at1x: `${at1xW}×${at1xH}`, matches, canvasEl: canvas };
+      rows.push(row);
+      log(`${label}: rect ${row.rect} → canvas ${row.canvas} (@1x ${row.at1x}), height≈rect: ${matches}`);
+    } catch (e) {
+      log(`${label}: capture FAILED — ${(e && e.message) || e}`, true);
+    }
   }
 
-  // distinct 1x heights? if all equal → the equal-height effect is at capture time
+  if (!rows.length) { statusEl.textContent = 'No samples captured — see log above'; return; }
+
   const heights = rows.map(r => Number(r.at1x.split('×')[1]));
   const distinct = new Set(heights).size;
 
@@ -129,6 +172,7 @@ async function run() {
         a.href = url; a.download = rows[Number(btn.dataset.i)].label.replace(/\W+/g, '-') + '.png';
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+        log('Clipboard blocked (likely file:// insecure context) — downloaded PNG instead.');
       }
     });
   });
@@ -137,6 +181,7 @@ async function run() {
 }
 
 document.getElementById('run').addEventListener('click', run);
+log(window.html2canvas ? 'Ready. html2canvas already present — click Run.' : 'Ready. html2canvas will load on first Run.');
 </script>
 </body>
 </html>
