@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capture height diagnostic — issue #66</title>
+<style>
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 0; color: #111; }
+  header { padding: 16px 20px; background: #111; color: #fff; }
+  header h1 { margin: 0 0 4px; font-size: 16px; }
+  header p { margin: 0; font-size: 12px; opacity: .8; }
+  .bar { padding: 12px 20px; background: #f4f4f4; border-bottom: 1px solid #ddd; }
+  button { font: inherit; padding: 8px 14px; border: 1px solid #333; background: #fff; border-radius: 6px; cursor: pointer; }
+  button:hover { background: #eee; }
+  main { padding: 20px; display: grid; gap: 24px; }
+  .sample { border: 1px dashed #bbb; padding: 12px; }
+  .sample > .lbl { font: 11px monospace; color: #888; margin-bottom: 8px; }
+  /* deliberately different heights */
+  .s-btn { display: inline-block; padding: 8px 16px; background: #06c; color: #fff; border-radius: 6px; }
+  .s-inline { background: #ffe8a3; padding: 2px 4px; }
+  .s-card-md { height: 180px; background: linear-gradient(135deg,#e0f,#0cf); border-radius: 10px; }
+  .s-card-tall { height: 420px; background: linear-gradient(135deg,#fc0,#f30); border-radius: 10px; }
+  .s-vh { min-height: 100vh; background: repeating-linear-gradient(45deg,#eee,#eee 20px,#e6e6e6 20px,#e6e6e6 40px); display: flex; align-items: center; justify-content: center; font-size: 24px; color: #999; }
+  .s-nested { padding: 24px; background: #f0fff0; }
+  .s-nested .inner { height: 90px; background: #9e9; border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+  th { background: #fafafa; }
+  td.ok { color: #0a0; font-weight: 600; }
+  td.bad { color: #c00; font-weight: 600; }
+  .copy { font-size: 11px; padding: 4px 8px; }
+  #panel { padding: 0 20px 8px; }
+  #log { font: 12px/1.5 monospace; background: #111; color: #0f0; padding: 10px 12px; border-radius: 6px; white-space: pre-wrap; min-height: 20px; margin-top: 8px; }
+  #log .err { color: #f66; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Capture height diagnostic — issue #66</h1>
+  <p>Runs html2canvas with the exact options <code>captureElement</code> uses (backgroundColor:null, scale:3). Compares each element's own box to the canvas produced. Then paste each into Figma to observe paste-time behavior.</p>
+</header>
+
+<div class="bar">
+  <button id="run">Run diagnostic on all samples</button>
+  <span id="status" style="margin-left:12px;color:#666;"></span>
+</div>
+
+<div id="panel">
+  <div id="results"></div>
+  <div id="log"></div>
+</div>
+
+<main id="samples">
+  <div class="sample" data-label="button (~36px tall)"><div class="lbl">button (~36px tall)</div><a class="s-btn" href="#">Small button</a></div>
+  <div class="sample" data-label="inline span"><div class="lbl">inline span</div><span class="s-inline">an inline highlighted span of text</span></div>
+  <div class="sample" data-label="card 180px"><div class="lbl">card 180px</div><div class="s-card-md"></div></div>
+  <div class="sample" data-label="card 420px"><div class="lbl">card 420px</div><div class="s-card-tall"></div></div>
+  <div class="sample" data-label="inline SVG"><div class="lbl">inline SVG</div><svg width="120" height="60" viewBox="0 0 120 60"><rect width="120" height="60" fill="#39c"/><circle cx="60" cy="30" r="24" fill="#fff"/></svg></div>
+  <div class="sample" data-label="min-height:100vh section"><div class="lbl">min-height:100vh section</div><div class="s-vh">100vh section</div></div>
+  <div class="sample" data-label="nested container"><div class="lbl">nested container</div><div class="s-nested"><div class="inner"></div></div></div>
+</main>
+
+<script>
+const H2C_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+const SCALE = 3; // matches getIdealScale() default ('3')
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+const logEl = document.getElementById('log');
+
+function log(msg, isErr) {
+  const line = document.createElement('div');
+  line.textContent = msg;
+  if (isErr) line.className = 'err';
+  logEl.appendChild(line);
+  console.log('[diag #66]', msg);
+}
+
+// Surface anything that would otherwise fail silently.
+window.addEventListener('error', e => log('JS error: ' + (e.message || e.error), true));
+window.addEventListener('unhandledrejection', e => log('Unhandled rejection: ' + ((e.reason && e.reason.message) || e.reason), true));
+
+// Load html2canvas on demand so a missing/blocked CDN reports clearly instead of a dead button.
+function loadH2C() {
+  return new Promise((resolve) => {
+    if (window.html2canvas) return resolve(true);
+    log('Loading html2canvas from CDN…');
+    const s = document.createElement('script');
+    s.src = H2C_SRC;
+    s.onload = () => resolve(!!window.html2canvas);
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+}
+
+// The element the tool would capture is the content node inside each .sample (not the label wrapper).
+function targetOf(sample) {
+  return sample.querySelector('.s-btn, .s-inline, .s-card-md, .s-card-tall, svg, .s-vh, .s-nested');
+}
+
+async function run() {
+  logEl.innerHTML = '';
+  resultsEl.innerHTML = '';
+  statusEl.textContent = 'Running…';
+  log('Run clicked.');
+
+  const ready = await loadH2C();
+  if (!ready) {
+    statusEl.textContent = 'Failed — html2canvas unavailable';
+    log('html2canvas failed to load (offline, or the network blocked ' + H2C_SRC + ').', true);
+    return;
+  }
+  log('html2canvas ready ✓');
+
+  const rows = [];
+  const samples = [...document.querySelectorAll('#samples .sample')];
+
+  for (const sample of samples) {
+    const el = targetOf(sample);
+    const label = sample.dataset.label;
+    if (!el) { log('No target found for "' + label + '" — skipped.', true); continue; }
+    const rect = el.getBoundingClientRect();
+    // Per-sample try/catch: one failing capture (e.g. the 100vh sample blowing
+    // past the 16384px canvas cap at scale 3) logs and continues instead of
+    // aborting the whole run and leaving the button looking dead.
+    try {
+      const canvas = await html2canvas(el, { backgroundColor: null, scale: SCALE, logging: false });
+      const at1xH = Math.round(canvas.height / SCALE);
+      const at1xW = Math.round(canvas.width / SCALE);
+      const matches = Math.abs(at1xH - rect.height) <= 2;
+      const row = { label, rect: `${Math.round(rect.width)}×${Math.round(rect.height)}`, canvas: `${canvas.width}×${canvas.height}`, at1x: `${at1xW}×${at1xH}`, matches, canvasEl: canvas };
+      rows.push(row);
+      log(`${label}: rect ${row.rect} → canvas ${row.canvas} (@1x ${row.at1x}), height≈rect: ${matches}`);
+    } catch (e) {
+      log(`${label}: capture FAILED — ${(e && e.message) || e}`, true);
+    }
+  }
+
+  if (!rows.length) { statusEl.textContent = 'No samples captured — see log above'; return; }
+
+  const heights = rows.map(r => Number(r.at1x.split('×')[1]));
+  const distinct = new Set(heights).size;
+
+  const table = document.createElement('table');
+  table.innerHTML = `<tr><th>element</th><th>rect W×H</th><th>canvas W×H</th><th>canvas @1x</th><th>height≈rect?</th><th>Figma test</th></tr>`;
+  rows.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.label}</td><td>${r.rect}</td><td>${r.canvas}</td><td>${r.at1x}</td>` +
+      `<td class="${r.matches ? 'ok' : 'bad'}">${r.matches ? 'yes' : 'NO'}</td>` +
+      `<td><button class="copy" data-i="${i}">Copy PNG</button></td>`;
+    table.appendChild(tr);
+  });
+  resultsEl.appendChild(table);
+
+  const verdict = document.createElement('p');
+  verdict.style.marginTop = '8px';
+  verdict.innerHTML = distinct === 1
+    ? `<strong style="color:#c00">All ${rows.length} captures share one 1x height (${heights[0]}px) → equal heights originate at CAPTURE time (script/html2canvas).</strong>`
+    : `<strong style="color:#0a0">Captures span ${distinct} distinct 1x heights → PNGs are element-sized; equal heights in Figma originate at PASTE time (Figma), not the script.</strong> Use "Copy PNG" then paste into Figma to confirm.`;
+  resultsEl.appendChild(verdict);
+
+  resultsEl.querySelectorAll('.copy').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const canvas = rows[Number(btn.dataset.i)].canvasEl;
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = 'Copied ✓';
+        setTimeout(() => (btn.textContent = 'Copy PNG'), 1500);
+      } catch (e) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = rows[Number(btn.dataset.i)].label.replace(/\W+/g, '-') + '.png';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        log('Clipboard blocked (likely file:// insecure context) — downloaded PNG instead.');
+      }
+    });
+  });
+
+  statusEl.textContent = `Done — ${rows.length} samples, ${distinct} distinct 1x height(s).`;
+}
+
+document.getElementById('run').addEventListener('click', run);
+log(window.html2canvas ? 'Ready. html2canvas already present — click Run.' : 'Ready. html2canvas will load on first Run.');
+</script>
+</body>
+</html>
