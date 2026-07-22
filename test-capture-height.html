@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capture height diagnostic — issue #66</title>
+<style>
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 0; color: #111; }
+  header { padding: 16px 20px; background: #111; color: #fff; position: sticky; top: 0; z-index: 10; }
+  header h1 { margin: 0 0 4px; font-size: 16px; }
+  header p { margin: 0; font-size: 12px; opacity: .8; }
+  .bar { padding: 12px 20px; background: #f4f4f4; border-bottom: 1px solid #ddd; position: sticky; top: 56px; z-index: 9; }
+  button { font: inherit; padding: 8px 14px; border: 1px solid #333; background: #fff; border-radius: 6px; cursor: pointer; }
+  button:hover { background: #eee; }
+  main { padding: 20px; display: grid; gap: 24px; }
+  .sample { border: 1px dashed #bbb; padding: 12px; }
+  .sample > .lbl { font: 11px monospace; color: #888; margin-bottom: 8px; }
+  /* deliberately different heights */
+  .s-btn { display: inline-block; padding: 8px 16px; background: #06c; color: #fff; border-radius: 6px; }
+  .s-inline { background: #ffe8a3; padding: 2px 4px; }
+  .s-card-md { height: 180px; background: linear-gradient(135deg,#e0f,#0cf); border-radius: 10px; }
+  .s-card-tall { height: 420px; background: linear-gradient(135deg,#fc0,#f30); border-radius: 10px; }
+  .s-vh { min-height: 100vh; background: repeating-linear-gradient(45deg,#eee,#eee 20px,#e6e6e6 20px,#e6e6e6 40px); display: flex; align-items: center; justify-content: center; font-size: 24px; color: #999; }
+  .s-nested { padding: 24px; background: #f0fff0; }
+  .s-nested .inner { height: 90px; background: #9e9; border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+  th { background: #fafafa; }
+  td.ok { color: #0a0; font-weight: 600; }
+  td.bad { color: #c00; font-weight: 600; }
+  .copy { font-size: 11px; padding: 4px 8px; }
+  #results { margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Capture height diagnostic — issue #66</h1>
+  <p>Runs html2canvas with the exact options <code>captureElement</code> uses (backgroundColor:null, scale:3). Compares each element's own box to the canvas produced. Then paste each into Figma to observe paste-time behavior.</p>
+</header>
+
+<div class="bar">
+  <button id="run">Run diagnostic on all samples</button>
+  <span id="status" style="margin-left:12px;color:#666;"></span>
+  <div id="results"></div>
+</div>
+
+<main id="samples">
+  <div class="sample" data-label="button (~36px tall)"><div class="lbl">button (~36px tall)</div><a class="s-btn" href="#">Small button</a></div>
+  <div class="sample" data-label="inline span"><div class="lbl">inline span</div><span class="s-inline">an inline highlighted span of text</span></div>
+  <div class="sample" data-label="card 180px"><div class="lbl">card 180px</div><div class="s-card-md"></div></div>
+  <div class="sample" data-label="card 420px"><div class="lbl">card 420px</div><div class="s-card-tall"></div></div>
+  <div class="sample" data-label="inline SVG"><div class="lbl">inline SVG</div><svg width="120" height="60" viewBox="0 0 120 60"><rect width="120" height="60" fill="#39c"/><circle cx="60" cy="30" r="24" fill="#fff"/></svg></div>
+  <div class="sample" data-label="min-height:100vh section"><div class="lbl">min-height:100vh section</div><div class="s-vh">100vh section</div></div>
+  <div class="sample" data-label="nested container"><div class="lbl">nested container</div><div class="s-nested"><div class="inner"></div></div></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+const SCALE = 3; // matches getIdealScale() default ('3')
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+
+// The element captured by the tool is the click target inside each .sample —
+// i.e. the last element child (the actual content, not the label wrapper).
+function targetOf(sample) {
+  return sample.querySelector('.s-btn, .s-inline, .s-card-md, .s-card-tall, svg, .s-vh, .s-nested');
+}
+
+async function run() {
+  statusEl.textContent = 'Running…';
+  resultsEl.innerHTML = '';
+  const rows = [];
+  const samples = [...document.querySelectorAll('#samples .sample')];
+
+  for (const sample of samples) {
+    const el = targetOf(sample);
+    const label = sample.dataset.label;
+    const rect = el.getBoundingClientRect();
+    // Same call the tool makes in captureElement (camera.js)
+    const canvas = await html2canvas(el, { backgroundColor: null, scale: SCALE, logging: false });
+    const at1xH = Math.round(canvas.height / SCALE);
+    const at1xW = Math.round(canvas.width / SCALE);
+    const matches = Math.abs(at1xH - rect.height) <= 2;
+    const row = {
+      label,
+      rect: `${Math.round(rect.width)}×${Math.round(rect.height)}`,
+      canvas: `${canvas.width}×${canvas.height}`,
+      at1x: `${at1xW}×${at1xH}`,
+      matches,
+      canvasEl: canvas,
+    };
+    rows.push(row);
+    console.log('[diag #66]', row.label, { rect: row.rect, canvas: row.canvas, at1x: row.at1x, heightMatchesRect: matches });
+  }
+
+  // distinct 1x heights? if all equal → the equal-height effect is at capture time
+  const heights = rows.map(r => Number(r.at1x.split('×')[1]));
+  const distinct = new Set(heights).size;
+
+  const table = document.createElement('table');
+  table.innerHTML = `<tr><th>element</th><th>rect W×H</th><th>canvas W×H</th><th>canvas @1x</th><th>height≈rect?</th><th>Figma test</th></tr>`;
+  rows.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.label}</td><td>${r.rect}</td><td>${r.canvas}</td><td>${r.at1x}</td>` +
+      `<td class="${r.matches ? 'ok' : 'bad'}">${r.matches ? 'yes' : 'NO'}</td>` +
+      `<td><button class="copy" data-i="${i}">Copy PNG</button></td>`;
+    table.appendChild(tr);
+  });
+  resultsEl.appendChild(table);
+
+  const verdict = document.createElement('p');
+  verdict.style.marginTop = '8px';
+  verdict.innerHTML = distinct === 1
+    ? `<strong style="color:#c00">All ${rows.length} captures share one 1x height (${heights[0]}px) → equal heights originate at CAPTURE time (script/html2canvas).</strong>`
+    : `<strong style="color:#0a0">Captures span ${distinct} distinct 1x heights → PNGs are element-sized; equal heights in Figma originate at PASTE time (Figma), not the script.</strong> Use "Copy PNG" then paste into Figma to confirm.`;
+  resultsEl.appendChild(verdict);
+
+  resultsEl.querySelectorAll('.copy').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const canvas = rows[Number(btn.dataset.i)].canvasEl;
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = 'Copied ✓';
+        setTimeout(() => (btn.textContent = 'Copy PNG'), 1500);
+      } catch (e) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = rows[Number(btn.dataset.i)].label.replace(/\W+/g, '-') + '.png';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    });
+  });
+
+  statusEl.textContent = `Done — ${rows.length} samples, ${distinct} distinct 1x height(s).`;
+}
+
+document.getElementById('run').addEventListener('click', run);
+</script>
+</body>
+</html>

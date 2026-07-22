@@ -84,7 +84,20 @@ async function captureElement(el) {
   el.style.backgroundColor = el._origBg || '';
   showToast('Capturing...');
   try {
-    const canvas = await html2canvas(el, { backgroundColor: null, scale: getIdealScale(), logging: false });
+    const scale = getIdealScale();
+    const canvas = await html2canvas(el, { backgroundColor: null, scale, logging: false });
+    // DIAG (issue #66 — TEMPORARY): compare the element's own box against the
+    // canvas html2canvas produced. If canvas.height ÷ scale tracks rect.height,
+    // the PNG is element-sized and equal heights originate at Figma paste-time.
+    const rect = el.getBoundingClientRect();
+    console.log('[camera][diag #66]', {
+      tag: el.tagName.toLowerCase(),
+      scale,
+      rectWxH: `${Math.round(rect.width)}x${Math.round(rect.height)}`,
+      canvasWxH: `${canvas.width}x${canvas.height}`,
+      canvasAt1x: `${Math.round(canvas.width / scale)}x${Math.round(canvas.height / scale)}`,
+      heightMatchesRect: Math.abs(canvas.height / scale - rect.height) <= 2,
+    });
     await saveCapture(canvas, el);
   } catch (e) { showToast('Capture failed'); }
   el.style.outline = oo;
