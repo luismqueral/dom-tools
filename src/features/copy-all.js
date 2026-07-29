@@ -17,7 +17,6 @@
  */
 
 import { showToast, getSelector, copyText } from '../core/helpers.js';
-import { captureFullPagePNGBlob } from './camera.js';
 import { getAnnotations } from './annotations.js';
 import { getSelected } from './style-modifier.js';
 import { getCopyButton } from '../toolbar.js';
@@ -174,26 +173,14 @@ export function buildChangesForElement(el) {
 
 // --- Copy-all entry points -----------------------------------------------
 
-// Copy puts the full-page screenshot (draw marks baked in, ~2x) on the
-// clipboard as image/png. The ClipboardItem is built synchronously with a
-// pending capture promise so navigator.clipboard.write() runs inside the
-// click's user-activation window — otherwise the async html2canvas render
-// outlives the gesture and the write is rejected.
 export async function copyAllChanges() {
-  showToast('Capturing…');
-  try {
-    const item = new ClipboardItem({
-      'image/png': captureFullPagePNGBlob(2).then(png => {
-        if (!png) throw new Error('capture returned no blob');
-        return png;
-      }),
-    });
-    await navigator.clipboard.write([item]);
-    showToast('Copied screenshot');
-  } catch (e) {
-    console.warn('[copy] screenshot clipboard write failed:', e);
-    showToast('Screenshot copy failed — see console');
+  const output = buildAllChanges();
+  if (!output) {
+    showToast('No changes to copy');
+    return;
   }
+  const ok = await copyText(output);
+  showToast(ok ? 'All changes copied' : 'Could not copy changes');
 }
 
 export function initCopyAll() {
