@@ -132,6 +132,38 @@ function safeScale(width, height) {
   return Math.min(ideal, maxByWidth, maxByHeight);
 }
 
+// Render the whole page to a single canvas via html2canvas. `scaleCap`
+// optionally lowers the scale below the safe-fit maximum (used by callers
+// that want a smaller/faster image, e.g. the Copy button). Strips
+// inspector UI but keeps the draw overlay (not in inspectorUI), so marks
+// bake in. Does NOT use HD tiling — tall pages degrade in resolution
+// rather than fail.
+async function renderFullPageCanvas(scaleCap) {
+  await loadH2C();
+  const w = document.documentElement.scrollWidth;
+  const h = document.documentElement.scrollHeight;
+  let scale = safeScale(w, h);
+  if (scaleCap) scale = Math.min(scale, scaleCap);
+  return html2canvas(document.documentElement, {
+    backgroundColor: '#fff', scale, logging: false,
+    scrollX: 0, scrollY: 0,
+    windowWidth: w,
+    windowHeight: h,
+    width: w,
+    height: h,
+    ignoreElements: (el) => inspectorUI.has(el)
+  });
+}
+
+// Public: full-page screenshot as a PNG blob (marks baked in), or null on
+// failure. Single-canvas path only. Used by the Copy button.
+export async function captureFullPagePNGBlob(scaleCap = 2) {
+  try {
+    const canvas = await renderFullPageCanvas(scaleCap);
+    return await new Promise(r => canvas.toBlob(r, 'image/png'));
+  } catch (_) { return null; }
+}
+
 async function captureFullPage() {
   const w = document.documentElement.scrollWidth;
   const h = document.documentElement.scrollHeight;
@@ -149,19 +181,9 @@ async function captureFullPage() {
   }
 
   // Standard single-canvas path (with safe scale)
-  await loadH2C();
   showToast('Capturing full page...');
   try {
-    const cappedScale = safeScale(w, h);
-    const canvas = await html2canvas(document.documentElement, {
-      backgroundColor: '#fff', scale: cappedScale, logging: false,
-      scrollX: 0, scrollY: 0,
-      windowWidth: w,
-      windowHeight: h,
-      width: w,
-      height: h,
-      ignoreElements: (el) => inspectorUI.has(el)
-    });
+    const canvas = await renderFullPageCanvas(null);
     await saveCapture(canvas, null, 'full-page-screenshot.png');
   } catch (e) { showToast('Full page capture failed'); }
 }
