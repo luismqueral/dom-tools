@@ -1,6 +1,6 @@
 /**
  * DOM-Tools v1.1.0
- * Built: 2026-05-26T14:51:02.130Z
+ * Built: 2026-07-29T13:37:42.030Z
  * Drop-in design toolbar for any webpage.
  * https://github.com/luismqueral/dom-tools
  */
@@ -673,6 +673,878 @@
   }
 
   /**
+   * Settings panel — full-screen modal with tabbed sections.
+   *
+   * Tabs: General | Tools | Plugins | About
+   * Each experiment has a `category` that determines which tab it appears in.
+   * Click the gear → modal with tabs. Esc or backdrop click closes.
+   */
+
+
+  let visible = false;
+  let _settingsBtn = null;
+  let _popover = null;
+
+  const EXP_KEY = 'dom-tools-experiments';
+  let experiments = {};
+  try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (e) {}
+
+  const EXPERIMENT_DEFS = [
+    // General
+    { id: 'dock', label: 'Edge snap', category: 'general', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
+    { id: 'canvas-zoom', label: 'Canvas zoom & pan', category: 'general', description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.', default: true },
+    { id: 'dblclick-edit', label: 'Double-click to edit text', category: 'general', description: 'Double-click a text element in Select mode to edit it inline.', default: true },
+    { id: 'markdown-edit', label: 'Markdown editing', category: 'general', description: 'Live Markdown preview when editing text (bold, italic, strike, code, links).', default: false },
+    { id: 'element-labels', label: 'Element labels', category: 'general', description: 'Show tag name labels above hovered and selected elements.', default: true },
+    { id: 'kidpix-clear', label: 'Kid Pix clear', category: 'general', description: 'Dramatic animated screen wipe when clearing all changes (Shift+Esc).', default: false },
+    // Tools
+    {
+      id: 'move',
+      label: 'Move elements',
+      category: 'tools',
+      description: 'Hold Cmd to grab and rearrange elements.',
+      default: false,
+      options: {
+        id: 'moveType',
+        label: 'Type',
+        choices: [
+          { value: 'dom-reorder', label: 'DOM reorder' },
+          { value: 'free-position', label: 'Free position' },
+        ],
+        default: 'dom-reorder',
+      },
+    },
+    { id: 'duplicate', label: 'Duplicate element', category: 'tools', description: 'Hold Shift and click-drag any element to duplicate it.', default: false },
+    {
+      id: 'camera',
+      label: 'Screenshot resolution',
+      category: 'general',
+      description: 'Quality for screenshots (Cmd+Shift+S and camera tool).',
+      default: true,
+      noToggle: true,
+      options: {
+        id: 'resolution',
+        label: 'Scale',
+        choices: [
+          { value: '1', label: '1x (fast, small file)' },
+          { value: '2', label: '2x' },
+          { value: '3', label: '3x (high-res)' },
+          { value: 'auto', label: 'Auto (device pixel ratio)' },
+        ],
+        default: '3',
+      },
+    },
+    // Plugins
+    { id: 'hd-capture', label: 'HD Capture', category: 'plugins', description: 'Tiled rendering for sharp full-page screenshots on very tall pages.', default: true },
+    { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false },
+    { id: 'inspector-panel', label: 'Inspector Panel', category: 'plugins', description: 'Shows computed styles and CSS tokens for the selected element.', default: false },
+    { id: 'inspector-panel-nyt', label: 'Inspector (NYT)', category: 'plugins', description: 'NYT-CSS token audit inspector with hardcoded token families.', default: false },
+  ];
+
+  function isExperimentEnabled(id) {
+    const def = EXPERIMENT_DEFS.find(e => e.id === id);
+    if (id in experiments) return experiments[id];
+    return def ? def.default : false;
+  }
+
+  function getExperimentOption(id, optionId) {
+    const def = EXPERIMENT_DEFS.find(e => e.id === id);
+    if (!def || !def.options || def.options.id !== optionId) return null;
+    const key = `${id}.${optionId}`;
+    if (key in experiments) return experiments[key];
+    return def.options.default;
+  }
+
+  function setExperiment(id, on) {
+    experiments[id] = on;
+    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
+  }
+
+  function setExperimentOption(id, optionId, value) {
+    experiments[`${id}.${optionId}`] = value;
+    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
+  }
+
+  // --- UI Helpers ---
+  function el(tag, styles, text) {
+    const e = document.createElement(tag);
+    if (styles) Object.assign(e.style, styles);
+    if (text) e.textContent = text;
+    return e;
+  }
+
+  let _refreshHint = null;
+  function showRefreshHint() {
+    if (_refreshHint) return;
+    _refreshHint = document.createElement('button');
+    _refreshHint.type = 'button';
+    Object.assign(_refreshHint.style, {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+      width: '100%', padding: '8px 12px', marginBottom: '14px',
+      background: 'rgba(251,191,36,0.12)',
+      border: '1px solid rgba(251,191,36,0.3)',
+      borderRadius: '6px', fontSize: '11px', color: '#fbbf24',
+      cursor: 'pointer', transition: 'background 0.1s',
+      fontFamily: 'inherit',
+    });
+    _refreshHint.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>Refresh page for changes to take effect';
+    _refreshHint.addEventListener('mouseenter', () => { _refreshHint.style.background = 'rgba(251,191,36,0.2)'; });
+    _refreshHint.addEventListener('mouseleave', () => { _refreshHint.style.background = 'rgba(251,191,36,0.12)'; });
+    _refreshHint.addEventListener('click', () => { location.reload(); });
+    // Insert at top of card, after header
+    const card = _popover && _popover.firstElementChild;
+    if (card && card.children[1]) {
+      card.insertBefore(_refreshHint, card.children[1]);
+    }
+  }
+
+  // --- Experiment toggle row (reused across tabs) ---
+  function buildExperimentRow(exp) {
+    const wrap = el('div', { marginBottom: '10px' });
+
+    // noToggle: just show label + options, no checkbox
+    if (exp.noToggle) {
+      const labelWrap = el('div', { padding: '6px 0' });
+      const labelRow = el('span', { display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500', color: '#ddd', fontSize: '13px' });
+      labelRow.textContent = exp.label;
+      labelWrap.appendChild(labelRow);
+      labelWrap.appendChild(el('span', { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' }, exp.description));
+      wrap.appendChild(labelWrap);
+      if (exp.options) wrap.appendChild(buildExperimentOptions(exp));
+      return wrap;
+    }
+
+    const row = el('label', {
+      display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
+      color: '#ddd', fontSize: '13px', cursor: 'pointer',
+    });
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = isExperimentEnabled(exp.id);
+    checkbox.style.accentColor = getSelectionColor();
+    checkbox.style.marginTop = '3px';
+    const labelWrap = el('div');
+    const labelRow = el('span', { display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500' });
+    labelRow.textContent = exp.label;
+    if (exp.beta) {
+      const badge = el('span', {
+        fontSize: '9px', fontWeight: '700', textTransform: 'uppercase',
+        letterSpacing: '0.5px', padding: '1px 5px', borderRadius: '3px',
+        background: 'rgba(251,191,36,0.15)', color: '#fbbf24', lineHeight: '1.4',
+      }, 'Beta');
+      labelRow.appendChild(badge);
+    }
+    labelWrap.appendChild(labelRow);
+    labelWrap.appendChild(el('span', { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' }, exp.description));
+    row.appendChild(checkbox);
+    row.appendChild(labelWrap);
+    wrap.appendChild(row);
+
+    let optionsBlock = null;
+    if (exp.options) {
+      optionsBlock = buildExperimentOptions(exp);
+      optionsBlock.style.display = isExperimentEnabled(exp.id) ? 'block' : 'none';
+      wrap.appendChild(optionsBlock);
+    }
+
+    checkbox.addEventListener('change', () => {
+      setExperiment(exp.id, checkbox.checked);
+      if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
+      showRefreshHint();
+    });
+
+    return wrap;
+  }
+
+  function buildExperimentOptions(exp) {
+    const block = el('div', {
+      marginLeft: '24px', marginTop: '4px', marginBottom: '6px',
+      paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.08)',
+    });
+    block.appendChild(el('div', {
+      color: '#aaa', fontSize: '10px', marginBottom: '4px',
+      textTransform: 'uppercase', letterSpacing: '0.4px',
+    }, exp.options.label));
+
+    const groupName = `dt-exp-${exp.id}-${exp.options.id}`;
+    exp.options.choices.forEach(choice => {
+      const row = el('label', {
+        display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0',
+        color: '#ddd', fontSize: '11px', cursor: 'pointer',
+      });
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = groupName;
+      radio.value = choice.value;
+      radio.checked = getExperimentOption(exp.id, exp.options.id) === choice.value;
+      radio.style.accentColor = getSelectionColor();
+      radio.addEventListener('change', () => {
+        if (radio.checked) setExperimentOption(exp.id, exp.options.id, choice.value);
+      });
+      row.appendChild(radio);
+      row.appendChild(el('span', {}, choice.label));
+      block.appendChild(row);
+    });
+    return block;
+  }
+
+  // --- Tab: General ---
+  function buildGeneralTab(container) {
+    // // Color swatches (disabled — buggy)
+    // container.appendChild(el('div', {
+    //   fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+    //   letterSpacing: '1px', color: '#888', marginBottom: '10px',
+    // }, 'Selection color'));
+    // container.appendChild(buildColorSwatches());
+
+    // General experiments
+    container.appendChild(el('div', {
+      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#888', marginBottom: '12px',
+    }, 'Behavior'));
+
+    EXPERIMENT_DEFS.filter(e => e.category === 'general').forEach(exp => {
+      container.appendChild(buildExperimentRow(exp));
+    });
+  }
+
+  // --- Tab: Tools ---
+  function buildToolsTab(container) {
+    container.appendChild(el('div', {
+      fontSize: '11px', color: '#666', marginBottom: '16px',
+    }, 'Additional tools that add new capabilities to the toolbar.'));
+
+    EXPERIMENT_DEFS.filter(e => e.category === 'tools').forEach(exp => {
+      container.appendChild(buildExperimentRow(exp));
+    });
+  }
+
+  // --- Tab: Plugins ---
+  function buildPluginsTab(container) {
+    container.appendChild(el('div', {
+      fontSize: '11px', color: '#666', marginBottom: '16px',
+    }, 'External plugins loaded alongside DOM-Tools. Enable to show their toolbar button.'));
+
+    EXPERIMENT_DEFS.filter(e => e.category === 'plugins').forEach(exp => {
+      container.appendChild(buildExperimentRow(exp));
+    });
+  }
+
+  // --- Tab: About ---
+  function buildAboutTab(container) {
+    // Version + build date
+    const version = el('div', { marginBottom: '20px' });
+    version.appendChild(el('div', { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }, 'DOM-Tools'));
+    const buildDate = "2026-07-29T13:37:42.030Z" ;
+    const dateLabel = new Date(buildDate).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) ;
+    version.appendChild(el('div', { fontSize: '11px', color: '#888' }, `Release: ${dateLabel}`));
+    container.appendChild(version);
+
+    // Shortcuts
+    container.appendChild(el('div', {
+      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#888', marginBottom: '12px',
+      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    }, 'Keyboard shortcuts'));
+
+    const shortcuts = [
+      ['Cmd+Shift+K / Ctrl+Shift+K', 'Toggle inspector'],
+      ['Esc Esc (double-tap)', 'Re-focus cursor tool'],
+      ['Cmd+Shift+S / Ctrl+Shift+S', 'Full page screenshot'],
+      ['Esc', 'Exit current popover or tool'],
+      ['A', 'Toggle annotate/draw mode'],
+      ['Shift+Esc', 'Clear all changes'],
+    ];
+    shortcuts.forEach(([key, desc]) => {
+      const row = el('div', { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px' });
+      row.appendChild(el('span', { color: '#bbb', fontFamily: 'monospace', fontSize: '10px' }, key));
+      row.appendChild(el('span', { color: '#888' }, desc));
+      container.appendChild(row);
+    });
+
+    // Links
+    container.appendChild(el('div', {
+      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#888', marginTop: '20px', marginBottom: '12px',
+      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    }, 'Links'));
+
+    const ghLink = document.createElement('a');
+    ghLink.href = 'https://github.com/luismqueral/dom-tools';
+    ghLink.target = '_blank';
+    ghLink.rel = 'noopener';
+    ghLink.textContent = 'GitHub';
+    Object.assign(ghLink.style, {
+      display: 'block', fontSize: '12px', color: getSelectionColor(),
+      textDecoration: 'none', padding: '4px 0',
+    });
+    ghLink.addEventListener('mouseenter', () => { ghLink.style.textDecoration = 'underline'; });
+    ghLink.addEventListener('mouseleave', () => { ghLink.style.textDecoration = 'none'; });
+    container.appendChild(ghLink);
+
+    // Reset
+    container.appendChild(el('div', {
+      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
+      letterSpacing: '1px', color: '#888', marginTop: '20px', marginBottom: '12px',
+      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    }, 'Data'));
+
+    const resetBtn = el('button', {
+      padding: '8px 16px', fontSize: '11px', fontWeight: '600',
+      background: 'rgba(239,68,68,0.15)', color: '#ef4444',
+      border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px',
+      cursor: 'pointer', fontFamily: 'inherit',
+    }, 'Reset all settings');
+    resetBtn.addEventListener('click', () => {
+      if (confirm('Reset all DOM-Tools settings to defaults?')) {
+        localStorage.removeItem(EXP_KEY);
+        localStorage.removeItem('dom-tools-selection-color');
+        localStorage.removeItem('dom-tools-features');
+        experiments = {};
+        location.reload();
+      }
+    });
+    resetBtn.addEventListener('mouseenter', () => { resetBtn.style.background = 'rgba(239,68,68,0.25)'; });
+    resetBtn.addEventListener('mouseleave', () => { resetBtn.style.background = 'rgba(239,68,68,0.15)'; });
+    container.appendChild(resetBtn);
+  }
+
+  // --- Tabbed panel ---
+  const TABS = [
+    { id: 'general', label: 'General', build: buildGeneralTab },
+    { id: 'tools', label: 'Tools', build: buildToolsTab },
+    { id: 'plugins', label: 'Plugins', build: buildPluginsTab },
+    { id: 'about', label: 'About', build: buildAboutTab },
+  ];
+
+  function buildSettingsPanel() {
+    const outer = el('div');
+    let activeTab = 'general';
+
+    // Tab bar
+    const tabBar = el('div', {
+      display: 'flex', gap: '4px', marginBottom: '20px',
+      paddingBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+    });
+
+    // Tab content area
+    const contentArea = el('div', { minHeight: '200px' });
+
+    const tabBtns = {};
+
+    function switchTab(id) {
+      activeTab = id;
+      // Update button styles
+      Object.entries(tabBtns).forEach(([key, btn]) => {
+        if (key === id) {
+          btn.style.background = getSelectionColor();
+          btn.style.color = '#fff';
+        } else {
+          btn.style.background = 'transparent';
+          btn.style.color = '#888';
+        }
+      });
+      // Rebuild content
+      contentArea.innerHTML = '';
+      _refreshHint = null;
+      const tab = TABS.find(t => t.id === id);
+      if (tab) tab.build(contentArea);
+    }
+
+    TABS.forEach(tab => {
+      const btn = el('button', {
+        padding: '5px 12px', fontSize: '10px', fontWeight: '600',
+        textTransform: 'uppercase', letterSpacing: '0.5px',
+        border: 'none', borderRadius: '4px', cursor: 'pointer',
+        fontFamily: 'inherit', transition: 'background 0.15s, color 0.15s',
+        background: tab.id === activeTab ? getSelectionColor() : 'transparent',
+        color: tab.id === activeTab ? '#fff' : '#888',
+      });
+      btn.textContent = tab.label;
+      btn.addEventListener('click', () => switchTab(tab.id));
+      btn.addEventListener('mouseenter', () => {
+        if (tab.id !== activeTab) btn.style.color = '#ccc';
+      });
+      btn.addEventListener('mouseleave', () => {
+        if (tab.id !== activeTab) btn.style.color = '#888';
+      });
+      tabBtns[tab.id] = btn;
+      tabBar.appendChild(btn);
+    });
+
+    outer.appendChild(tabBar);
+    outer.appendChild(contentArea);
+
+    // Initial render
+    switchTab(activeTab);
+
+    return outer;
+  }
+
+  // --- Popover (modal) ---
+  function onPopoverKeyDown(e) {
+    if (e.key === 'Escape') closeSettings();
+  }
+
+  function showPopover() {
+    _popover = document.createElement('div');
+    _popover.setAttribute('data-dt-settings', '');
+    Object.assign(_popover.style, {
+      position: 'fixed', inset: '0',
+      zIndex: String(Z.toolbar + 1),
+      background: 'rgba(0,0,0,0.55)',
+      backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
+      boxSizing: 'border-box', padding: '80px 40px 40px',
+    });
+
+    const card = el('div', {
+      width: 'min(560px, 100%)',
+      maxHeight: '100%',
+      background: 'rgba(24,24,24,0.96)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '12px',
+      boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+      padding: '28px 32px',
+      boxSizing: 'border-box',
+      overflow: 'auto',
+      position: 'relative',
+    });
+
+    // Header
+    const header = el('div', {
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      marginBottom: '18px',
+    });
+    header.appendChild(el('div', {
+      fontSize: '18px', fontWeight: '600', color: '#fff', letterSpacing: '0.3px',
+    }, 'Settings'));
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.setAttribute('aria-label', 'Close settings');
+    Object.assign(closeBtn.style, {
+      width: '32px', height: '32px', background: 'transparent',
+      border: 'none', color: '#aaa', fontSize: '24px', lineHeight: '1',
+      cursor: 'pointer', borderRadius: '6px', padding: '0',
+    });
+    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(255,255,255,0.08)'; closeBtn.style.color = '#fff'; });
+    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'transparent'; closeBtn.style.color = '#aaa'; });
+    closeBtn.addEventListener('click', () => closeSettings());
+    header.appendChild(closeBtn);
+
+    card.appendChild(header);
+    card.appendChild(buildSettingsPanel());
+    _popover.appendChild(card);
+
+    _popover.addEventListener('click', (e) => {
+      if (e.target === _popover) closeSettings();
+    });
+
+    document.body.appendChild(_popover);
+    inspectorUI.add(_popover);
+    document.addEventListener('keydown', onPopoverKeyDown, true);
+  }
+
+  function hidePopover() {
+    if (_popover) {
+      inspectorUI.delete(_popover);
+      _popover.remove();
+      _popover = null;
+      _refreshHint = null;
+      document.removeEventListener('keydown', onPopoverKeyDown, true);
+    }
+  }
+
+  function toggleSettings() {
+    visible = !visible;
+    if (visible) {
+      activateModule(null);
+      setActiveButton(null);
+      showPopover();
+      if (_settingsBtn) _settingsBtn.style.background = getSelectionColor();
+    } else {
+      hidePopover();
+      if (_settingsBtn) _settingsBtn.style.background = '#222';
+      activateModule('style-modifier');
+      setActiveButton('style-modifier');
+    }
+  }
+
+  function closeSettings() {
+    if (visible) {
+      visible = false;
+      hidePopover();
+      if (_settingsBtn) _settingsBtn.style.background = '#222';
+      activateModule('style-modifier');
+      setActiveButton('style-modifier');
+    }
+  }
+
+  function initSettings() {
+    onToolActivate(closeSettings);
+
+    const btnStyle = {
+      width: '40px', height: '40px', background: '#222', color: '#fff',
+      borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
+      flexShrink: '0'
+    };
+    _settingsBtn = document.createElement('div');
+    _settingsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.44.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 110-7.2 3.6 3.6 0 010 7.2z"/></svg>';
+    Object.assign(_settingsBtn.style, btnStyle);
+    _settingsBtn.addEventListener('mouseenter', () => { if (!visible) _settingsBtn.style.background = '#333'; });
+    _settingsBtn.addEventListener('mouseleave', () => { if (!visible) _settingsBtn.style.background = '#222'; });
+    _settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); nudge(_settingsBtn); toggleSettings(); });
+    addTooltip(_settingsBtn, 'Settings');
+
+    toolbar.appendChild(_settingsBtn);
+    inspectorUI.add(_settingsBtn);
+
+    onColorChange((color) => {
+      if (visible && _settingsBtn) _settingsBtn.style.background = color;
+    });
+  }
+
+  let selBox = null;
+  function playShutter() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const t = ctx.currentTime;
+
+      // Click 1 — shutter open (short burst of noise)
+      const buf1 = ctx.createBuffer(1, ctx.sampleRate * 0.02, ctx.sampleRate);
+      const data1 = buf1.getChannelData(0);
+      for (let i = 0; i < data1.length; i++) data1[i] = (Math.random() * 2 - 1) * (1 - i / data1.length);
+      const click1 = ctx.createBufferSource();
+      click1.buffer = buf1;
+      const g1 = ctx.createGain();
+      g1.gain.setValueAtTime(0.3, t);
+      g1.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
+      click1.connect(g1);
+      g1.connect(ctx.destination);
+      click1.start(t);
+
+      // Click 2 — shutter close (slightly delayed, lower)
+      const buf2 = ctx.createBuffer(1, ctx.sampleRate * 0.015, ctx.sampleRate);
+      const data2 = buf2.getChannelData(0);
+      for (let i = 0; i < data2.length; i++) data2[i] = (Math.random() * 2 - 1) * (1 - i / data2.length);
+      const click2 = ctx.createBufferSource();
+      click2.buffer = buf2;
+      const g2 = ctx.createGain();
+      g2.gain.setValueAtTime(0.2, t + 0.06);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+      click2.connect(g2);
+      g2.connect(ctx.destination);
+      click2.start(t + 0.06);
+    } catch (e) {}
+  }
+
+  let camDragging = false, camStartX = 0, camStartY = 0, camDidDrag = false;
+
+  async function loadH2C() {
+    if (!window.html2canvas) {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      document.head.appendChild(s);
+      await new Promise(r => s.onload = r);
+    }
+  }
+
+  async function saveCapture(canvas, el, filename) {
+    playShutter();
+    flashElement$1(el || document.documentElement);
+
+    // Get blob first — toDataURL fails on large canvases
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    if (!blob) { showToast('Capture failed — canvas too large'); return; }
+
+    // Try clipboard (requires secure context + user gesture may have expired)
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      showToast('Copied to clipboard');
+      return;
+    } catch (_) {}
+
+    // Fallback: download via object URL
+    try {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = filename || 'screenshot.png';
+      link.href = url;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast('Downloaded screenshot');
+    } catch (_) {
+      showToast('Capture failed');
+    }
+  }
+
+  async function captureElement(el) {
+    await loadH2C();
+    const oo = el.style.outline, ob = el.style.backgroundColor;
+    el.style.outline = el._origOutline || '';
+    el.style.backgroundColor = el._origBg || '';
+    showToast('Capturing...');
+    try {
+      const canvas = await html2canvas(el, { backgroundColor: null, scale: getIdealScale(), logging: false });
+      await saveCapture(canvas, el);
+    } catch (e) { showToast('Capture failed'); }
+    el.style.outline = oo;
+    el.style.backgroundColor = ob;
+  }
+
+  async function captureRegion(x, y, w, h) {
+    await loadH2C();
+    showToast('Capturing...');
+    try {
+      const pageW = document.documentElement.scrollWidth;
+      const pageH = document.documentElement.scrollHeight;
+      const scale = safeScale(pageW, pageH);
+      const full = await html2canvas(document.documentElement, {
+        backgroundColor: '#fff', scale, logging: false,
+        scrollX: 0, scrollY: 0,
+        windowWidth: pageW,
+        windowHeight: pageH
+      });
+      const sx = (x + window.scrollX) * scale;
+      const sy = (y + window.scrollY) * scale;
+      const sw = w * scale;
+      const sh = h * scale;
+      const crop = document.createElement('canvas');
+      crop.width = sw; crop.height = sh;
+      crop.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh);
+      await saveCapture(crop);
+    } catch (e) { showToast('Capture failed'); }
+  }
+
+  // Browsers cap canvas dimensions (16384px in Chrome/Safari, 32767 in Firefox).
+  // Use 16384 as the safe cross-browser limit.
+  const MAX_CANVAS_DIM = 16384;
+
+  function getIdealScale() {
+    const setting = getExperimentOption('camera', 'resolution') || '3';
+    if (setting === 'auto') return window.devicePixelRatio || 2;
+    return Number(setting);
+  }
+
+  function safeScale(width, height) {
+    const ideal = getIdealScale();
+    const maxByWidth = MAX_CANVAS_DIM / width;
+    const maxByHeight = MAX_CANVAS_DIM / height;
+    return Math.min(ideal, maxByWidth, maxByHeight);
+  }
+
+  // Render the whole page to a single canvas via html2canvas. `scaleCap`
+  // optionally lowers the scale below the safe-fit maximum (used by callers
+  // that want a smaller/faster image, e.g. the Copy button). Strips
+  // inspector UI but keeps the draw overlay (not in inspectorUI), so marks
+  // bake in. Does NOT use HD tiling — tall pages degrade in resolution
+  // rather than fail.
+  async function renderFullPageCanvas(scaleCap) {
+    await loadH2C();
+    const w = document.documentElement.scrollWidth;
+    const h = document.documentElement.scrollHeight;
+    let scale = safeScale(w, h);
+    if (scaleCap) scale = Math.min(scale, scaleCap);
+    return html2canvas(document.documentElement, {
+      backgroundColor: '#fff', scale, logging: false,
+      scrollX: 0, scrollY: 0,
+      windowWidth: w,
+      windowHeight: h,
+      width: w,
+      height: h,
+      ignoreElements: (el) => inspectorUI.has(el)
+    });
+  }
+
+  // Public: full-page screenshot as a PNG blob (marks baked in), or null on
+  // failure. Single-canvas path only. Used by the Copy button.
+  async function captureFullPagePNGBlob(scaleCap = 2) {
+    try {
+      const canvas = await renderFullPageCanvas(scaleCap);
+      return await new Promise(r => canvas.toBlob(r, 'image/png'));
+    } catch (_) { return null; }
+  }
+
+  async function captureFullPage() {
+    const w = document.documentElement.scrollWidth;
+    const h = document.documentElement.scrollHeight;
+    const scale = getIdealScale();
+
+    // Delegate to HD Capture plugin if page exceeds single-canvas limits
+    console.log(`[camera] captureFullPage: ${w}x${h} @ ${scale}x, hdCapture=${!!window.DomTools?._hdCapture}, needed=${window.DomTools?._hdCaptureNeeded?.(w, h, scale)}`);
+    if (window.DomTools && window.DomTools._hdCapture && window.DomTools._hdCaptureNeeded &&
+        window.DomTools._hdCaptureNeeded(w, h, scale)) {
+      showToast('HD capture...');
+      try {
+        await window.DomTools._hdCapture(w, h, scale);
+      } catch (e) { showToast('HD capture failed'); }
+      return;
+    }
+
+    // Standard single-canvas path (with safe scale)
+    showToast('Capturing full page...');
+    try {
+      const canvas = await renderFullPageCanvas(null);
+      await saveCapture(canvas, null, 'full-page-screenshot.png');
+    } catch (e) { showToast('Full page capture failed'); }
+  }
+
+  var camera = {
+    id: 'camera',
+    label: 'Screenshots',
+    enabledByDefault: true,
+
+    button: {
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M2 8.37722C2 8.0269 2 7.85174 2.01462 7.70421C2.1556 6.28127 3.28127 5.1556 4.70421 5.01462C4.85174 5 5.03636 5 5.40558 5C5.54785 5 5.61899 5 5.67939 4.99634C6.45061 4.94963 7.12595 4.46288 7.41414 3.746C7.43671 3.68986 7.45781 3.62657 7.5 3.5C7.54219 3.37343 7.56329 3.31014 7.58586 3.254C7.87405 2.53712 8.54939 2.05037 9.32061 2.00366C9.38101 2 9.44772 2 9.58114 2H14.4189C14.5523 2 14.619 2 14.6794 2.00366C15.4506 2.05037 16.126 2.53712 16.4141 3.254C16.4367 3.31014 16.4578 3.37343 16.5 3.5C16.5422 3.62657 16.5633 3.68986 16.5859 3.746C16.874 4.46288 17.5494 4.94963 18.3206 4.99634C18.381 5 18.4521 5 18.5944 5C18.9636 5 19.1483 5 19.2958 5.01462C20.7187 5.1556 21.8444 6.28127 21.9854 7.70421C22 7.85174 22 8.0269 22 8.37722V16.2C22 17.8802 22 18.7202 21.673 19.362C21.3854 19.9265 20.9265 20.3854 20.362 20.673C19.7202 21 18.8802 21 17.2 21H6.8C5.11984 21 4.27976 21 3.63803 20.673C3.07354 20.3854 2.6146 19.9265 2.32698 19.362C2 18.7202 2 17.8802 2 16.2V8.37722Z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 16.5C14.2091 16.5 16 14.7091 16 12.5C16 10.2909 14.2091 8.5 12 8.5C9.79086 8.5 8 10.2909 8 12.5C8 14.7091 9.79086 16.5 12 16.5Z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      tooltip: 'Screenshot',
+      color: COLORS.camera,
+      order: 30,
+    },
+
+
+    shortcuts: [
+      { key: 'S', meta: true, shift: true, action: 'captureFullPage' }
+    ],
+
+    init() {
+      selBox = document.createElement('div');
+      Object.assign(selBox.style, {
+        position: 'fixed', border: '2px dashed ' + COLORS.camera, background: 'rgba(204, 51, 0, 0.08)',
+        zIndex: String(Z.tooltip), pointerEvents: 'none', display: 'none', borderRadius: '2px'
+      });
+      document.body.appendChild(selBox);
+      inspectorUI.add(selBox);
+
+
+      // Camera mousedown — shift+click = full page, otherwise start drag
+      document.addEventListener('mousedown', (e) => {
+        if (!state.cameraMode || isInspectorUI(e.target)) return;
+        e.preventDefault();
+        if (e.shiftKey) {
+          captureFullPage();
+          return;
+        }
+        camDragging = true;
+        camDidDrag = false;
+        camStartX = e.clientX;
+        camStartY = e.clientY;
+      }, true);
+
+      // Full-page highlight when shift held in camera mode
+      let fullPageHighlight = false;
+      function showFullPageHighlight() {
+        if (fullPageHighlight) return;
+        fullPageHighlight = true;
+        clearHover$2();
+        document.documentElement.style.outline = CAM_OUTLINE;
+        document.documentElement.style.backgroundColor = CAM_BG;
+      }
+      function hideFullPageHighlight() {
+        if (!fullPageHighlight) return;
+        fullPageHighlight = false;
+        document.documentElement.style.outline = '';
+        document.documentElement.style.backgroundColor = '';
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (state.cameraMode && e.key === 'Shift') showFullPageHighlight();
+      });
+      document.addEventListener('keyup', (e) => {
+        if (e.key === 'Shift') hideFullPageHighlight();
+      });
+
+      // Camera mousemove — drag or hover
+      document.addEventListener('mousemove', (e) => {
+        if (!state.cameraMode) return;
+        if (e.shiftKey) { showFullPageHighlight(); return; }
+        else { hideFullPageHighlight(); }
+        if (camDragging) {
+          const dx = Math.abs(e.clientX - camStartX);
+          const dy = Math.abs(e.clientY - camStartY);
+          if (dx > 4 || dy > 4) {
+            camDidDrag = true;
+            clearHover$2();
+            const x = Math.min(e.clientX, camStartX);
+            const y = Math.min(e.clientY, camStartY);
+            Object.assign(selBox.style, {
+              display: 'block', left: x + 'px', top: y + 'px', width: dx + 'px', height: dy + 'px'
+            });
+          }
+          return;
+        }
+        // Not dragging — show red hover
+        const el = e.target;
+        if (isInspectorUI(el) || el === document.body || el === document.documentElement) return;
+        if (state.hovered && state.hovered !== el) {
+          state.hovered.style.outline = state.hovered._origOutline || '';
+          state.hovered.style.backgroundColor = state.hovered._origBg || '';
+        }
+        if (el !== state.hovered) {
+          el._origOutline = el._origOutline ?? el.style.outline;
+          el._origBg = el._origBg ?? el.style.backgroundColor;
+        }
+        el.style.outline = CAM_OUTLINE;
+        el.style.backgroundColor = CAM_BG;
+        state.hovered = el;
+      }, true);
+
+      // Camera mouseup — capture
+      document.addEventListener('mouseup', (e) => {
+        if (!state.cameraMode || !camDragging) return;
+        camDragging = false;
+        if (camDidDrag) {
+          const x = Math.min(e.clientX, camStartX);
+          const y = Math.min(e.clientY, camStartY);
+          const w = Math.abs(e.clientX - camStartX);
+          const h = Math.abs(e.clientY - camStartY);
+          selBox.style.display = 'none';
+          if (w > 4 && h > 4) captureRegion(x, y, w, h);
+        } else {
+          const el = e.target;
+          if (!isInspectorUI(el) && el !== document.body && el !== document.documentElement) {
+            nudge(el);
+            captureElement(el);
+          }
+        }
+        camDidDrag = false;
+      }, true);
+    },
+
+    activate() {
+      state.cameraMode = true;
+      state.active = true;
+      document.body.style.cursor = 'crosshair';
+      showToast('Camera ON — Click element, drag area, or [Cmd+Shift+S]. [Esc] to exit');
+    },
+
+    deactivate() {
+      state.cameraMode = false;
+      camDragging = false;
+      if (selBox) selBox.style.display = 'none';
+      // Clear any hovered element highlight from camera mode
+      if (state.hovered) {
+        state.hovered.style.outline = state.hovered._origOutline || '';
+        state.hovered.style.backgroundColor = state.hovered._origBg || '';
+        state.hovered = null;
+      }
+      // Clear full-page highlight if shift was held
+      document.documentElement.style.outline = '';
+      document.documentElement.style.backgroundColor = '';
+      // Restore body cursor (set to crosshair in activate).
+      document.body.style.cursor = '';
+    },
+
+    captureFullPage,
+
+    enable() {},
+    disable() { this.deactivate(); },
+  };
+
+  /**
    * Live Markdown rendering for Text Edit mode.
    *
    * Obsidian-style "live preview": Markdown is always parsed and rendered,
@@ -1136,542 +2008,6 @@
   }
 
   /**
-   * Settings panel — full-screen modal with tabbed sections.
-   *
-   * Tabs: General | Tools | Plugins | About
-   * Each experiment has a `category` that determines which tab it appears in.
-   * Click the gear → modal with tabs. Esc or backdrop click closes.
-   */
-
-
-  let visible = false;
-  let _settingsBtn = null;
-  let _popover = null;
-
-  const EXP_KEY = 'dom-tools-experiments';
-  let experiments = {};
-  try { experiments = JSON.parse(localStorage.getItem(EXP_KEY) || '{}'); } catch (e) {}
-
-  const EXPERIMENT_DEFS = [
-    // General
-    { id: 'dock', label: 'Edge snap', category: 'general', description: 'Drag the toolbar near a screen edge to dock it.', default: true },
-    { id: 'canvas-zoom', label: 'Canvas zoom & pan', category: 'general', description: 'Cmd+Scroll to zoom, Spacebar+Drag to pan, Cmd+Esc to reset.', default: true },
-    { id: 'dblclick-edit', label: 'Double-click to edit text', category: 'general', description: 'Double-click a text element in Select mode to edit it inline.', default: true },
-    { id: 'markdown-edit', label: 'Markdown editing', category: 'general', description: 'Live Markdown preview when editing text (bold, italic, strike, code, links).', default: false },
-    { id: 'element-labels', label: 'Element labels', category: 'general', description: 'Show tag name labels above hovered and selected elements.', default: true },
-    { id: 'kidpix-clear', label: 'Kid Pix clear', category: 'general', description: 'Dramatic animated screen wipe when clearing all changes (Shift+Esc).', default: false },
-    // Tools
-    {
-      id: 'move',
-      label: 'Move elements',
-      category: 'tools',
-      description: 'Hold Cmd to grab and rearrange elements.',
-      default: false,
-      options: {
-        id: 'moveType',
-        label: 'Type',
-        choices: [
-          { value: 'dom-reorder', label: 'DOM reorder' },
-          { value: 'free-position', label: 'Free position' },
-        ],
-        default: 'dom-reorder',
-      },
-    },
-    { id: 'duplicate', label: 'Duplicate element', category: 'tools', description: 'Hold Shift and click-drag any element to duplicate it.', default: false },
-    {
-      id: 'camera',
-      label: 'Screenshot resolution',
-      category: 'general',
-      description: 'Quality for screenshots (Cmd+Shift+S and camera tool).',
-      default: true,
-      noToggle: true,
-      options: {
-        id: 'resolution',
-        label: 'Scale',
-        choices: [
-          { value: '1', label: '1x (fast, small file)' },
-          { value: '2', label: '2x' },
-          { value: '3', label: '3x (high-res)' },
-          { value: 'auto', label: 'Auto (device pixel ratio)' },
-        ],
-        default: '3',
-      },
-    },
-    // Plugins
-    { id: 'hd-capture', label: 'HD Capture', category: 'plugins', description: 'Tiled rendering for sharp full-page screenshots on very tall pages.', default: true },
-    { id: 'dev-panel', label: 'Dev Panel', category: 'plugins', description: 'Floating instrumentation panel showing live state, key events, and animations.', default: false },
-    { id: 'inspector-panel', label: 'Inspector Panel', category: 'plugins', description: 'Shows computed styles and CSS tokens for the selected element.', default: false },
-    { id: 'inspector-panel-nyt', label: 'Inspector (NYT)', category: 'plugins', description: 'NYT-CSS token audit inspector with hardcoded token families.', default: false },
-  ];
-
-  function isExperimentEnabled(id) {
-    const def = EXPERIMENT_DEFS.find(e => e.id === id);
-    if (id in experiments) return experiments[id];
-    return def ? def.default : false;
-  }
-
-  function getExperimentOption(id, optionId) {
-    const def = EXPERIMENT_DEFS.find(e => e.id === id);
-    if (!def || !def.options || def.options.id !== optionId) return null;
-    const key = `${id}.${optionId}`;
-    if (key in experiments) return experiments[key];
-    return def.options.default;
-  }
-
-  function setExperiment(id, on) {
-    experiments[id] = on;
-    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
-  }
-
-  function setExperimentOption(id, optionId, value) {
-    experiments[`${id}.${optionId}`] = value;
-    localStorage.setItem(EXP_KEY, JSON.stringify(experiments));
-  }
-
-  // --- UI Helpers ---
-  function el(tag, styles, text) {
-    const e = document.createElement(tag);
-    if (styles) Object.assign(e.style, styles);
-    if (text) e.textContent = text;
-    return e;
-  }
-
-  let _refreshHint = null;
-  function showRefreshHint() {
-    if (_refreshHint) return;
-    _refreshHint = document.createElement('button');
-    _refreshHint.type = 'button';
-    Object.assign(_refreshHint.style, {
-      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-      width: '100%', padding: '8px 12px', marginBottom: '14px',
-      background: 'rgba(251,191,36,0.12)',
-      border: '1px solid rgba(251,191,36,0.3)',
-      borderRadius: '6px', fontSize: '11px', color: '#fbbf24',
-      cursor: 'pointer', transition: 'background 0.1s',
-      fontFamily: 'inherit',
-    });
-    _refreshHint.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>Refresh page for changes to take effect';
-    _refreshHint.addEventListener('mouseenter', () => { _refreshHint.style.background = 'rgba(251,191,36,0.2)'; });
-    _refreshHint.addEventListener('mouseleave', () => { _refreshHint.style.background = 'rgba(251,191,36,0.12)'; });
-    _refreshHint.addEventListener('click', () => { location.reload(); });
-    // Insert at top of card, after header
-    const card = _popover && _popover.firstElementChild;
-    if (card && card.children[1]) {
-      card.insertBefore(_refreshHint, card.children[1]);
-    }
-  }
-
-  // --- Experiment toggle row (reused across tabs) ---
-  function buildExperimentRow(exp) {
-    const wrap = el('div', { marginBottom: '10px' });
-
-    // noToggle: just show label + options, no checkbox
-    if (exp.noToggle) {
-      const labelWrap = el('div', { padding: '6px 0' });
-      const labelRow = el('span', { display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500', color: '#ddd', fontSize: '13px' });
-      labelRow.textContent = exp.label;
-      labelWrap.appendChild(labelRow);
-      labelWrap.appendChild(el('span', { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' }, exp.description));
-      wrap.appendChild(labelWrap);
-      if (exp.options) wrap.appendChild(buildExperimentOptions(exp));
-      return wrap;
-    }
-
-    const row = el('label', {
-      display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '6px 0',
-      color: '#ddd', fontSize: '13px', cursor: 'pointer',
-    });
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = isExperimentEnabled(exp.id);
-    checkbox.style.accentColor = getSelectionColor();
-    checkbox.style.marginTop = '3px';
-    const labelWrap = el('div');
-    const labelRow = el('span', { display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500' });
-    labelRow.textContent = exp.label;
-    if (exp.beta) {
-      const badge = el('span', {
-        fontSize: '9px', fontWeight: '700', textTransform: 'uppercase',
-        letterSpacing: '0.5px', padding: '1px 5px', borderRadius: '3px',
-        background: 'rgba(251,191,36,0.15)', color: '#fbbf24', lineHeight: '1.4',
-      }, 'Beta');
-      labelRow.appendChild(badge);
-    }
-    labelWrap.appendChild(labelRow);
-    labelWrap.appendChild(el('span', { display: 'block', fontSize: '11px', color: '#888', marginTop: '3px' }, exp.description));
-    row.appendChild(checkbox);
-    row.appendChild(labelWrap);
-    wrap.appendChild(row);
-
-    let optionsBlock = null;
-    if (exp.options) {
-      optionsBlock = buildExperimentOptions(exp);
-      optionsBlock.style.display = isExperimentEnabled(exp.id) ? 'block' : 'none';
-      wrap.appendChild(optionsBlock);
-    }
-
-    checkbox.addEventListener('change', () => {
-      setExperiment(exp.id, checkbox.checked);
-      if (optionsBlock) optionsBlock.style.display = checkbox.checked ? 'block' : 'none';
-      showRefreshHint();
-    });
-
-    return wrap;
-  }
-
-  function buildExperimentOptions(exp) {
-    const block = el('div', {
-      marginLeft: '24px', marginTop: '4px', marginBottom: '6px',
-      paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.08)',
-    });
-    block.appendChild(el('div', {
-      color: '#aaa', fontSize: '10px', marginBottom: '4px',
-      textTransform: 'uppercase', letterSpacing: '0.4px',
-    }, exp.options.label));
-
-    const groupName = `dt-exp-${exp.id}-${exp.options.id}`;
-    exp.options.choices.forEach(choice => {
-      const row = el('label', {
-        display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0',
-        color: '#ddd', fontSize: '11px', cursor: 'pointer',
-      });
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = groupName;
-      radio.value = choice.value;
-      radio.checked = getExperimentOption(exp.id, exp.options.id) === choice.value;
-      radio.style.accentColor = getSelectionColor();
-      radio.addEventListener('change', () => {
-        if (radio.checked) setExperimentOption(exp.id, exp.options.id, choice.value);
-      });
-      row.appendChild(radio);
-      row.appendChild(el('span', {}, choice.label));
-      block.appendChild(row);
-    });
-    return block;
-  }
-
-  // --- Tab: General ---
-  function buildGeneralTab(container) {
-    // // Color swatches (disabled — buggy)
-    // container.appendChild(el('div', {
-    //   fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
-    //   letterSpacing: '1px', color: '#888', marginBottom: '10px',
-    // }, 'Selection color'));
-    // container.appendChild(buildColorSwatches());
-
-    // General experiments
-    container.appendChild(el('div', {
-      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
-      letterSpacing: '1px', color: '#888', marginBottom: '12px',
-    }, 'Behavior'));
-
-    EXPERIMENT_DEFS.filter(e => e.category === 'general').forEach(exp => {
-      container.appendChild(buildExperimentRow(exp));
-    });
-  }
-
-  // --- Tab: Tools ---
-  function buildToolsTab(container) {
-    container.appendChild(el('div', {
-      fontSize: '11px', color: '#666', marginBottom: '16px',
-    }, 'Additional tools that add new capabilities to the toolbar.'));
-
-    EXPERIMENT_DEFS.filter(e => e.category === 'tools').forEach(exp => {
-      container.appendChild(buildExperimentRow(exp));
-    });
-  }
-
-  // --- Tab: Plugins ---
-  function buildPluginsTab(container) {
-    container.appendChild(el('div', {
-      fontSize: '11px', color: '#666', marginBottom: '16px',
-    }, 'External plugins loaded alongside DOM-Tools. Enable to show their toolbar button.'));
-
-    EXPERIMENT_DEFS.filter(e => e.category === 'plugins').forEach(exp => {
-      container.appendChild(buildExperimentRow(exp));
-    });
-  }
-
-  // --- Tab: About ---
-  function buildAboutTab(container) {
-    // Version + build date
-    const version = el('div', { marginBottom: '20px' });
-    version.appendChild(el('div', { fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }, 'DOM-Tools'));
-    const buildDate = "2026-05-26T14:51:02.130Z" ;
-    const dateLabel = new Date(buildDate).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) ;
-    version.appendChild(el('div', { fontSize: '11px', color: '#888' }, `Release: ${dateLabel}`));
-    container.appendChild(version);
-
-    // Shortcuts
-    container.appendChild(el('div', {
-      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
-      letterSpacing: '1px', color: '#888', marginBottom: '12px',
-      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
-    }, 'Keyboard shortcuts'));
-
-    const shortcuts = [
-      ['Cmd+Shift+K / Ctrl+Shift+K', 'Toggle inspector'],
-      ['Esc Esc (double-tap)', 'Re-focus cursor tool'],
-      ['Cmd+Shift+S / Ctrl+Shift+S', 'Full page screenshot'],
-      ['Esc', 'Exit current popover or tool'],
-      ['A', 'Toggle annotate/draw mode'],
-      ['Shift+Esc', 'Clear all changes'],
-    ];
-    shortcuts.forEach(([key, desc]) => {
-      const row = el('div', { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px' });
-      row.appendChild(el('span', { color: '#bbb', fontFamily: 'monospace', fontSize: '10px' }, key));
-      row.appendChild(el('span', { color: '#888' }, desc));
-      container.appendChild(row);
-    });
-
-    // Links
-    container.appendChild(el('div', {
-      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
-      letterSpacing: '1px', color: '#888', marginTop: '20px', marginBottom: '12px',
-      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
-    }, 'Links'));
-
-    const ghLink = document.createElement('a');
-    ghLink.href = 'https://github.com/luismqueral/dom-tools';
-    ghLink.target = '_blank';
-    ghLink.rel = 'noopener';
-    ghLink.textContent = 'GitHub';
-    Object.assign(ghLink.style, {
-      display: 'block', fontSize: '12px', color: getSelectionColor(),
-      textDecoration: 'none', padding: '4px 0',
-    });
-    ghLink.addEventListener('mouseenter', () => { ghLink.style.textDecoration = 'underline'; });
-    ghLink.addEventListener('mouseleave', () => { ghLink.style.textDecoration = 'none'; });
-    container.appendChild(ghLink);
-
-    // Reset
-    container.appendChild(el('div', {
-      fontSize: '11px', fontWeight: '600', textTransform: 'uppercase',
-      letterSpacing: '1px', color: '#888', marginTop: '20px', marginBottom: '12px',
-      paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)',
-    }, 'Data'));
-
-    const resetBtn = el('button', {
-      padding: '8px 16px', fontSize: '11px', fontWeight: '600',
-      background: 'rgba(239,68,68,0.15)', color: '#ef4444',
-      border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px',
-      cursor: 'pointer', fontFamily: 'inherit',
-    }, 'Reset all settings');
-    resetBtn.addEventListener('click', () => {
-      if (confirm('Reset all DOM-Tools settings to defaults?')) {
-        localStorage.removeItem(EXP_KEY);
-        localStorage.removeItem('dom-tools-selection-color');
-        localStorage.removeItem('dom-tools-features');
-        experiments = {};
-        location.reload();
-      }
-    });
-    resetBtn.addEventListener('mouseenter', () => { resetBtn.style.background = 'rgba(239,68,68,0.25)'; });
-    resetBtn.addEventListener('mouseleave', () => { resetBtn.style.background = 'rgba(239,68,68,0.15)'; });
-    container.appendChild(resetBtn);
-  }
-
-  // --- Tabbed panel ---
-  const TABS = [
-    { id: 'general', label: 'General', build: buildGeneralTab },
-    { id: 'tools', label: 'Tools', build: buildToolsTab },
-    { id: 'plugins', label: 'Plugins', build: buildPluginsTab },
-    { id: 'about', label: 'About', build: buildAboutTab },
-  ];
-
-  function buildSettingsPanel() {
-    const outer = el('div');
-    let activeTab = 'general';
-
-    // Tab bar
-    const tabBar = el('div', {
-      display: 'flex', gap: '4px', marginBottom: '20px',
-      paddingBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.06)',
-    });
-
-    // Tab content area
-    const contentArea = el('div', { minHeight: '200px' });
-
-    const tabBtns = {};
-
-    function switchTab(id) {
-      activeTab = id;
-      // Update button styles
-      Object.entries(tabBtns).forEach(([key, btn]) => {
-        if (key === id) {
-          btn.style.background = getSelectionColor();
-          btn.style.color = '#fff';
-        } else {
-          btn.style.background = 'transparent';
-          btn.style.color = '#888';
-        }
-      });
-      // Rebuild content
-      contentArea.innerHTML = '';
-      _refreshHint = null;
-      const tab = TABS.find(t => t.id === id);
-      if (tab) tab.build(contentArea);
-    }
-
-    TABS.forEach(tab => {
-      const btn = el('button', {
-        padding: '5px 12px', fontSize: '10px', fontWeight: '600',
-        textTransform: 'uppercase', letterSpacing: '0.5px',
-        border: 'none', borderRadius: '4px', cursor: 'pointer',
-        fontFamily: 'inherit', transition: 'background 0.15s, color 0.15s',
-        background: tab.id === activeTab ? getSelectionColor() : 'transparent',
-        color: tab.id === activeTab ? '#fff' : '#888',
-      });
-      btn.textContent = tab.label;
-      btn.addEventListener('click', () => switchTab(tab.id));
-      btn.addEventListener('mouseenter', () => {
-        if (tab.id !== activeTab) btn.style.color = '#ccc';
-      });
-      btn.addEventListener('mouseleave', () => {
-        if (tab.id !== activeTab) btn.style.color = '#888';
-      });
-      tabBtns[tab.id] = btn;
-      tabBar.appendChild(btn);
-    });
-
-    outer.appendChild(tabBar);
-    outer.appendChild(contentArea);
-
-    // Initial render
-    switchTab(activeTab);
-
-    return outer;
-  }
-
-  // --- Popover (modal) ---
-  function onPopoverKeyDown(e) {
-    if (e.key === 'Escape') closeSettings();
-  }
-
-  function showPopover() {
-    _popover = document.createElement('div');
-    _popover.setAttribute('data-dt-settings', '');
-    Object.assign(_popover.style, {
-      position: 'fixed', inset: '0',
-      zIndex: String(Z.toolbar + 1),
-      background: 'rgba(0,0,0,0.55)',
-      backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-      fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#eee',
-      boxSizing: 'border-box', padding: '80px 40px 40px',
-    });
-
-    const card = el('div', {
-      width: 'min(560px, 100%)',
-      maxHeight: '100%',
-      background: 'rgba(24,24,24,0.96)',
-      border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: '12px',
-      boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
-      padding: '28px 32px',
-      boxSizing: 'border-box',
-      overflow: 'auto',
-      position: 'relative',
-    });
-
-    // Header
-    const header = el('div', {
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      marginBottom: '18px',
-    });
-    header.appendChild(el('div', {
-      fontSize: '18px', fontWeight: '600', color: '#fff', letterSpacing: '0.3px',
-    }, 'Settings'));
-
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.innerHTML = '&times;';
-    closeBtn.setAttribute('aria-label', 'Close settings');
-    Object.assign(closeBtn.style, {
-      width: '32px', height: '32px', background: 'transparent',
-      border: 'none', color: '#aaa', fontSize: '24px', lineHeight: '1',
-      cursor: 'pointer', borderRadius: '6px', padding: '0',
-    });
-    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(255,255,255,0.08)'; closeBtn.style.color = '#fff'; });
-    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'transparent'; closeBtn.style.color = '#aaa'; });
-    closeBtn.addEventListener('click', () => closeSettings());
-    header.appendChild(closeBtn);
-
-    card.appendChild(header);
-    card.appendChild(buildSettingsPanel());
-    _popover.appendChild(card);
-
-    _popover.addEventListener('click', (e) => {
-      if (e.target === _popover) closeSettings();
-    });
-
-    document.body.appendChild(_popover);
-    inspectorUI.add(_popover);
-    document.addEventListener('keydown', onPopoverKeyDown, true);
-  }
-
-  function hidePopover() {
-    if (_popover) {
-      inspectorUI.delete(_popover);
-      _popover.remove();
-      _popover = null;
-      _refreshHint = null;
-      document.removeEventListener('keydown', onPopoverKeyDown, true);
-    }
-  }
-
-  function toggleSettings() {
-    visible = !visible;
-    if (visible) {
-      activateModule(null);
-      setActiveButton(null);
-      showPopover();
-      if (_settingsBtn) _settingsBtn.style.background = getSelectionColor();
-    } else {
-      hidePopover();
-      if (_settingsBtn) _settingsBtn.style.background = '#222';
-      activateModule('style-modifier');
-      setActiveButton('style-modifier');
-    }
-  }
-
-  function closeSettings() {
-    if (visible) {
-      visible = false;
-      hidePopover();
-      if (_settingsBtn) _settingsBtn.style.background = '#222';
-      activateModule('style-modifier');
-      setActiveButton('style-modifier');
-    }
-  }
-
-  function initSettings() {
-    onToolActivate(closeSettings);
-
-    const btnStyle = {
-      width: '40px', height: '40px', background: '#222', color: '#fff',
-      borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', userSelect: 'none',
-      flexShrink: '0'
-    };
-    _settingsBtn = document.createElement('div');
-    _settingsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.44.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 110-7.2 3.6 3.6 0 010 7.2z"/></svg>';
-    Object.assign(_settingsBtn.style, btnStyle);
-    _settingsBtn.addEventListener('mouseenter', () => { if (!visible) _settingsBtn.style.background = '#333'; });
-    _settingsBtn.addEventListener('mouseleave', () => { if (!visible) _settingsBtn.style.background = '#222'; });
-    _settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); nudge(_settingsBtn); toggleSettings(); });
-    addTooltip(_settingsBtn, 'Settings');
-
-    toolbar.appendChild(_settingsBtn);
-    inspectorUI.add(_settingsBtn);
-
-    onColorChange((color) => {
-      if (visible && _settingsBtn) _settingsBtn.style.background = color;
-    });
-  }
-
-  /**
    * Pixelfraktur — small woff2 inlined as base64 so the bundle ships
    * with the font and works regardless of where dom-tools is hosted
    * (no relative path / CDN concerns). Used for the multi-select tag
@@ -1745,7 +2081,7 @@
     html.dt-comment-active body *:not(${inspectorUiSelector}) {
       user-select: none !important;
       -webkit-user-select: none !important;
-      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'%3E%3Cdefs%3E%3Cfilter id='s' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeDropShadow dx='0' dy='1' stdDeviation='0.5' flood-opacity='0.3'/%3E%3C/filter%3E%3C/defs%3E%3Cg transform='translate(24,0) scale(-1,1)' filter='url(%23s)'%3E%3Cpath d='M3.41345 10.7445C2.81811 10.513 2.52043 10.3972 2.43353 10.2304C2.35819 10.0858 2.35809 9.91354 2.43326 9.76886C2.51997 9.60195 2.8175 9.48584 3.41258 9.25361L20.3003 2.66327C20.8375 2.45364 21.1061 2.34883 21.2777 2.40616C21.4268 2.45596 21.5437 2.57292 21.5935 2.72197C21.6509 2.8936 21.5461 3.16219 21.3364 3.69937L14.7461 20.5871C14.5139 21.1822 14.3977 21.4797 14.2308 21.5664C14.0862 21.6416 13.9139 21.6415 13.7693 21.5662C13.6025 21.4793 13.4867 21.1816 13.2552 20.5862L10.6271 13.8282C10.5801 13.7074 10.5566 13.647 10.5203 13.5961C10.4881 13.551 10.4487 13.5115 10.4036 13.4794C10.3527 13.4431 10.2923 13.4196 10.1715 13.3726L3.41345 10.7445Z' fill='%23000' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E") 19 1, default !important;
+      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'%3E%3Cdefs%3E%3Cfilter id='s' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeDropShadow dx='0' dy='1' stdDeviation='0.5' flood-opacity='0.3'/%3E%3C/filter%3E%3C/defs%3E%3Cg transform='translate(24,0) scale(-1,1)' filter='url(%23s)'%3E%3Cpath d='M3.41345 10.7445C2.81811 10.513 2.52043 10.3972 2.43353 10.2304C2.35819 10.0858 2.35809 9.91354 2.43326 9.76886C2.51997 9.60195 2.8175 9.48584 3.41258 9.25361L20.3003 2.66327C20.8375 2.45364 21.1061 2.34883 21.2777 2.40616C21.4268 2.45596 21.5437 2.57292 21.5935 2.72197C21.6509 2.8936 21.5461 3.16219 21.3364 3.69937L14.7461 20.5871C14.5139 21.1822 14.3977 21.4797 14.2308 21.5664C14.0862 21.6416 13.9139 21.6415 13.7693 21.5662C13.6025 21.4793 13.4867 21.1816 13.2552 20.5862L10.6271 13.8282C10.5801 13.7074 10.5566 13.647 10.5203 13.5961C10.4881 13.551 10.4487 13.5115 10.4036 13.4794C10.3527 13.4431 10.2923 13.4196 10.1715 13.3726L3.41345 10.7445Z' fill='%23000' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E") 3 1, default !important;
     }
     @supports (-webkit-appearance: none) and (not (-moz-appearance: none)) {
       @supports (-webkit-hyphens: none) {
@@ -3587,11 +3923,6 @@
     return '## DOM Changes\n\n' + sections.join('\n\n');
   }
 
-  // Render the full page changes as a Markdown document.
-  function buildAllChanges() {
-    return renderDocument(buildSections());
-  }
-
   // Render just the changes that involve `el` (its own annotations + any
   // group note it belongs to). Returns null when nothing tracked
   // involves `el`.
@@ -3601,14 +3932,26 @@
 
   // --- Copy-all entry points -----------------------------------------------
 
+  // Copy puts the full-page screenshot (draw marks baked in, ~2x) on the
+  // clipboard as image/png. The ClipboardItem is built synchronously with a
+  // pending capture promise so navigator.clipboard.write() runs inside the
+  // click's user-activation window — otherwise the async html2canvas render
+  // outlives the gesture and the write is rejected.
   async function copyAllChanges() {
-    const output = buildAllChanges();
-    if (!output) {
-      showToast('No changes to copy');
-      return;
+    showToast('Capturing…');
+    try {
+      const item = new ClipboardItem({
+        'image/png': captureFullPagePNGBlob(2).then(png => {
+          if (!png) throw new Error('capture returned no blob');
+          return png;
+        }),
+      });
+      await navigator.clipboard.write([item]);
+      showToast('Copied screenshot');
+    } catch (e) {
+      console.warn('[copy] screenshot clipboard write failed:', e);
+      showToast('Screenshot copy failed — see console');
     }
-    const ok = await copyText(output);
-    showToast(ok ? 'All changes copied' : 'Could not copy changes');
   }
 
   function initCopyAll() {
@@ -4140,320 +4483,6 @@
     updateBadgeCount,
     Z,
     COLORS,
-  };
-
-  let selBox = null;
-  function playShutter() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const t = ctx.currentTime;
-
-      // Click 1 — shutter open (short burst of noise)
-      const buf1 = ctx.createBuffer(1, ctx.sampleRate * 0.02, ctx.sampleRate);
-      const data1 = buf1.getChannelData(0);
-      for (let i = 0; i < data1.length; i++) data1[i] = (Math.random() * 2 - 1) * (1 - i / data1.length);
-      const click1 = ctx.createBufferSource();
-      click1.buffer = buf1;
-      const g1 = ctx.createGain();
-      g1.gain.setValueAtTime(0.3, t);
-      g1.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
-      click1.connect(g1);
-      g1.connect(ctx.destination);
-      click1.start(t);
-
-      // Click 2 — shutter close (slightly delayed, lower)
-      const buf2 = ctx.createBuffer(1, ctx.sampleRate * 0.015, ctx.sampleRate);
-      const data2 = buf2.getChannelData(0);
-      for (let i = 0; i < data2.length; i++) data2[i] = (Math.random() * 2 - 1) * (1 - i / data2.length);
-      const click2 = ctx.createBufferSource();
-      click2.buffer = buf2;
-      const g2 = ctx.createGain();
-      g2.gain.setValueAtTime(0.2, t + 0.06);
-      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-      click2.connect(g2);
-      g2.connect(ctx.destination);
-      click2.start(t + 0.06);
-    } catch (e) {}
-  }
-
-  let camDragging = false, camStartX = 0, camStartY = 0, camDidDrag = false;
-
-  async function loadH2C() {
-    if (!window.html2canvas) {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-      document.head.appendChild(s);
-      await new Promise(r => s.onload = r);
-    }
-  }
-
-  async function saveCapture(canvas, el, filename) {
-    playShutter();
-    flashElement$1(el || document.documentElement);
-
-    // Get blob first — toDataURL fails on large canvases
-    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-    if (!blob) { showToast('Capture failed — canvas too large'); return; }
-
-    // Try clipboard (requires secure context + user gesture may have expired)
-    try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      showToast('Copied to clipboard');
-      return;
-    } catch (_) {}
-
-    // Fallback: download via object URL
-    try {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.download = filename || 'screenshot.png';
-      link.href = url;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      showToast('Downloaded screenshot');
-    } catch (_) {
-      showToast('Capture failed');
-    }
-  }
-
-  async function captureElement(el) {
-    await loadH2C();
-    const oo = el.style.outline, ob = el.style.backgroundColor;
-    el.style.outline = el._origOutline || '';
-    el.style.backgroundColor = el._origBg || '';
-    showToast('Capturing...');
-    try {
-      const canvas = await html2canvas(el, { backgroundColor: null, scale: getIdealScale(), logging: false });
-      await saveCapture(canvas, el);
-    } catch (e) { showToast('Capture failed'); }
-    el.style.outline = oo;
-    el.style.backgroundColor = ob;
-  }
-
-  async function captureRegion(x, y, w, h) {
-    await loadH2C();
-    showToast('Capturing...');
-    try {
-      const pageW = document.documentElement.scrollWidth;
-      const pageH = document.documentElement.scrollHeight;
-      const scale = safeScale(pageW, pageH);
-      const full = await html2canvas(document.documentElement, {
-        backgroundColor: '#fff', scale, logging: false,
-        scrollX: 0, scrollY: 0,
-        windowWidth: pageW,
-        windowHeight: pageH
-      });
-      const sx = (x + window.scrollX) * scale;
-      const sy = (y + window.scrollY) * scale;
-      const sw = w * scale;
-      const sh = h * scale;
-      const crop = document.createElement('canvas');
-      crop.width = sw; crop.height = sh;
-      crop.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh);
-      await saveCapture(crop);
-    } catch (e) { showToast('Capture failed'); }
-  }
-
-  // Browsers cap canvas dimensions (16384px in Chrome/Safari, 32767 in Firefox).
-  // Use 16384 as the safe cross-browser limit.
-  const MAX_CANVAS_DIM = 16384;
-
-  function getIdealScale() {
-    const setting = getExperimentOption('camera', 'resolution') || '3';
-    if (setting === 'auto') return window.devicePixelRatio || 2;
-    return Number(setting);
-  }
-
-  function safeScale(width, height) {
-    const ideal = getIdealScale();
-    const maxByWidth = MAX_CANVAS_DIM / width;
-    const maxByHeight = MAX_CANVAS_DIM / height;
-    return Math.min(ideal, maxByWidth, maxByHeight);
-  }
-
-  async function captureFullPage() {
-    const w = document.documentElement.scrollWidth;
-    const h = document.documentElement.scrollHeight;
-    const scale = getIdealScale();
-
-    // Delegate to HD Capture plugin if page exceeds single-canvas limits
-    console.log(`[camera] captureFullPage: ${w}x${h} @ ${scale}x, hdCapture=${!!window.DomTools?._hdCapture}, needed=${window.DomTools?._hdCaptureNeeded?.(w, h, scale)}`);
-    if (window.DomTools && window.DomTools._hdCapture && window.DomTools._hdCaptureNeeded &&
-        window.DomTools._hdCaptureNeeded(w, h, scale)) {
-      showToast('HD capture...');
-      try {
-        await window.DomTools._hdCapture(w, h, scale);
-      } catch (e) { showToast('HD capture failed'); }
-      return;
-    }
-
-    // Standard single-canvas path (with safe scale)
-    await loadH2C();
-    showToast('Capturing full page...');
-    try {
-      const cappedScale = safeScale(w, h);
-      const canvas = await html2canvas(document.documentElement, {
-        backgroundColor: '#fff', scale: cappedScale, logging: false,
-        scrollX: 0, scrollY: 0,
-        windowWidth: w,
-        windowHeight: h,
-        width: w,
-        height: h,
-        ignoreElements: (el) => inspectorUI.has(el)
-      });
-      await saveCapture(canvas, null, 'full-page-screenshot.png');
-    } catch (e) { showToast('Full page capture failed'); }
-  }
-
-  var camera = {
-    id: 'camera',
-    label: 'Screenshots',
-    enabledByDefault: true,
-
-    button: {
-      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M2 8.37722C2 8.0269 2 7.85174 2.01462 7.70421C2.1556 6.28127 3.28127 5.1556 4.70421 5.01462C4.85174 5 5.03636 5 5.40558 5C5.54785 5 5.61899 5 5.67939 4.99634C6.45061 4.94963 7.12595 4.46288 7.41414 3.746C7.43671 3.68986 7.45781 3.62657 7.5 3.5C7.54219 3.37343 7.56329 3.31014 7.58586 3.254C7.87405 2.53712 8.54939 2.05037 9.32061 2.00366C9.38101 2 9.44772 2 9.58114 2H14.4189C14.5523 2 14.619 2 14.6794 2.00366C15.4506 2.05037 16.126 2.53712 16.4141 3.254C16.4367 3.31014 16.4578 3.37343 16.5 3.5C16.5422 3.62657 16.5633 3.68986 16.5859 3.746C16.874 4.46288 17.5494 4.94963 18.3206 4.99634C18.381 5 18.4521 5 18.5944 5C18.9636 5 19.1483 5 19.2958 5.01462C20.7187 5.1556 21.8444 6.28127 21.9854 7.70421C22 7.85174 22 8.0269 22 8.37722V16.2C22 17.8802 22 18.7202 21.673 19.362C21.3854 19.9265 20.9265 20.3854 20.362 20.673C19.7202 21 18.8802 21 17.2 21H6.8C5.11984 21 4.27976 21 3.63803 20.673C3.07354 20.3854 2.6146 19.9265 2.32698 19.362C2 18.7202 2 17.8802 2 16.2V8.37722Z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 16.5C14.2091 16.5 16 14.7091 16 12.5C16 10.2909 14.2091 8.5 12 8.5C9.79086 8.5 8 10.2909 8 12.5C8 14.7091 9.79086 16.5 12 16.5Z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-      tooltip: 'Screenshot',
-      color: COLORS.camera,
-      order: 30,
-    },
-
-
-    shortcuts: [
-      { key: 'S', meta: true, shift: true, action: 'captureFullPage' }
-    ],
-
-    init() {
-      selBox = document.createElement('div');
-      Object.assign(selBox.style, {
-        position: 'fixed', border: '2px dashed ' + COLORS.camera, background: 'rgba(204, 51, 0, 0.08)',
-        zIndex: String(Z.tooltip), pointerEvents: 'none', display: 'none', borderRadius: '2px'
-      });
-      document.body.appendChild(selBox);
-      inspectorUI.add(selBox);
-
-
-      // Camera mousedown — shift+click = full page, otherwise start drag
-      document.addEventListener('mousedown', (e) => {
-        if (!state.cameraMode || isInspectorUI(e.target)) return;
-        e.preventDefault();
-        if (e.shiftKey) {
-          captureFullPage();
-          return;
-        }
-        camDragging = true;
-        camDidDrag = false;
-        camStartX = e.clientX;
-        camStartY = e.clientY;
-      }, true);
-
-      // Full-page highlight when shift held in camera mode
-      let fullPageHighlight = false;
-      function showFullPageHighlight() {
-        if (fullPageHighlight) return;
-        fullPageHighlight = true;
-        clearHover$2();
-        document.documentElement.style.outline = CAM_OUTLINE;
-        document.documentElement.style.backgroundColor = CAM_BG;
-      }
-      function hideFullPageHighlight() {
-        if (!fullPageHighlight) return;
-        fullPageHighlight = false;
-        document.documentElement.style.outline = '';
-        document.documentElement.style.backgroundColor = '';
-      }
-
-      document.addEventListener('keydown', (e) => {
-        if (state.cameraMode && e.key === 'Shift') showFullPageHighlight();
-      });
-      document.addEventListener('keyup', (e) => {
-        if (e.key === 'Shift') hideFullPageHighlight();
-      });
-
-      // Camera mousemove — drag or hover
-      document.addEventListener('mousemove', (e) => {
-        if (!state.cameraMode) return;
-        if (e.shiftKey) { showFullPageHighlight(); return; }
-        else { hideFullPageHighlight(); }
-        if (camDragging) {
-          const dx = Math.abs(e.clientX - camStartX);
-          const dy = Math.abs(e.clientY - camStartY);
-          if (dx > 4 || dy > 4) {
-            camDidDrag = true;
-            clearHover$2();
-            const x = Math.min(e.clientX, camStartX);
-            const y = Math.min(e.clientY, camStartY);
-            Object.assign(selBox.style, {
-              display: 'block', left: x + 'px', top: y + 'px', width: dx + 'px', height: dy + 'px'
-            });
-          }
-          return;
-        }
-        // Not dragging — show red hover
-        const el = e.target;
-        if (isInspectorUI(el) || el === document.body || el === document.documentElement) return;
-        if (state.hovered && state.hovered !== el) {
-          state.hovered.style.outline = state.hovered._origOutline || '';
-          state.hovered.style.backgroundColor = state.hovered._origBg || '';
-        }
-        if (el !== state.hovered) {
-          el._origOutline = el._origOutline ?? el.style.outline;
-          el._origBg = el._origBg ?? el.style.backgroundColor;
-        }
-        el.style.outline = CAM_OUTLINE;
-        el.style.backgroundColor = CAM_BG;
-        state.hovered = el;
-      }, true);
-
-      // Camera mouseup — capture
-      document.addEventListener('mouseup', (e) => {
-        if (!state.cameraMode || !camDragging) return;
-        camDragging = false;
-        if (camDidDrag) {
-          const x = Math.min(e.clientX, camStartX);
-          const y = Math.min(e.clientY, camStartY);
-          const w = Math.abs(e.clientX - camStartX);
-          const h = Math.abs(e.clientY - camStartY);
-          selBox.style.display = 'none';
-          if (w > 4 && h > 4) captureRegion(x, y, w, h);
-        } else {
-          const el = e.target;
-          if (!isInspectorUI(el) && el !== document.body && el !== document.documentElement) {
-            nudge(el);
-            captureElement(el);
-          }
-        }
-        camDidDrag = false;
-      }, true);
-    },
-
-    activate() {
-      state.cameraMode = true;
-      state.active = true;
-      document.body.style.cursor = 'crosshair';
-      showToast('Camera ON — Click element, drag area, or [Cmd+Shift+S]. [Esc] to exit');
-    },
-
-    deactivate() {
-      state.cameraMode = false;
-      camDragging = false;
-      if (selBox) selBox.style.display = 'none';
-      // Clear any hovered element highlight from camera mode
-      if (state.hovered) {
-        state.hovered.style.outline = state.hovered._origOutline || '';
-        state.hovered.style.backgroundColor = state.hovered._origBg || '';
-        state.hovered = null;
-      }
-      // Clear full-page highlight if shift was held
-      document.documentElement.style.outline = '';
-      document.documentElement.style.backgroundColor = '';
-      // Restore body cursor (set to crosshair in activate).
-      document.body.style.cursor = '';
-    },
-
-    captureFullPage,
-
-    enable() {},
-    disable() { this.deactivate(); },
   };
 
   // Pencil cursor — same icon as the toolbar button, white fill, 20x20 with hotspot at bottom-left tip
