@@ -1,0 +1,16 @@
+{
+  "name": "dom-tools",
+  "version": "1.0.0",
+  "description": "Integrate DOM-Tools into web projects for in-browser design annotation and structured UI feedback.",
+  "author": {
+    "name": "Luis Queral"
+  },
+  "repository": "https://github.com/luismqueral/dom-tools",
+  "keywords": [
+    "dom-tools",
+    "design",
+    "annotation",
+    "frontend",
+    "visual-qa"
+  ]
+}
